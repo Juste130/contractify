@@ -2,24 +2,6 @@
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 
-// Types pour les requêtes Ethereum
-type EthereumMethod = 
-  | "eth_accounts" 
-  | "eth_chainId" 
-  | "eth_requestAccounts" 
-  | "eth_getBalance"
-
-interface EthereumRequestParams {
-  method: EthereumMethod;
-  params?: string[];
-}
-
-interface EthereumProvider {
-  request: (args: EthereumRequestParams) => Promise<unknown>;
-  on: (event: string, callback: (...args: unknown[]) => void) => void;
-  removeListener: (event: string, callback: (...args: unknown[]) => void) => void;
-}
-
 // Types pour le contexte
 interface Web3ContextType {
   account: string | null;
@@ -31,14 +13,10 @@ interface Web3ContextType {
   balance: string | null;
 }
 
-// Extension de l'interface Window
-declare global {
-  interface Window {
-    ethereum?: EthereumProvider;
-  }
-}
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined)
+
+const MOCK_MODE = process.env.NEXT_PUBLIC_MOCK_BLOCKCHAIN === 'true';
 
 export function Web3Provider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<string | null>(null)
@@ -48,16 +26,14 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
   const isConnected: boolean = !!account
 
-  // Types pour les gestionnaires d'événements
   const handleAccountsChanged = (accounts: unknown): void => {
-    if (Array.isArray(accounts) && accounts.every(acc => typeof acc === 'string')) {
-      const stringAccounts = accounts as string[]
-      if (stringAccounts.length === 0) {
+    if (Array.isArray(accounts)) {
+      if (accounts.length === 0) {
         disconnect()
       } else {
-        setAccount(stringAccounts[0])
-        if (stringAccounts[0]) {
-          fetchBalance(stringAccounts[0])
+        setAccount(accounts[0])
+        if (accounts[0]) {
+          fetchBalance(accounts[0])
         }
       }
     }
@@ -67,15 +43,24 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     window.location.reload()
   }
 
-  // Fonctions avec types stricts
   const checkConnection = async (): Promise<void> => {
+    if (MOCK_MODE) {
+      const savedAccount = localStorage.getItem('mock_account')
+      if (savedAccount) {
+        setAccount(savedAccount)
+        setChainId(80001)
+        setBalance('10.5')
+      }
+      return
+    }
+
     if (typeof window !== "undefined" && window.ethereum) {
       try {
-        const accounts = await window.ethereum.request({ 
-          method: "eth_accounts" 
+        const accounts = await window.ethereum.request({
+          method: "eth_accounts"
         }) as string[]
-        
-        if (accounts.length > 0 && typeof accounts[0] === 'string') {
+
+        if (accounts.length > 0) {
           setAccount(accounts[0])
           await fetchChainId()
           await fetchBalance(accounts[0])
@@ -87,12 +72,17 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   }
 
   const fetchChainId = async (): Promise<void> => {
+    if (MOCK_MODE) {
+      setChainId(80001)
+      return
+    }
+
     if (typeof window !== "undefined" && window.ethereum) {
       try {
-        const chainIdHex = await window.ethereum.request({ 
-          method: "eth_chainId" 
+        const chainIdHex = await window.ethereum.request({
+          method: "eth_chainId"
         }) as string
-        
+
         if (typeof chainIdHex === 'string') {
           setChainId(Number.parseInt(chainIdHex, 16))
         }
@@ -103,16 +93,21 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   }
 
   const fetchBalance = async (address: string): Promise<void> => {
+    if (MOCK_MODE) {
+      setBalance('10.5')
+      return
+    }
+
     if (typeof window !== "undefined" && window.ethereum) {
       try {
         const balanceHex = await window.ethereum.request({
           method: "eth_getBalance",
           params: [address, "latest"],
         }) as string
-        
+
         if (typeof balanceHex === 'string') {
-          const balanceWei = Number.parseInt(balanceHex, 16)
-          const balanceEth = (balanceWei / 1e18).toFixed(4)
+          const balanceWei = BigInt(balanceHex);
+          const balanceEth = (Number(balanceWei) / 1e18).toFixed(4)
           setBalance(balanceEth)
         }
       } catch (error) {
@@ -122,6 +117,19 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   }
 
   const connect = async (): Promise<void> => {
+    if (MOCK_MODE) {
+      setIsConnecting(true)
+      setTimeout(() => {
+        const mockAcc = '0x' + Math.random().toString(16).slice(2, 42).padStart(40, '0')
+        setAccount(mockAcc)
+        setChainId(80001)
+        setBalance('10.5')
+        localStorage.setItem('mock_account', mockAcc)
+        setIsConnecting(false)
+      }, 1000)
+      return
+    }
+
     if (typeof window === "undefined" || !window.ethereum) {
       alert("MetaMask is not installed. Please install MetaMask to use this feature.")
       return
@@ -132,8 +140,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       const accounts = await window.ethereum.request({
         method: "eth_requestAccounts",
       }) as string[]
-      
-      if (accounts.length > 0 && typeof accounts[0] === 'string') {
+
+      if (accounts.length > 0) {
         setAccount(accounts[0])
         await fetchChainId()
         await fetchBalance(accounts[0])
@@ -150,13 +158,15 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     setAccount(null)
     setChainId(null)
     setBalance(null)
+    if (MOCK_MODE) {
+      localStorage.removeItem('mock_account')
+    }
   }
 
   useEffect(() => {
     checkConnection()
 
-    // Écouter les changements de compte et de réseau
-    if (typeof window !== "undefined" && window.ethereum) {
+    if (typeof window !== "undefined" && window.ethereum && !MOCK_MODE) {
       window.ethereum.on("accountsChanged", handleAccountsChanged)
       window.ethereum.on("chainChanged", handleChainChanged)
 

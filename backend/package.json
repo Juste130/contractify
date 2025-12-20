@@ -1,0 +1,67 @@
+{
+    "name": "contractify-backend",
+    "version": "1.0.0",
+    "description": "Backend API for Contractify - Hybrid blockchain contract management platform",
+    "main": "server.js",
+    "scripts": {
+        "dev": "nodemon server.js",
+        "start": "node server.js",
+        "prisma:generate": "prisma generate",
+        "prisma:migrate": "prisma migrate dev",
+        "prisma:studio": "prisma studio",
+        "test": "jest",
+        "lint": "eslint **/*.js"
+    },
+    "keywords": [
+        "blockchain",
+        "contracts",
+        "ethereum",
+        "ai",
+        "ipfs"
+    ],
+    "author": "Sènami Juste HOUEZO",
+    "license": "MIT",
+    "dependencies": {
+        "@prisma/client": "^5.22.0",
+        "bcrypt": "^5.1.1",
+        "cookie-parser": "^1.4.7",
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.7",
+        "ethers": "^6.13.4",
+        "express": "^4.21.2",
+        "express-rate-limit": "^7.5.0",
+        "express-validator": "^7.2.1",
+        "helmet": "^8.0.0",
+        "ioredis": "^5.4.2",
+        "jsonwebtoken": "^9.0.2",
+        "morgan": "^1.10.0",
+        "multer": "^1.4.5-lts.1",
+        "nodemailer": "^6.9.16",
+        "openai": "^4.77.3",
+        "passport": "^0.7.0",
+        "passport-google-oauth20": "^2.0.0",
+        "passport-jwt": "^4.0.1",
+        "pinata-web3": "^0.5.0",
+        "winston": "^3.17.0"
+    },
+    "devDependencies": {
+        "@types/bcrypt": "^5.0.2",
+        "@types/cors": "^2.8.17",
+        "@types/express": "^5.0.0",
+        "@types/jsonwebtoken": "^9.0.7",
+        "@types/morgan": "^1.9.9",
+        "@types/multer": "^1.4.12",
+        "@types/node": "^22.10.2",
+        "@types/nodemailer": "^6.4.17",
+        "@types/passport": "^1.0.17",
+        "@types/passport-google-oauth20": "^2.0.16",
+        "@types/passport-jwt": "^4.0.1",
+        "eslint": "^9.17.0",
+        "nodemon": "^3.1.9",
+        "prisma": "^5.22.0"
+    },
+    "engines": {
+        "node": ">=20.0.0",
+        "npm": ">=10.0.0"
+    }
+}

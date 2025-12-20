@@ -1,0 +1,99 @@
+const dotenv = require('dotenv');
+
+dotenv.config();
+
+const config = {
+    // Server
+    nodeEnv: process.env.NODE_ENV || 'development',
+    port: parseInt(process.env.PORT || '3001', 10),
+    apiBaseUrl: process.env.API_BASE_URL || 'http://localhost:3001',
+    frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+
+    // Database
+    databaseUrl: process.env.DATABASE_URL,
+
+    // Redis
+    redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
+
+    // Encryption
+    masterEncryptionKey: process.env.MASTER_ENCRYPTION_KEY,
+
+    // Blockchain
+    polygonRpcUrl: process.env.POLYGON_RPC_URL,
+    polygonTestnetRpcUrl: process.env.POLYGON_TESTNET_RPC_URL,
+    contractManagerAddress: process.env.CONTRACT_MANAGER_ADDRESS,
+    contractNftAddress: process.env.CONTRACT_NFT_ADDRESS,
+    adminWalletAddress: process.env.ADMIN_WALLET_ADDRESS,
+    funderPrivateKey: process.env.FUNDER_PRIVATE_KEY,
+    initialGasAmount: process.env.INITIAL_GAS_AMOUNT || '0.01',
+
+    // OpenAI
+    openaiApiKey: process.env.OPENAI_API_KEY,
+
+    // Pinata (IPFS)
+    pinataJwt: process.env.PINATA_JWT,
+    pinataGateway: process.env.PINATA_GATEWAY || 'https://gateway.pinata.cloud',
+
+    // Ramp Network
+    rampApiKey: process.env.RAMP_API_KEY,
+    rampWebhookSecret: process.env.RAMP_WEBHOOK_SECRET,
+    rampHostApiKey: process.env.RAMP_HOST_API_KEY,
+
+    // Email
+    smtp: {
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: parseInt(process.env.SMTP_PORT || '587', 10),
+        secure: process.env.SMTP_SECURE === 'true',
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+    },
+    emailFrom: process.env.EMAIL_FROM || 'noreply@contractify.com',
+
+    // JWT
+    jwt: {
+        secret: process.env.JWT_SECRET,
+        refreshSecret: process.env.JWT_REFRESH_SECRET,
+        expiresIn: process.env.JWT_EXPIRES_IN || '1h',
+        refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
+    },
+
+    // Google OAuth
+    google: {
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        callbackUrl: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3001/api/auth/google/callback',
+    },
+
+    // Rate Limiting
+    rateLimit: {
+        windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
+        maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
+        aiMaxRequests: parseInt(process.env.RATE_LIMIT_AI_MAX_REQUESTS || '10', 10),
+        walletMaxRequests: parseInt(process.env.RATE_LIMIT_WALLET_MAX_REQUESTS || '5', 10),
+    },
+
+    // Logging
+    logLevel: process.env.LOG_LEVEL || 'info',
+    logFilePath: process.env.LOG_FILE_PATH || './logs',
+};
+
+// Validate critical environment variables
+const requiredEnvVars = [
+    'DATABASE_URL',
+    'MASTER_ENCRYPTION_KEY',
+    'JWT_SECRET',
+    'JWT_REFRESH_SECRET',
+    'OPENAI_API_KEY',
+    'PINATA_JWT',
+    'POLYGON_RPC_URL',
+    'CONTRACT_MANAGER_ADDRESS',
+    'ADMIN_WALLET_ADDRESS',
+];
+
+for (const envVar of requiredEnvVars) {
+    if (!process.env[envVar]) {
+        console.warn(`Warning: Missing environment variable: ${envVar}`);
+    }
+}
+
+module.exports = { config };

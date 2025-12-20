@@ -1,7 +1,5 @@
-import HomeComponent from '@/components/(unAuth)/home';
+import { LandingPage } from "@/components/pages/landing-page";
 
 export default function Home() {
-  return (
-    <HomeComponent/>
-  );
+  return <LandingPage />;
 }

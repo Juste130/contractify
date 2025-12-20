@@ -1,0 +1,101 @@
+const aiService = require('../services/ai').default;
+const logger = require('../utils/logger').default;
+
+/**
+ * Generate contract
+ */
+exports.generateContract = async (req, res, next) => {
+    try {
+        const { templateType, partyAData, partyBData, additionalClauses } = req.body;
+
+        if (!templateType || !partyAData || !partyBData) {
+            return res.status(400).json({
+                error: 'Template type, party A data, and party B data are required',
+            });
+        }
+
+        const result = await aiService.generateContract(
+            templateType,
+            partyAData,
+            partyBData,
+            additionalClauses
+        );
+
+        res.json({
+            message: 'Contract generated successfully',
+            contract: result.content,
+            suggestions: result.suggestions,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Improve clause
+ */
+exports.improveClause = async (req, res, next) => {
+    try {
+        const { clause, context } = req.body;
+
+        if (!clause) {
+            return res.status(400).json({ error: 'Clause is required' });
+        }
+
+        const result = await aiService.improveClause(clause, context);
+
+        res.json({
+            message: 'Clause improved successfully',
+            improved: result.improved,
+            explanation: result.explanation,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Suggest clauses
+ */
+exports.suggestClauses = async (req, res, next) => {
+    try {
+        const { contractType, specificNeeds } = req.body;
+
+        if (!contractType) {
+            return res.status(400).json({ error: 'Contract type is required' });
+        }
+
+        const clauses = await aiService.suggestClauses(contractType, specificNeeds);
+
+        res.json({
+            message: 'Clauses suggested successfully',
+            clauses,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Validate contract
+ */
+exports.validateContract = async (req, res, next) => {
+    try {
+        const { contractText } = req.body;
+
+        if (!contractText) {
+            return res.status(400).json({ error: 'Contract text is required' });
+        }
+
+        const result = await aiService.validateContract(contractText);
+
+        res.json({
+            message: 'Contract validated successfully',
+            isValid: result.isValid,
+            issues: result.issues,
+            suggestions: result.suggestions,
+        });
+    } catch (error) {
+        next(error);
+    }
+};

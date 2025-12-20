@@ -1,0 +1,213 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USER MANAGEMENT ====================
+
+enum UserRole {
+  ADMIN
+  USER
+  VIEWER
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String?   @map("password_hash")
+  googleId      String?   @unique @map("google_id")
+  role          UserRole  @default(USER)
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  profileData   Json?     @map("profile_data")
+
+  wallet        UserWallet?
+  contracts     ContractCache[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+model UserWallet {
+  id                    String   @id @default(uuid())
+  userId                String   @unique @map("user_id")
+  publicAddress         String   @unique @map("public_address") @db.VarChar(42)
+  encryptedPrivateKey   String?  @map("encrypted_private_key") @db.Text
+  encryptionIv          String?  @map("encryption_iv") @db.VarChar(32)
+  encryptionAuthTag     String?  @map("encryption_auth_tag") @db.VarChar(32)
+  isAdminWallet         Boolean  @default(false) @map("is_admin_wallet")
+  createdAt             DateTime @default(now()) @map("created_at")
+  fundedAt              DateTime? @map("funded_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_wallets")
+}
+
+// ==================== CONTRACT CACHE ====================
+
+enum ContractStatus {
+  DRAFT
+  PENDING_SIGNATURES
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  DISPUTED
+  TERMINATED
+  RESIGNED
+}
+
+model ContractCache {
+  id          String         @id @default(uuid())
+  contractId  Int            @unique @map("contract_id")
+  userId      String         @map("user_id")
+  title       String
+  ipfsHash    String         @map("ipfs_hash")
+  status      ContractStatus
+  metadata    Json
+  lastSync    DateTime       @map("last_sync")
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("contract_cache")
+}
+
+// ==================== TEMPLATES ====================
+
+model ContractTemplate {
+  id           String   @id @default(uuid())
+  name         String
+  description  String   @db.Text
+  templateJson Json     @map("template_json")
+  category     String
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@map("contract_templates")
+}
+
+// ==================== NOTIFICATIONS ====================
+
+enum NotificationType {
+  CONTRACT_CREATED
+  CONTRACT_SIGNED
+  CONTRACT_FINALIZED
+  CONTRACT_TERMINATED
+  CONTRACT_DISPUTED
+  PAYMENT_RECEIVED
+  SIGNATURE_REQUIRED
+  SYSTEM_ALERT
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  type      NotificationType
+  title     String
+  message   String           @db.Text
+  read      Boolean          @default(false)
+  metadata  Json?
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@map("notifications")
+}
+
+// ==================== AUDIT LOGS ====================
+
+enum AuditAction {
+  USER_CREATED
+  USER_UPDATED
+  USER_DELETED
+  WALLET_CREATED
+  WALLET_ACCESSED
+  CONTRACT_SYNCED
+  AI_GENERATION
+  IPFS_UPLOAD
+  PAYMENT_INITIATED
+  ADMIN_ACTION
+  LOGIN
+  LOGOUT
+}
+
+model AuditLog {
+  id        String      @id @default(uuid())
+  userId    String?     @map("user_id")
+  action    AuditAction
+  resource  String
+  details   Json?
+  ipAddress String?     @map("ip_address")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ==================== IPFS DOCUMENTS ====================
+
+model IpfsDocument {
+  id        String   @id @default(uuid())
+  cid       String   @unique
+  fileName  String   @map("file_name")
+  fileSize  Int      @map("file_size")
+  mimeType  String?  @map("mime_type")
+  uploadedBy String? @map("uploaded_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("ipfs_documents")
+}
+
+// ==================== PAYMENT TRACKING ====================
+
+enum PaymentProvider {
+  RAMP_NETWORK
+  STRIPE
+  MANUAL
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+model Payment {
+  id              String          @id @default(uuid())
+  userId          String          @map("user_id")
+  provider        PaymentProvider
+  providerTxId    String?         @unique @map("provider_tx_id")
+  amount          Decimal         @db.Decimal(18, 8)
+  currency        String
+  cryptoAmount    Decimal?        @db.Decimal(18, 8) @map("crypto_amount")
+  cryptoCurrency  String?         @map("crypto_currency")
+  status          PaymentStatus
+  metadata        Json?
+  createdAt       DateTime        @default(now()) @map("created_at")
+  completedAt     DateTime?       @map("completed_at")
+
+  @@index([userId])
+  @@index([status])
+  @@map("payments")
+}

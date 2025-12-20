@@ -1,0 +1,67 @@
+﻿
+> contractify@0.1.0 build
+> next build
+
+   Ôû▓ Next.js 15.5.3
+
+   Creating an optimized production build ...
+node.exe : Failed to compile.
+Au caractère C:\Program 
+Files\nodejs\npm.ps1:29 : 3
++   & $NODE_EXE $NPM_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpec 
+   ified: (Failed to compile.:String  
+  ) [], RemoteException
+    + FullyQualifiedErrorId : NativeC 
+   ommandError
+ 
+
+src\app\(auth)\login\page.tsx
+You cannot have two parallel pages 
+that resolve to the same path. Please 
+check /(auth)/login/page and 
+/login/page. Refer to the route group 
+docs for more information: https://nex
+tjs.org/docs/app/building-your-applica
+tion/routing/route-groups
+
+src\app\(dashboard)\contracts\page.tsx
+You cannot have two parallel pages 
+that resolve to the same path. Please 
+check /(dashboard)/contracts/page and 
+/contracts/page. Refer to the route 
+group docs for more information: https
+://nextjs.org/docs/app/building-your-a
+pplication/routing/route-groups
+
+src\app\(dashboard)\dashboard\page.tsx
+You cannot have two parallel pages 
+that resolve to the same path. Please 
+check /(dashboard)/dashboard/page and 
+/dashboard/page. Refer to the route 
+group docs for more information: https
+://nextjs.org/docs/app/building-your-a
+pplication/routing/route-groups
+
+src\app\contracts\page.tsx
+You cannot have two parallel pages 
+that resolve to the same path. Please 
+check /(dashboard)/contracts/page and 
+/contracts/page. Refer to the route 
+group docs for more information: https
+://nextjs.org/docs/app/building-your-a
+pplication/routing/route-groups
+
+src\app\dashboard\page.tsx
+You cannot have two parallel pages 
+that resolve to the same path. Please 
+check /(dashboard)/dashboard/page and 
+/dashboard/page. Refer to the route 
+group docs for more information: https
+://nextjs.org/docs/app/building-your-a
+pplication/routing/route-groups
+
+
+> Build failed because of webpack 
+errors
