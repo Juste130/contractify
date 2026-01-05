@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
 // Create axios instance
 const apiClient: AxiosInstance = axios.create({
@@ -46,7 +46,11 @@ apiClient.interceptors.response.use(
                 return apiClient(originalRequest);
             } catch (refreshError) {
                 // Si refresh échoue, rediriger vers login
-                if (typeof window !== 'undefined') {
+                // Si refresh échoue, rediriger vers login seulement si on n'y est pas déjà
+                if (typeof window !== 'undefined' &&
+                    !window.location.pathname.includes('/login') &&
+                    !window.location.pathname.includes('/register') &&
+                    window.location.pathname !== '/') {
                     window.location.href = '/login';
                 }
                 return Promise.reject(refreshError);

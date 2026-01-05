@@ -4,10 +4,10 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const cookieParser = require('cookie-parser');
 const { config } = require('./config');
-const logger = require('./utils/logger').default;
+const logger = require('./utils/logger');
 const { errorHandler } = require('./middleware/error-handler');
 const { generalLimiter } = require('./middleware/rate-limit');
-const blockchainSyncService = require('./services/blockchain-sync').default;
+const blockchainSyncService = require('./services/blockchain-sync');
 
 // Import routes
 const authRoutes = require('./routes/auth');

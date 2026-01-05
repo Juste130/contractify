@@ -1,27 +1,61 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/auth');
+const { body, validationResult } = require('express-validator');
+
+// Validation result middleware
+const validateRequest = (req, res, next) => {
+	const errors = validationResult(req);
+	if (!errors.isEmpty()) {
+		return res.status(400).json({ errors: errors.array() });
+	}
+	next();
+};
 
 /**
  * @route   POST /api/auth/register
  * @desc    Register new user
  * @access  Public
  */
-router.post('/register', authController.register);
+router.post(
+	'/register',
+	[
+		body('email').isEmail().normalizeEmail(),
+		body('password').isLength({ min: 8 }),
+	],
+	validateRequest,
+	authController.register
+);
 
 /**
  * @route   POST /api/auth/login
  * @desc    Login user
  * @access  Public
  */
-router.post('/login', authController.login);
+router.post(
+	'/login',
+	[
+		body('email').isEmail().normalizeEmail(),
+		body('password').exists(),
+	],
+	validateRequest,
+	authController.login
+);
 
 /**
  * @route   POST /api/auth/google
  * @desc    Google OAuth authentication
  * @access  Public
  */
-router.post('/google', authController.googleAuth);
+router.post(
+	'/google',
+	[
+		body('googleId').notEmpty(),
+		body('email').isEmail().normalizeEmail(),
+	],
+	validateRequest,
+	authController.googleAuth
+);
 
 /**
  * @route   POST /api/auth/refresh

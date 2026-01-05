@@ -2,6 +2,23 @@ import apiClient, { handleApiError } from './client';
 
 export const aiApi = {
     /**
+     * Correct input using AI
+     */
+    async correctInput(data: {
+        text: string;
+        context: string;
+    }): Promise<{
+        corrected: string;
+    }> {
+        try {
+            const response = await apiClient.post('/api/ai/correct-input', data);
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
+    /**
      * Generate contract using AI
      */
     async generateContract(data: {

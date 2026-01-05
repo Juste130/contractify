@@ -1,32 +1,44 @@
-const OpenAI = require('openai').default;
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const logger = require('../utils/logger');
 const { config } = require('../config');
 
 class AIService {
     constructor() {
-        this.openai = new OpenAI({
-            apiKey: config.openaiApiKey,
-        });
+        this.genAI = new GoogleGenerativeAI(config.geminiApiKey);
+        this.model = this.genAI.getGenerativeModel({ model: 'gemini-pro' });
+    }
+
+    async correctInput(text, context) {
+        try {
+            const prompt = `
+            Agis comme un expert juridique. Corrige et reformule le texte suivant pour qu'il soit professionnel et adapté à un contrat juridique français.
+            Champ concerné : ${context}
+            Texte à corriger : "${text}"
+            
+            Retourne UNIQUEMENT le texte reformulé, sans guillemets, sans explications et sans markdown.
+            `;
+
+            const result = await this.model.generateContent(prompt);
+            const response = await result.response;
+            const correctedText = response.text().trim();
+
+            logger.info('Input corrected successfully');
+            return correctedText;
+        } catch (error) {
+            logger.error('Error correcting input:', error);
+            throw new Error('Failed to correct input');
+        }
     }
 
     async generateContract(templateType, partyAData, partyBData, additionalClauses) {
+        // Keeping this for compatibility, but moving towards template filling
         try {
             const prompt = this.buildContractPrompt(templateType, partyAData, partyBData, additionalClauses);
 
-            const response = await this.openai.chat.completions.create({
-                model: 'gpt-4',
-                messages: [
-                    {
-                        role: 'system',
-                        content: 'Tu es un assistant juridique expert en droit français. Génère des contrats professionnels, clairs et conformes à la législation française.',
-                    },
-                    { role: 'user', content: prompt },
-                ],
-                temperature: 0.3,
-                max_tokens: 4000,
-            });
+            const result = await this.model.generateContent(prompt);
+            const response = await result.response;
+            const content = response.text();
 
-            const content = response.choices[0].message.content || '';
             const suggestions = this.extractClauseSuggestions(content);
 
             logger.info(`Contract generated for template: ${templateType}`);
@@ -47,26 +59,16 @@ ${context ? `Contexte: ${context}` : ''}
 Clause originale:
 ${clause}
 
-Fournis:
-1. La clause améliorée
-2. Une explication des améliorations apportées
+Format de réponse attendu:
+AMÉLIORATION: [La clause améliorée]
+EXPLICATION: [Explication des améliorations]
 `;
 
-            const response = await this.openai.chat.completions.create({
-                model: 'gpt-4',
-                messages: [
-                    {
-                        role: 'system',
-                        content: 'Tu es un expert juridique spécialisé dans la rédaction de clauses contractuelles en français.',
-                    },
-                    { role: 'user', content: prompt },
-                ],
-                temperature: 0.3,
-                max_tokens: 1000,
-            });
+            const result = await this.model.generateContent(prompt);
+            const response = await result.response;
+            const text = response.text();
 
-            const result = response.choices[0].message.content || '';
-            const [improved, explanation] = this.parseImprovement(result);
+            const [improved, explanation] = this.parseImprovement(text);
 
             logger.info('Clause improved successfully');
 
@@ -86,23 +88,14 @@ ${specificNeeds ? `Besoins spécifiques: ${specificNeeds.join(', ')}` : ''}
 Fournis uniquement la liste des clauses, une par ligne.
 `;
 
-            const response = await this.openai.chat.completions.create({
-                model: 'gpt-4',
-                messages: [
-                    {
-                        role: 'system',
-                        content: 'Tu es un expert juridique qui suggère des clauses contractuelles pertinentes.',
-                    },
-                    { role: 'user', content: prompt },
-                ],
-                temperature: 0.4,
-                max_tokens: 800,
-            });
+            const result = await this.model.generateContent(prompt);
+            const response = await result.response;
+            const content = response.text();
 
-            const content = response.choices[0].message.content || '';
             const clauses = content
                 .split('\n')
                 .filter((line) => line.trim().length > 0)
+                .map(line => line.replace(/^[-*•\d\.]+\s*/, '').trim())
                 .slice(0, 5);
 
             logger.info(`Suggested ${clauses.length} clauses for ${contractType}`);
@@ -126,25 +119,17 @@ Contrat:
 ${contractText.substring(0, 3000)}
 
 Fournis une réponse structurée avec:
-- PROBLÈMES: liste des problèmes
-- SUGGESTIONS: liste des suggestions
+PROBLÈMES:
+- [Liste des problèmes]
+SUGGESTIONS:
+- [Liste des suggestions]
 `;
 
-            const response = await this.openai.chat.completions.create({
-                model: 'gpt-4',
-                messages: [
-                    {
-                        role: 'system',
-                        content: 'Tu es un expert juridique qui valide la conformité des contrats en droit français.',
-                    },
-                    { role: 'user', content: prompt },
-                ],
-                temperature: 0.2,
-                max_tokens: 1500,
-            });
+            const result = await this.model.generateContent(prompt);
+            const response = await result.response;
+            const text = response.text();
 
-            const result = response.choices[0].message.content || '';
-            const { issues, suggestions } = this.parseValidation(result);
+            const { issues, suggestions } = this.parseValidation(text);
 
             logger.info('Contract validation completed');
 
@@ -200,9 +185,11 @@ Utilise un langage juridique précis et professionnel.
     }
 
     parseImprovement(result) {
-        const parts = result.split(/Explication|Amélioration/i);
-        const improved = parts[1]?.trim() || result.substring(0, result.length / 2);
-        const explanation = parts[2]?.trim() || result.substring(result.length / 2);
+        const improvedMatch = result.match(/AMÉLIORATION:([\s\S]*?)(?=EXPLICATION:|$)/i);
+        const explanationMatch = result.match(/EXPLICATION:([\s\S]*?)$/i);
+
+        const improved = improvedMatch ? improvedMatch[1].trim() : result;
+        const explanation = explanationMatch ? explanationMatch[1].trim() : '';
 
         return [improved, explanation];
     }
@@ -211,24 +198,24 @@ Utilise un langage juridique précis et professionnel.
         const issues = [];
         const suggestions = [];
 
-        const problemsMatch = result.match(/PROBLÈMES:(.*?)(?:SUGGESTIONS:|$)/s);
-        const suggestionsMatch = result.match(/SUGGESTIONS:(.*?)$/s);
+        const problemsSection = result.match(/PROBLÈMES:([\s\S]*?)(?=SUGGESTIONS:|$)/i);
+        const suggestionsSection = result.match(/SUGGESTIONS:([\s\S]*?)$/i);
 
-        if (problemsMatch) {
+        if (problemsSection) {
             issues.push(
-                ...problemsMatch[1]
+                ...problemsSection[1]
                     .split('\n')
-                    .filter((line) => line.trim().length > 0)
-                    .map((line) => line.trim())
+                    .map(line => line.replace(/^[-*•\d\.]+\s*/, '').trim())
+                    .filter(line => line.length > 0)
             );
         }
 
-        if (suggestionsMatch) {
+        if (suggestionsSection) {
             suggestions.push(
-                ...suggestionsMatch[1]
+                ...suggestionsSection[1]
                     .split('\n')
-                    .filter((line) => line.trim().length > 0)
-                    .map((line) => line.trim())
+                    .map(line => line.replace(/^[-*•\d\.]+\s*/, '').trim())
+                    .filter(line => line.length > 0)
             );
         }
 

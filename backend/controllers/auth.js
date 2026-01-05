@@ -1,22 +1,26 @@
 const authService = require('../services/auth');
 const walletService = require('../services/wallet');
-const logger = require('../utils/logger').default;
+const logger = require('../utils/logger');
 
 /**
  * Helper to set auth cookies
  */
 const setAuthCookies = (res, token, refreshToken) => {
-    res.cookie('accessToken', token, {
+    const isProd = process.env.NODE_ENV === 'production';
+    const cookieOptions = {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        secure: isProd, // secure in production
+        sameSite: isProd ? 'none' : 'lax', // none+secure for cross-site in prod, lax in dev
+        path: '/',
+    };
+
+    res.cookie('accessToken', token, {
+        ...cookieOptions,
         maxAge: 60 * 60 * 1000, // 1 hour
     });
 
     res.cookie('refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        ...cookieOptions,
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 };
@@ -32,7 +36,7 @@ exports.register = async (req, res, next) => {
             return res.status(400).json({ error: 'Email and password are required' });
         }
 
-        const result = await authService.default.register(
+        const result = await authService.register(
             email,
             password,
             isAdmin,
@@ -61,7 +65,7 @@ exports.login = async (req, res, next) => {
             return res.status(400).json({ error: 'Email and password are required' });
         }
 
-        const result = await authService.default.login(email, password);
+        const result = await authService.login(email, password);
 
         setAuthCookies(res, result.token, result.refreshToken);
 
@@ -85,7 +89,7 @@ exports.googleAuth = async (req, res, next) => {
             return res.status(400).json({ error: 'Google ID and email are required' });
         }
 
-        const result = await authService.default.googleAuth(googleId, email, profileData);
+        const result = await authService.googleAuth(googleId, email, profileData);
 
         setAuthCookies(res, result.token, result.refreshToken);
 
@@ -110,19 +114,12 @@ exports.refreshToken = async (req, res, next) => {
             return res.status(401).json({ error: 'Refresh token is required' });
         }
 
-        const result = await authService.default.refreshAccessToken(refreshToken);
+        const result = await authService.refreshAccessToken(refreshToken);
 
-        // Set the new access token cookie
-        res.cookie('accessToken', result.token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: 60 * 60 * 1000, // 1 hour
-        });
+        // Set the new access token and rotated refresh token cookies
+        setAuthCookies(res, result.token, result.refreshToken);
 
-        res.json({
-            message: 'Token refreshed successfully'
-        });
+        res.json({ message: 'Token refreshed successfully' });
     } catch (error) {
         next(error);
     }
@@ -132,6 +129,15 @@ exports.refreshToken = async (req, res, next) => {
  * Logout
  */
 exports.logout = async (req, res) => {
+    try {
+        const refreshToken = req.cookies.refreshToken;
+        if (refreshToken) {
+            await authService.revokeRefreshToken(refreshToken);
+        }
+    } catch (err) {
+        logger.error('Error revoking refresh token on logout', err);
+    }
+
     res.clearCookie('accessToken');
     res.clearCookie('refreshToken');
     res.json({ message: 'Logout successful' });

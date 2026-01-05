@@ -1,5 +1,5 @@
-const ipfsService = require('../services/ipfs').default;
-const logger = require('../utils/logger').default;
+const ipfsService = require('../services/ipfs');
+const logger = require('../utils/logger');
 
 /**
  * Upload document to IPFS

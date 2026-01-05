@@ -1,6 +1,6 @@
-const prisma = require('../models/prisma').default;
-const walletService = require('../services/wallet').default;
-const logger = require('../utils/logger').default;
+const prisma = require('../models/prisma');
+const walletService = require('../services/wallet');
+const logger = require('../utils/logger');
 
 /**
  * Get current user profile

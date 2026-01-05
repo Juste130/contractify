@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AppSidebar } from "../layout/app-sidebar";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { AIInput } from "../ui/ai-input";
 import { Label } from "../ui/label";
 import { Card } from "../ui/card";
 import { Textarea } from "../ui/textarea";
@@ -12,6 +13,7 @@ import { aiApi } from "@/lib/api/ai";
 import { ipfsApi } from "@/lib/api/ipfs";
 import { useWeb3 } from "@/contexts/web3-context";
 import { useContract } from "@/hooks/useContract";
+import { contractTemplates as dataTemplates } from "@/lib/data/contract";
 import {
   FileText,
   Users,
@@ -47,7 +49,14 @@ export function CreateContractPage() {
   const [formData, setFormData] = useState({
     partyA: { name: "", email: "", address: "", phone: "" },
     partyB: { name: "", email: "", address: "", phone: "" },
-    details: { duration: "", amount: "", paymentTerms: "" },
+    details: {
+      duration: "",
+      amount: "",
+      paymentTerms: "",
+      startDate: new Date().toISOString().split('T')[0],
+      description: "",
+      city: "Paris"
+    },
     options: {
       confidentiality: false,
       nonCompete: false,
@@ -59,7 +68,7 @@ export function CreateContractPage() {
   const [signatories, setSignatories] = useState<string[]>([]);
   const [newSignatory, setNewSignatory] = useState("");
 
-  const contractTemplates = [
+  const contractTemplatesUI = [
     { id: "cdi", name: "CDI", icon: Briefcase, description: "Contrat à durée indéterminée" },
     { id: "freelance", name: "Freelance", icon: Users, description: "Contrat de prestation de services" },
     { id: "location", name: "Location", icon: Home, description: "Bail de location immobilière" },
@@ -79,21 +88,56 @@ export function CreateContractPage() {
     setIsGenerating(true);
     setError(null);
     setCurrentStep(3);
+
+    // Simulate "thinking" time for better UX
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
     try {
-      const response = await aiApi.generateContract({
-        templateType: selectedTemplate,
-        partyAData: formData.partyA,
-        partyBData: formData.partyB,
-        additionalClauses: Object.entries(formData.options)
-          .filter(([_, val]) => val)
-          .map(([key]) => key)
-      });
-      setContractText(response.contract);
+      const template = dataTemplates.find(t => t.id === selectedTemplate);
+
+      if (template) {
+        let content = template.defaultContent;
+
+        // Replace placeholders
+        content = content.replace(/\[PARTIE_1\]/g, formData.partyA.name || "[Nom Partie A]");
+        content = content.replace(/\[PARTIE_2\]/g, formData.partyB.name || "[Nom Partie B]");
+        content = content.replace(/\[MONTANT\]/g, formData.details.amount || "[Montant]");
+        content = content.replace(/\[DATE_DEBUT\]/g, formData.details.startDate || "[Date début]");
+        content = content.replace(/\[VILLE\]/g, formData.details.city || "[Ville]");
+        content = content.replace(/\[DATE_SIGNATURE\]/g, new Date().toLocaleDateString('fr-FR'));
+
+        // Specific placeholders based on template
+        if (selectedTemplate === 'cdi') {
+          content = content.replace(/\[POSTE\]/g, formData.details.description || "[Poste]");
+        } else if (selectedTemplate === 'freelance') {
+          content = content.replace(/\[DESCRIPTION_PRESTATION\]/g, formData.details.description || "[Description prestation]");
+          content = content.replace(/\[DATE_FIN\]/g, "TBD"); // Add endDate to form if needed
+        } else if (selectedTemplate === 'location') {
+          content = content.replace(/\[DESCRIPTION_BIEN\]/g, formData.details.description || "[Description bien]");
+          content = content.replace(/\[DUREE\]/g, formData.details.duration || "[Durée]");
+          content = content.replace(/\[CAUTION\]/g, "0"); // Add caution to form if needed
+        }
+
+        setContractText(content);
+      } else {
+        // Fallback for custom or unknown templates
+        const response = await aiApi.generateContract({
+          templateType: selectedTemplate,
+          partyAData: formData.partyA,
+          partyBData: formData.partyB,
+          additionalClauses: Object.entries(formData.options)
+            .filter(([_, val]) => val)
+            .map(([key]) => key)
+        });
+        setContractText(response.contract);
+      }
+
       // Automatically add party A and B emails to signatories if present
       const initialSignatories = [];
       if (formData.partyA.email) initialSignatories.push(formData.partyA.email);
       if (formData.partyB.email) initialSignatories.push(formData.partyB.email);
       setSignatories(Array.from(new Set(initialSignatories)));
+
     } catch (err: any) {
       setError("Échec de la génération du contrat. Veuillez réessayer.");
       console.error(err);
@@ -126,7 +170,7 @@ export function CreateContractPage() {
       // 1. Upload to IPFS
       const ipfsResult = await ipfsApi.uploadJSON({
         data: {
-          title: contractTemplates.find(t => t.id === selectedTemplate)?.name || "Nouveau Contrat",
+          title: contractTemplatesUI.find(t => t.id === selectedTemplate)?.name || "Nouveau Contrat",
           content: contractText,
           parties: { partyA: formData.partyA, partyB: formData.partyB },
           signatories,
@@ -226,12 +270,12 @@ export function CreateContractPage() {
               <div className="text-center mb-8">
                 <h2 className="mb-2 font-bold">Choisissez le type de contrat</h2>
                 <p className="text-muted-foreground">
-                  Sélectionnez un modèle ou créez un contrat personnalisé
+                  Sélectionnez un modèle pour commencer
                 </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                {contractTemplates.map((template) => {
+                {contractTemplatesUI.map((template) => {
                   const Icon = template.icon;
                   return (
                     <Card
@@ -277,7 +321,7 @@ export function CreateContractPage() {
                 <h2 className="mb-2 font-bold">Remplissez les informations</h2>
                 <div className="flex items-center justify-center gap-2 text-[#9C27B0]">
                   <Brain className="w-5 h-5" />
-                  <p className="font-medium text-sm">Notre IA rédigera automatiquement votre contrat</p>
+                  <p className="font-medium text-sm">Utilisez le stylo magique pour reformuler vos entrées</p>
                 </div>
               </div>
 
@@ -291,11 +335,13 @@ export function CreateContractPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Nom complet / Entreprise</Label>
-                      <Input
-                        placeholder="Jean Dupont"
+                      <AIInput
+                        context="Nom d'entreprise ou d'employeur"
+                        placeholder="Jean Dupont ou Ma Société SAS"
                         className="bg-input-background"
                         value={formData.partyA.name}
                         onChange={(e) => updateFormData('partyA', 'name', e.target.value)}
+                        onAIChange={(val) => updateFormData('partyA', 'name', val)}
                       />
                     </div>
                     <div className="space-y-2">
@@ -310,11 +356,13 @@ export function CreateContractPage() {
                     </div>
                     <div className="space-y-2">
                       <Label>Adresse</Label>
-                      <Input
-                        placeholder="123 Rue de la Paix"
+                      <AIInput
+                        context="Adresse postale complète"
+                        placeholder="123 Rue de la Paix, 75001 Paris"
                         className="bg-input-background"
                         value={formData.partyA.address}
                         onChange={(e) => updateFormData('partyA', 'address', e.target.value)}
+                        onAIChange={(val) => updateFormData('partyA', 'address', val)}
                       />
                     </div>
                     <div className="space-y-2">
@@ -329,7 +377,7 @@ export function CreateContractPage() {
                   </div>
                 </div>
 
-                <Separator />
+                <div className="h-[1px] bg-border w-full" />
 
                 {/* Partie B */}
                 <div className="space-y-4">
@@ -340,11 +388,13 @@ export function CreateContractPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Nom complet</Label>
-                      <Input
+                      <AIInput
+                        context="Nom complet d'une personne"
                         placeholder="Sophie Martin"
                         className="bg-input-background"
                         value={formData.partyB.name}
                         onChange={(e) => updateFormData('partyB', 'name', e.target.value)}
+                        onAIChange={(val) => updateFormData('partyB', 'name', val)}
                       />
                     </div>
                     <div className="space-y-2">
@@ -360,7 +410,7 @@ export function CreateContractPage() {
                   </div>
                 </div>
 
-                <Separator />
+                <div className="h-[1px] bg-border w-full" />
 
                 {/* Détails du contrat */}
                 <div className="space-y-4">
@@ -371,20 +421,50 @@ export function CreateContractPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Durée</Label>
-                      <Input
+                      <AIInput
+                        context="Durée du contrat (ex: 6 mois, indéterminée)"
                         placeholder="12 mois"
                         className="bg-input-background"
                         value={formData.details.duration}
                         onChange={(e) => updateFormData('details', 'duration', e.target.value)}
+                        onAIChange={(val) => updateFormData('details', 'duration', val)}
                       />
                     </div>
                     <div className="space-y-2">
                       <Label>Montant total</Label>
                       <Input
-                        placeholder="50 000 €"
+                        placeholder="50 000"
                         className="bg-input-background"
                         value={formData.details.amount}
                         onChange={(e) => updateFormData('details', 'amount', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Date de début</Label>
+                      <Input
+                        type="date"
+                        className="bg-input-background"
+                        value={formData.details.startDate}
+                        onChange={(e) => updateFormData('details', 'startDate', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Ville de signature</Label>
+                      <Input
+                        className="bg-input-background"
+                        value={formData.details.city}
+                        onChange={(e) => updateFormData('details', 'city', e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Description / Poste / Objet</Label>
+                      <AIInput
+                        context="Description du poste ou de la prestation"
+                        placeholder="Développeur Fullstack ou Création site web"
+                        className="bg-input-background"
+                        value={formData.details.description}
+                        onChange={(e) => updateFormData('details', 'description', e.target.value)}
+                        onAIChange={(val) => updateFormData('details', 'description', val)}
                       />
                     </div>
                   </div>
@@ -420,7 +500,7 @@ export function CreateContractPage() {
                   onClick={handleGenerateWithAI}
                 >
                   <Brain className="w-5 h-5 mr-2" />
-                  Générer avec IA
+                  Générer le contrat
                 </Button>
               </div>
             </Card>
@@ -435,9 +515,9 @@ export function CreateContractPage() {
                     <Brain className="w-24 h-24 text-[#9C27B0] animate-pulse" />
                     <div className="absolute inset-0 bg-[#9C27B0]/20 rounded-full animate-ping"></div>
                   </div>
-                  <h2 className="mb-4 font-bold text-2xl text-[#9C27B0]">Notre IA rédige votre contrat...</h2>
+                  <h2 className="mb-4 font-bold text-2xl text-[#9C27B0]">Génération du contrat...</h2>
                   <p className="text-muted-foreground mb-8 text-lg">
-                    Nous analysons vos informations pour générer un document conforme.
+                    Remplissage du modèle avec vos informations.
                   </p>
                   <div className="max-w-md mx-auto">
                     <div className="h-3 bg-muted rounded-full overflow-hidden border">
@@ -496,17 +576,13 @@ export function CreateContractPage() {
                           <Eye className="w-4 h-4 mr-3 text-[#2196F3]" />
                           Vérifier la conformité
                         </Button>
-                        <Button variant="outline" className="w-full justify-start text-sm">
-                          <Plus className="w-4 h-4 mr-3" />
-                          Ajouter une clause
-                        </Button>
                       </div>
                     </Card>
 
                     <Card className="p-6 bg-muted/40 border-dashed border-2">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">Conseil IA</h4>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">Info</h4>
                       <p className="text-xs leading-relaxed italic">
-                        "Pensez à bien vérifier que les montants et les dates correspondent à vos accords oraux. J'ai ajouté une clause de résiliation standard de 3 mois."
+                        Le contrat a été généré sur la base du modèle sélectionné. Vous pouvez le modifier manuellement avant de finaliser.
                       </p>
                     </Card>
                   </div>

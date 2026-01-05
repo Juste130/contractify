@@ -24,7 +24,7 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
 
     useEffect(() => {
         // Si fini de charger et pas authentifié, rediriger vers login
-        if (!isLoading && !isAuthenticated && !['/login', '/signup', '/'].includes(pathname)) {
+        if (!isLoading && !isAuthenticated && !['/login', '/signup', '/', '/how-it-works', '/reset-password'].includes(pathname)) {
             router.push(`/login?callbackUrl=${encodeURIComponent(pathname)}`);
         }
 
@@ -43,7 +43,7 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
         );
     }
 
-    if (!isAuthenticated && !['/login', '/signup', '/'].includes(pathname)) {
+    if (!isAuthenticated && !['/login', '/signup', '/', '/how-it-works', '/reset-password'].includes(pathname)) {
         return null; // Évite les flashs de contenu protégé
     }
 

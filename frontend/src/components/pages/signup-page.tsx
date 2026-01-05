@@ -8,17 +8,31 @@ import { Card } from "../ui/card";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/hooks/useAuth";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Loader2, Eye, EyeOff } from "lucide-react";
 
 export function SignupPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
   const router = useRouter();
   const { register, isLoading, error, clearError } = useAuthStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLocalError(null);
+    if (password.length < 8) {
+      setLocalError('Le mot de passe doit contenir au moins 8 caractères');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setLocalError('Les mots de passe ne correspondent pas');
+      return;
+    }
+
     try {
       await register({ email, password });
       router.push('/dashboard');
@@ -38,11 +52,11 @@ export function SignupPage() {
           <p className="text-muted-foreground">Commencez gratuitement dès aujourd'hui</p>
         </div>
 
-        {error && (
-          <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 text-destructive rounded-lg flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-            <p className="text-sm">{error}</p>
-          </div>
+        {(localError || error) && (
+            <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 text-destructive rounded-lg flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+              <p className="text-sm">{localError || error}</p>
+            </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -80,21 +94,57 @@ export function SignupPage() {
 
           <div className="space-y-2">
             <Label htmlFor="password">Mot de passe</Label>
-            <Input
-              id="password"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => {
-                if (error) clearError();
-                setPassword(e.target.value);
-              }}
-              required
-              className="bg-input-background"
-            />
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => {
+                  if (error) clearError();
+                  setPassword(e.target.value);
+                }}
+                required
+                className="bg-input-background pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((s) => !s)}
+                aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
             <p className="text-xs text-muted-foreground">
               Minimum 8 caractères avec lettres et chiffres
             </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="confirmPassword">Confirmer le mot de passe</Label>
+            <div className="relative">
+              <Input
+                id="confirmPassword"
+                type={showConfirm ? 'text' : 'password'}
+                placeholder="••••••••"
+                value={confirmPassword}
+                onChange={(e) => {
+                  if (error) clearError();
+                  setConfirmPassword(e.target.value);
+                }}
+                required
+                className="bg-input-background pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirm((s) => !s)}
+                aria-label={showConfirm ? 'Masquer la confirmation' : 'Afficher la confirmation'}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+              >
+                {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
 
           <div className="flex items-start gap-2">
@@ -157,4 +207,3 @@ export function SignupPage() {
     </div>
   );
 }
-

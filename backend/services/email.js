@@ -3,38 +3,38 @@ const logger = require('../utils/logger');
 const { config } = require('../config');
 
 class EmailService {
-    constructor() {
-        this.transporter = nodemailer.createTransporter({
-            host: config.smtp.host,
-            port: config.smtp.port,
-            secure: config.smtp.secure,
-            auth: {
-                user: config.smtp.user,
-                pass: config.smtp.pass,
-            },
-        });
+  constructor() {
+    this.transporter = nodemailer.createTransport({
+      host: config.smtp.host,
+      port: config.smtp.port,
+      secure: config.smtp.secure,
+      auth: {
+        user: config.smtp.user,
+        pass: config.smtp.pass,
+      },
+    });
+  }
+
+  async sendEmail(to, subject, html, text) {
+    try {
+      await this.transporter.sendMail({
+        from: config.emailFrom,
+        to,
+        subject,
+        html,
+        text: text || this.stripHtml(html),
+      });
+
+      logger.info(`Email sent to ${to}: ${subject}`);
+    } catch (error) {
+      logger.error('Error sending email:', error);
+      throw new Error('Failed to send email');
     }
+  }
 
-    async sendEmail(to, subject, html, text) {
-        try {
-            await this.transporter.sendMail({
-                from: config.emailFrom,
-                to,
-                subject,
-                html,
-                text: text || this.stripHtml(html),
-            });
-
-            logger.info(`Email sent to ${to}: ${subject}`);
-        } catch (error) {
-            logger.error('Error sending email:', error);
-            throw new Error('Failed to send email');
-        }
-    }
-
-    async sendWelcomeEmail(to, name) {
-        const subject = 'Bienvenue sur Contractify';
-        const html = `
+  async sendWelcomeEmail(to, name) {
+    const subject = 'Bienvenue sur Contractify';
+    const html = `
       <h1>Bienvenue ${name} !</h1>
       <p>Merci de vous être inscrit sur Contractify.</p>
       <p>Vous pouvez maintenant créer et gérer vos contrats de manière sécurisée sur la blockchain.</p>
@@ -42,12 +42,12 @@ class EmailService {
       <p>Cordialement,<br>L'équipe Contractify</p>
     `;
 
-        await this.sendEmail(to, subject, html);
-    }
+    await this.sendEmail(to, subject, html);
+  }
 
-    async sendSignatureRequest(to, contractTitle, contractId, signerName) {
-        const subject = `Signature requise: ${contractTitle}`;
-        const html = `
+  async sendSignatureRequest(to, contractTitle, contractId, signerName) {
+    const subject = `Signature requise: ${contractTitle}`;
+    const html = `
       <h1>Signature de contrat requise</h1>
       <p>Bonjour ${signerName},</p>
       <p>Vous êtes invité(e) à signer le contrat suivant:</p>
@@ -62,12 +62,12 @@ class EmailService {
       <p>Cordialement,<br>L'équipe Contractify</p>
     `;
 
-        await this.sendEmail(to, subject, html);
-    }
+    await this.sendEmail(to, subject, html);
+  }
 
-    async sendContractFinalizedEmail(to, contractTitle, contractId, nftTokenId) {
-        const subject = `Contrat finalisé: ${contractTitle}`;
-        const html = `
+  async sendContractFinalizedEmail(to, contractTitle, contractId, nftTokenId) {
+    const subject = `Contrat finalisé: ${contractTitle}`;
+    const html = `
       <h1>Contrat finalisé avec succès</h1>
       <p>Le contrat suivant a été finalisé et enregistré sur la blockchain:</p>
       <h2>${contractTitle}</h2>
@@ -83,13 +83,13 @@ class EmailService {
       <p>Cordialement,<br>L'équipe Contractify</p>
     `;
 
-        await this.sendEmail(to, subject, html);
-    }
+    await this.sendEmail(to, subject, html);
+  }
 
-    async sendPasswordResetEmail(to, resetToken) {
-        const subject = 'Réinitialisation de mot de passe';
-        const resetUrl = `${config.frontendUrl}/reset-password?token=${resetToken}`;
-        const html = `
+  async sendPasswordResetEmail(to, resetToken) {
+    const subject = 'Réinitialisation de mot de passe';
+    const resetUrl = `${config.frontendUrl}/reset-password?token=${resetToken}`;
+    const html = `
       <h1>Réinitialisation de mot de passe</h1>
       <p>Vous avez demandé la réinitialisation de votre mot de passe.</p>
       <p>Cliquez sur le lien ci-dessous pour réinitialiser votre mot de passe:</p>
@@ -104,12 +104,12 @@ class EmailService {
       <p>Cordialement,<br>L'équipe Contractify</p>
     `;
 
-        await this.sendEmail(to, subject, html);
-    }
+    await this.sendEmail(to, subject, html);
+  }
 
-    stripHtml(html) {
-        return html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-    }
+  stripHtml(html) {
+    return html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  }
 }
 
 module.exports = new EmailService();

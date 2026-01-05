@@ -1,6 +1,6 @@
-const blockchainSyncService = require('../services/blockchain-sync').default;
-const prisma = require('../models/prisma').default;
-const logger = require('../utils/logger').default;
+const blockchainSyncService = require('../services/blockchain-sync');
+const prisma = require('../models/prisma');
+const logger = require('../utils/logger');
 
 /**
  * Get cached contracts

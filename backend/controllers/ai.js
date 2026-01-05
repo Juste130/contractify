@@ -1,5 +1,5 @@
-const aiService = require('../services/ai').default;
-const logger = require('../utils/logger').default;
+const aiService = require('../services/ai');
+const logger = require('../utils/logger');
 
 /**
  * Generate contract
@@ -25,6 +25,28 @@ exports.generateContract = async (req, res, next) => {
             message: 'Contract generated successfully',
             contract: result.content,
             suggestions: result.suggestions,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Correct input
+ */
+exports.correctInput = async (req, res, next) => {
+    try {
+        const { text, context } = req.body;
+
+        if (!text) {
+            return res.status(400).json({ error: 'Text is required' });
+        }
+
+        const corrected = await aiService.correctInput(text, context);
+
+        res.json({
+            message: 'Input corrected successfully',
+            corrected,
         });
     } catch (error) {
         next(error);

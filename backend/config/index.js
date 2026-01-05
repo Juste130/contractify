@@ -27,8 +27,8 @@ const config = {
     funderPrivateKey: process.env.FUNDER_PRIVATE_KEY,
     initialGasAmount: process.env.INITIAL_GAS_AMOUNT || '0.01',
 
-    // OpenAI
-    openaiApiKey: process.env.OPENAI_API_KEY,
+    // Gemini
+    geminiApiKey: process.env.GEMINI_API_KEY,
 
     // Pinata (IPFS)
     pinataJwt: process.env.PINATA_JWT,
@@ -83,16 +83,35 @@ const requiredEnvVars = [
     'MASTER_ENCRYPTION_KEY',
     'JWT_SECRET',
     'JWT_REFRESH_SECRET',
-    'OPENAI_API_KEY',
+    'GEMINI_API_KEY',
     'PINATA_JWT',
     'POLYGON_RPC_URL',
     'CONTRACT_MANAGER_ADDRESS',
     'ADMIN_WALLET_ADDRESS',
 ];
 
-for (const envVar of requiredEnvVars) {
-    if (!process.env[envVar]) {
-        console.warn(`Warning: Missing environment variable: ${envVar}`);
+const missing = requiredEnvVars.filter((v) => !process.env[v]);
+
+if (missing.length > 0) {
+    const msg = `Missing environment variables: ${missing.join(', ')}`;
+    if (config.nodeEnv === 'production') {
+        // Fail fast in production to avoid running with insecure defaults
+        throw new Error(msg);
+    } else {
+        console.warn(`Warning: ${msg}`);
+    }
+}
+
+// Validate Pinata JWT format early to provide clearer errors for malformed tokens
+if (config.pinataJwt) {
+    const parts = config.pinataJwt.split('.');
+    if (parts.length !== 3) {
+        const msg = 'PINATA_JWT appears malformed: expected a JWT with three dot-separated segments';
+        if (config.nodeEnv === 'production') {
+            throw new Error(msg);
+        } else {
+            console.warn(`Warning: ${msg}`);
+        }
     }
 }
 

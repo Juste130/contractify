@@ -15,14 +15,25 @@ const CONTRACT_MANAGER_ABI = [
 class BlockchainSyncService {
     constructor() {
         this.provider = new ethers.JsonRpcProvider(config.polygonRpcUrl);
-        this.contractManager = new ethers.Contract(
-            config.contractManagerAddress,
-            CONTRACT_MANAGER_ABI,
-            this.provider
-        );
+
+        if (ethers.isAddress(config.contractManagerAddress)) {
+            this.contractManager = new ethers.Contract(
+                config.contractManagerAddress,
+                CONTRACT_MANAGER_ABI,
+                this.provider
+            );
+        } else {
+            logger.warn(`Invalid Contract Manager Address: ${config.contractManagerAddress}. Blockchain sync disabled.`);
+            this.contractManager = null;
+        }
     }
 
     async syncUserContracts(userAddress, userId) {
+        if (!this.contractManager) {
+            logger.warn('Skipping user contract sync: No valid contract manager');
+            return 0;
+        }
+
         try {
             const contractIds = await this.contractManager.getUserContracts(userAddress);
 
@@ -38,11 +49,14 @@ class BlockchainSyncService {
             return syncedCount;
         } catch (error) {
             logger.error('Error syncing user contracts:', error);
-            throw new Error('Failed to sync user contracts');
+            // Don't throw to avoid blocking the main flow
+            return 0;
         }
     }
 
     async syncContract(contractId, userId) {
+        if (!this.contractManager) return;
+
         try {
             const details = await this.contractManager.getContractDetails(contractId);
 
@@ -94,11 +108,16 @@ class BlockchainSyncService {
             logger.info(`Contract ${contractId} synced successfully`);
         } catch (error) {
             logger.error(`Error syncing contract ${contractId}:`, error);
-            throw new Error(`Failed to sync contract ${contractId}`);
+            // Don't throw
         }
     }
 
     async startEventListener() {
+        if (!this.contractManager) {
+            logger.warn('Blockchain event listener skipped: No valid contract manager');
+            return;
+        }
+
         try {
             this.contractManager.on('ContractCreated', async (contractId, creator, createdAt, additionalSigners) => {
                 logger.info(`New contract created: ${contractId} by ${creator}`);
@@ -141,7 +160,7 @@ class BlockchainSyncService {
             logger.info('Blockchain event listener started');
         } catch (error) {
             logger.error('Error starting event listener:', error);
-            throw new Error('Failed to start event listener');
+            // Don't throw, just log
         }
     }
 
