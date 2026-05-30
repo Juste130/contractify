@@ -14,6 +14,7 @@ interface AuthState {
     register: (data: RegisterData) => Promise<void>;
     logout: () => Promise<void>;
     checkAuth: () => Promise<void>;
+    privyLogin: (data: { privyId: string; email: string; walletAddress?: string; profileData?: any }) => Promise<void>;
     clearError: () => void;
 }
 
@@ -91,11 +92,33 @@ export const useAuthStore = create<AuthState>()(
                         isLoading: false
                     });
                 } catch (error) {
+                    // Si la session backend expire mais Privy est toujours connecté
+                    // on doit resynchroniser ou forcer une nouvelle connexion
+                    console.warn('Backend authentication failed. Session may have expired.', error);
                     set({
                         user: null,
                         isAuthenticated: false,
+                        isLoading: false,
+                        error: 'Votre session a expiré. Veuillez vous reconnecter.'
+                    });
+                }
+            },
+
+            privyLogin: async (data) => {
+                set({ isLoading: true, error: null });
+                try {
+                    const response = await authApi.privyAuth(data);
+                    set({
+                        user: response.user as any,
+                        isAuthenticated: true,
                         isLoading: false
                     });
+                } catch (error: any) {
+                    set({
+                        error: error.message || 'Erreur lors de la connexion avec Privy',
+                        isLoading: false
+                    });
+                    throw error;
                 }
             },
 

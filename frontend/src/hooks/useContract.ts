@@ -4,27 +4,39 @@ import { useState, useCallback } from 'react';
 import { ethers } from 'ethers';
 import { getContractManager } from '@/lib/web3/contracts';
 import { useWeb3 } from '@/contexts/web3-context';
+import { useWallets } from '@privy-io/react-auth';
 
 const MOCK_MODE = process.env.NEXT_PUBLIC_MOCK_BLOCKCHAIN === 'true';
 
 export function useContract() {
-    const { account, isConnected } = useWeb3();
+    const { isConnected } = useWeb3();
+    const { wallets } = useWallets();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const getSigner = async () => {
         if (MOCK_MODE) return null;
-        if (typeof window === 'undefined' || !window.ethereum) {
-            throw new Error('MetaMask not detected');
+        const wallet = wallets[0];
+        if (!wallet) {
+            throw new Error('Wallet not connected via Privy');
         }
-        const provider = new ethers.BrowserProvider(window.ethereum);
+        
+        // Obtenir le provider EIP-1193 depuis Privy et le wrapper avec ethers
+        const eip1193provider = await wallet.getEthereumProvider();
+        const provider = new ethers.BrowserProvider(eip1193provider);
         return await provider.getSigner();
     };
 
     const createContract = useCallback(async (
+        ipfsHash: string,
+        sha256Hash: string,
+        signersWithRoles: { signer: string, role: number, customRole: string, hasSignedContract: boolean, signedAt: number }[],
         expiresAt: number,
-        additionalSigners: string[],
-        ipfsHash: string
+        allowTermination: boolean,
+        allowDispute: boolean,
+        escrowAmount: string,
+        penaltyPercent: number,
+        initialJustification: string
     ) => {
         if (!isConnected && !MOCK_MODE) throw new Error('Wallet not connected');
 
@@ -45,9 +57,15 @@ export function useContract() {
             const contract = getContractManager(signer);
 
             const tx = await contract.createContract(
+                ipfsHash,
+                sha256Hash,
+                signersWithRoles,
                 expiresAt,
-                additionalSigners,
-                ipfsHash
+                allowTermination,
+                allowDispute,
+                escrowAmount,
+                penaltyPercent,
+                initialJustification
             );
 
             const receipt = await tx.wait();
@@ -71,7 +89,7 @@ export function useContract() {
         } finally {
             setLoading(false);
         }
-    }, [isConnected]);
+    }, [isConnected, wallets]);
 
     const signContract = useCallback(async (contractId: string) => {
         if (!isConnected && !MOCK_MODE) throw new Error('Wallet not connected');
@@ -100,7 +118,7 @@ export function useContract() {
         } finally {
             setLoading(false);
         }
-    }, [isConnected]);
+    }, [isConnected, wallets]);
 
     return {
         createContract,

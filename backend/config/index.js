@@ -25,7 +25,7 @@ const config = {
     contractNftAddress: process.env.CONTRACT_NFT_ADDRESS,
     adminWalletAddress: process.env.ADMIN_WALLET_ADDRESS,
     funderPrivateKey: process.env.FUNDER_PRIVATE_KEY,
-    initialGasAmount: process.env.INITIAL_GAS_AMOUNT || '0.01',
+    // Note: INITIAL_GAS_AMOUNT no longer used - amounts are now dynamic per action
 
     // Gemini
     geminiApiKey: process.env.GEMINI_API_KEY,

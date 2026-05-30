@@ -32,7 +32,14 @@ class AuthService {
                 await walletService.createUserWallet(user.id);
             }
 
+                return user;
+            });
+
+            // Send welcome email
             await emailService.sendWelcomeEmail(email, email.split('@')[0]);
+            // Funding will be requested on-demand when user performs blockchain actions
+
+            const user = created;
 
             const token = this.generateToken(user.id, user.email, user.role);
             const refreshToken = this.generateRefreshToken(user.id);
@@ -104,6 +111,7 @@ class AuthService {
 
                 await walletService.createUserWallet(user.id);
                 await emailService.sendWelcomeEmail(email, profileData.name || email.split('@')[0]);
+                // Funding will be requested on-demand when user performs blockchain actions
             }
 
             const token = this.generateToken(user.id, user.email, user.role);
@@ -121,6 +129,75 @@ class AuthService {
             };
         } catch (error) {
             logger.error('Error with Google auth:', error);
+            throw error;
+        }
+    }
+
+    async privyAuth(privyId, email, walletAddress, profileData) {
+        try {
+            let user = await prisma.user.findUnique({ where: { privyId } });
+
+            if (!user) {
+                // Check if user exists by email
+                const existingUser = await prisma.user.findUnique({ where: { email } });
+                
+                if (existingUser) {
+                    // Link Privy to existing user
+                    user = await prisma.user.update({
+                        where: { id: existingUser.id },
+                        data: { privyId, profileData },
+                    });
+                } else {
+                    // Create new user with Privy
+                    const generatedWallet = ethers.Wallet.createRandom();
+                    const encryptedData = walletService.encryptPrivateKey(generatedWallet.privateKey);
+
+                    const created = await prisma.$transaction(async (tx) => {
+                        const u = await tx.user.create({
+                            data: {
+                                email,
+                                privyId,
+                                role: UserRole.USER,
+                                profileData,
+                            },
+                        });
+
+                        await tx.userWallet.create({
+                            data: {
+                                userId: u.id,
+                                publicAddress: generatedWallet.address,
+                                encryptedPrivateKey: encryptedData.ciphertext,
+                                encryptionIv: encryptedData.iv,
+                                encryptionAuthTag: encryptedData.authTag,
+                                isAdminWallet: false,
+                            },
+                        });
+
+                        return u;
+                    });
+
+                    user = created;
+                    await emailService.sendWelcomeEmail(email, profileData?.name || email.split('@')[0]);
+                    // Funding will be requested on-demand when user performs blockchain actions
+                }
+            }
+            // Funding will be requested on-demand when user performs blockchain actions
+
+            const token = this.generateToken(user.id, user.email, user.role);
+            const refreshToken = this.generateRefreshToken(user.id);
+
+            // Persist refresh token
+            await this.saveRefreshToken(user.id, refreshToken);
+
+            logger.info(`User authenticated via Privy: ${email}`);
+
+            return {
+                user: this.sanitizeUser(user),
+                token,
+                refreshToken,
+            };
+        } catch (error) {
+            logger.error('Error with Privy auth:', error);
             throw error;
         }
     }

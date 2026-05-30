@@ -103,6 +103,30 @@ exports.googleAuth = async (req, res, next) => {
 };
 
 /**
+ * Privy authentication
+ */
+exports.privyAuth = async (req, res, next) => {
+    try {
+        const { privyId, email, walletAddress, profileData } = req.body;
+
+        if (!privyId || !email) {
+            return res.status(400).json({ error: 'Privy ID and email are required' });
+        }
+
+        const result = await authService.privyAuth(privyId, email, walletAddress, profileData);
+
+        setAuthCookies(res, result.token, result.refreshToken);
+
+        res.json({
+            message: 'Privy authentication successful',
+            user: result.user
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
  * Refresh access token
  */
 exports.refreshToken = async (req, res, next) => {

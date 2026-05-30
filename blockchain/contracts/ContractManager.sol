@@ -93,9 +93,12 @@ contract ContractManager is Ownable, ReentrancyGuard {
         bool allowDispute;
         TerminationInfo terminationInfo;
         DisputeInfo disputeInfo;
-        uint88 totalAmount;
+        uint88 escrowAmount;
+        uint8 penaltyPercent;
+        string sha256Hash;
         uint88 releasedAmount; //@dev Montant total déjà libéré
         uint256 nftTokenId;
+        bool isEscrowDeposited;
     }
 
     mapping(uint256 => ContractData) public contracts;
@@ -274,24 +277,29 @@ contract ContractManager is Ownable, ReentrancyGuard {
     /**
      * @dev Crée un nouveau contrat avec rôles des signataires
      * @param ipfsHash Hash IPFS du document de contrat
+     * @param sha256Hash Hash SHA256 du document (preuve d'intégrité)
      * @param signersWithRoles Tableau des signataires avec leurs rôles
      * @param expiresAt Date d'expiration du contrat
      * @param allowTermination Permet la résiliation
      * @param allowDispute Permet l'ouverture de litige
-     * @param totalAmount Montant total du contrat
+     * @param escrowAmount Montant total du contrat placé en séquestre
+     * @param penaltyPercent Pourcentage de pénalité en cas de litige
      * @param initialJustification Justification initiale
      */
     function createContract(
         string calldata ipfsHash,
+        string calldata sha256Hash,
         SignerInfo[] calldata signersWithRoles,
         uint40 expiresAt,
         bool allowTermination,
         bool allowDispute,
-        uint88 totalAmount,
+        uint88 escrowAmount,
+        uint8 penaltyPercent,
         string calldata initialJustification
     ) external whenNotPaused validJustification(initialJustification) returns (uint256) {
         require(!ipfsHashUsed[ipfsHash], "IPFS hash already used");
         require(expiresAt > uint40(block.timestamp), "Invalid expiration time");
+        require(penaltyPercent <= 100, "Penalty cannot exceed 100%");
         require(signersWithRoles.length <= 50, "Too many signers"); // Limite raisonnable
 
         _contractIds++;
@@ -305,7 +313,10 @@ contract ContractManager is Ownable, ReentrancyGuard {
         newContract.status = ContractStatus.PendingSignatures;
         newContract.allowTermination = allowTermination;
         newContract.allowDispute = allowDispute;
-        newContract.totalAmount = totalAmount;
+        newContract.escrowAmount = escrowAmount;
+        newContract.penaltyPercent = penaltyPercent;
+        newContract.sha256Hash = sha256Hash;
+        newContract.isEscrowDeposited = false;
         newContract.releasedAmount = 0;
 
         contractIpfsHashes[newContractId] = ipfsHash;
@@ -560,6 +571,71 @@ contract ContractManager is Ownable, ReentrancyGuard {
         validJustification(justification)
     {
         _addJustification(contractId, justification);
+    }
+
+    // ==================== ESCROW FUNCTIONS (v4.0) ====================
+
+    /**
+     * @dev Dépôt des fonds dans l'Escrow
+     */
+    function depositEscrow(uint256 contractId) external payable whenNotPaused validContractId(contractId) onlyParticipant(contractId) {
+        ContractData storage contractData = contracts[contractId];
+        require(contractData.status == ContractStatus.Active, "Contract must be active");
+        require(!contractData.isEscrowDeposited, "Escrow already deposited");
+        require(msg.value == contractData.escrowAmount, "Incorrect escrow amount");
+
+        contractData.isEscrowDeposited = true;
+        _addJustification(contractId, "Escrow funds deposited securely");
+        _notifyAllParticipants(contractId, "Escrow funds deposited");
+    }
+
+    /**
+     * @dev Libération des fonds au créateur 
+     */
+    function releaseEscrow(uint256 contractId) external whenNotPaused validContractId(contractId) onlyParticipant(contractId) {
+        ContractData storage contractData = contracts[contractId];
+        require(contractData.isEscrowDeposited, "No funds in escrow");
+        require(contractData.status == ContractStatus.Active, "Contract not active");
+        // Simple trust-based release: whoever calls this function authorizes the release to the creator
+        require(msg.sender != contractData.creator, "Creator cannot release to self");
+
+        uint256 amountToRelease = contractData.escrowAmount;
+        contractData.isEscrowDeposited = false;
+        contractData.releasedAmount += uint88(amountToRelease);
+        contractData.status = ContractStatus.Completed;
+
+        (bool success, ) = payable(contractData.creator).call{value: amountToRelease}("");
+        require(success, "Transfer failed");
+
+        _addJustification(contractId, "Escrow funds released");
+        _notifyAllParticipants(contractId, "Escrow funds released successfully");
+    }
+
+    /**
+     * @dev Application de la pénalité de retard ou litige
+     */
+    function applyPenalty(uint256 contractId) external whenNotPaused validContractId(contractId) onlyParticipant(contractId) {
+        ContractData storage contractData = contracts[contractId];
+        require(contractData.isEscrowDeposited, "No funds in escrow");
+        require(contractData.status == ContractStatus.Active || contractData.status == ContractStatus.Disputed, "Invalid status for penalty");
+        require(msg.sender != contractData.creator, "Creator cannot apply penalty to self");
+
+        uint256 penaltyAmount = (contractData.escrowAmount * contractData.penaltyPercent) / 100;
+        uint256 remainingAmount = contractData.escrowAmount - penaltyAmount;
+
+        contractData.isEscrowDeposited = false;
+        contractData.releasedAmount += uint88(remainingAmount);
+        
+        // Return penalty to the payer (msg.sender)
+        (bool pSuccess, ) = payable(msg.sender).call{value: penaltyAmount}("");
+        require(pSuccess, "Penalty transfer failed");
+
+        // Send remaining to creator
+        (bool rSuccess, ) = payable(contractData.creator).call{value: remainingAmount}("");
+        require(rSuccess, "Remaining transfer failed");
+
+        _addJustification(contractId, "Penalty applied and funds distributed");
+        _notifyAllParticipants(contractId, "Penalty applied due to conditions met");
     }
 
      /**

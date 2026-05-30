@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Input } from './input';
 import { Button } from './button';
-import { Sparkles, Undo2, Loader2 } from 'lucide-react';
+import { Sparkles, Undo2 } from 'lucide-react';
 import { aiApi } from '@/lib/api/ai';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip';
@@ -116,13 +116,10 @@ export function AIInput({ className, context, value, onChange, onAIChange, ...pr
                                     isLoading ? "text-muted-foreground" : "text-[#9C27B0] hover:bg-[#9C27B0]/10"
                                 )}
                                 onClick={handleCorrect}
+                                isLoading={isLoading}
                                 disabled={isLoading || !value}
                             >
-                                {isLoading ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Sparkles className="h-4 w-4" />
-                                )}
+                                {!isLoading && <Sparkles className="h-4 w-4" />}
                             </Button>
                         </TooltipTrigger>
                         <TooltipContent>

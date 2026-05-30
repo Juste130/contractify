@@ -5,7 +5,7 @@ const { config } = require('../config');
 class AIService {
     constructor() {
         this.genAI = new GoogleGenerativeAI(config.geminiApiKey);
-        this.model = this.genAI.getGenerativeModel({ model: 'gemini-pro' });
+        this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
     }
 
     async correctInput(text, context) {
@@ -141,6 +141,55 @@ SUGGESTIONS:
         } catch (error) {
             logger.error('Error validating contract:', error);
             throw new Error('Failed to validate contract');
+        }
+    }
+
+    async extractContractParameters(contractText) {
+        try {
+            const prompt = `
+Tu es un expert en analyse juridique et en blockchain.
+Extrais les informations suivantes du contrat ci-dessous pour alimenter un smart contract.
+Retourne UNIQUEMENT un objet JSON valide, sans balises markdown ni texte supplémentaire.
+
+Structure JSON attendue :
+{
+  "contractType": "type du contrat (ex: prestation_services, nda, etc)",
+  "escrowAmountWei": "Montant de la prestation converti en WEI sous forme de chaîne de caractères (ex: 250000000000000000 pour 0.25 MATIC). Met '0' si non trouvé",
+  "deadlineTimestamp": "Timestamp UNIX de la date limite d'exécution ou de livraison. Met 0 si non trouvé",
+  "penaltyPercent": "Pourcentage de pénalité par jour de retard (entier, ex: 10 pour 10%). Met 0 si non trouvé"
+}
+
+Contrat :
+${contractText.substring(0, 10000)}
+`;
+
+            const result = await this.model.generateContent(prompt);
+            const response = await result.response;
+            let text = response.text().trim();
+            
+            // Clean markdown blocks if present
+            if (text.startsWith('\`\`\`json')) {
+                text = text.substring(7);
+            } else if (text.startsWith('\`\`\`')) {
+                text = text.substring(3);
+            }
+            if (text.endsWith('\`\`\`')) {
+                text = text.substring(0, text.length - 3);
+            }
+
+            const jsonParams = JSON.parse(text.trim());
+            logger.info('Contract parameters extracted successfully via Gemini');
+            
+            // Ensure values are strings or numbers as expected
+            return {
+                contractType: jsonParams.contractType || 'prestation_services',
+                escrowAmountWei: String(jsonParams.escrowAmountWei || '0'),
+                deadlineTimestamp: Number(jsonParams.deadlineTimestamp || 0),
+                penaltyPercent: Number(jsonParams.penaltyPercent || 0)
+            };
+        } catch (error) {
+            logger.error('Error extracting contract parameters:', error);
+            throw new Error('Failed to extract JSON parameters');
         }
     }
 

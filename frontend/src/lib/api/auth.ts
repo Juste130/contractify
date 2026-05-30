@@ -90,4 +90,21 @@ export const authApi = {
             throw new Error(handleApiError(error));
         }
     },
+
+    /**
+     * Privy authentication
+     */
+    async privyAuth(data: {
+        privyId: string;
+        email: string;
+        walletAddress?: string;
+        profileData?: any;
+    }): Promise<AuthResponse> {
+        try {
+            const response = await apiClient.post('/api/auth/privy', data);
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
 };

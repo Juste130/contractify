@@ -58,6 +58,21 @@ router.post(
 );
 
 /**
+ * @route   POST /api/auth/privy
+ * @desc    Privy authentication
+ * @access  Public
+ */
+router.post(
+	'/privy',
+	[
+		body('privyId').notEmpty(),
+		body('email').isEmail().normalizeEmail(),
+	],
+	validateRequest,
+	authController.privyAuth
+);
+
+/**
  * @route   POST /api/auth/refresh
  * @desc    Refresh access token
  * @access  Public

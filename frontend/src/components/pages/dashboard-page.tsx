@@ -7,12 +7,13 @@ import { Card } from "../ui/card";
 import { StatCard } from "../ui/stat-card";
 import { StatusBadge } from "../ui/status-badge";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { FileText, Clock, CheckCircle2, AlertCircle, TrendingUp, Plus, Loader2 } from "lucide-react";
+import { Spinner } from "../ui/spinner";
+import { FileText, Clock, CheckCircle2, AlertCircle, TrendingUp, Plus } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Link from "next/link";
 import { useAuthStore } from "@/hooks/useAuth";
 import { contractsApi } from "@/lib/api/contracts";
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns/formatDistanceToNow';
 import { fr } from 'date-fns/locale';
 
 export function DashboardPage() {
@@ -103,8 +104,7 @@ export function DashboardPage() {
 
         {isLoading ? (
           <div className="flex items-center justify-center h-64">
-            <Loader2 className="w-10 h-10 animate-spin text-[#FFC107]" />
-            <span className="ml-4 text-muted-foreground">Chargement de vos données...</span>
+            <Spinner size="lg" label="Chargement de vos données..." />
           </div>
         ) : error ? (
           <Card className="p-8 text-center text-destructive">
