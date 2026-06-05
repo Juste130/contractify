@@ -1,6 +1,6 @@
 "use client";
 
-import { usePrivy } from "@privy-io/react-auth";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { useRouter } from "next/navigation";
@@ -10,7 +10,8 @@ import { useAuthStore } from "@/hooks/useAuth";
 import { Spinner } from "../ui/spinner";
 
 export function LoginPage() {
-  const { login, ready, authenticated, user } = usePrivy();
+  const { login, ready, authenticated, user, getAccessToken } = usePrivy();
+  const { wallets } = useWallets();
   const router = useRouter();
   const { privyLogin, isAuthenticated } = useAuthStore();
   const [isSyncing, setIsSyncing] = useState(false);
@@ -35,23 +36,38 @@ export function LoginPage() {
         console.log('⚡ Auto-syncing with backend...');
         try {
           setIsSyncing(true);
-          const email = user.email?.address || user.google?.email;
-          const privyId = user.id;
-          const walletAddress = user.wallet?.address;
 
-          if (!email) {
-            console.error("No email found from Privy user");
+          const token = await getAccessToken();
+          if (!token) {
+            console.error("No Privy access token found");
+            setIsSyncing(false);
             return;
           }
 
-          await privyLogin({
-            privyId,
-            email,
-            walletAddress,
-            profileData: {
-              name: user.google?.name || email.split('@')[0],
+          const email = user.email?.address || user.google?.email;
+
+          // Priorité : Smart Wallet Privy natif > EOA Privy > EOA du user object
+          const smartWallet = wallets.find(w => w.walletClientType === 'smart_wallet');
+          const eoaWallet = wallets.find(w => w.walletClientType === 'privy') || wallets[0];
+          const walletAddress = smartWallet?.address || eoaWallet?.address || user.wallet?.address;
+
+          if (!email) {
+            console.error("No email found from Privy user");
+            setIsSyncing(false);
+            return;
+          }
+
+          await privyLogin(
+            {
+              privyId: user.id,
+              email,
+              walletAddress,
+              profileData: {
+                name: user.google?.name || email.split('@')[0],
+              },
             },
-          });
+            token
+          );
 
           console.log('✅ Sync successful, redirecting to dashboard...');
           router.push("/dashboard");
@@ -63,7 +79,7 @@ export function LoginPage() {
     };
 
     autoSync();
-  }, [ready, authenticated, user, isAuthenticated, privyLogin, router]);
+  }, [ready, authenticated, user, isAuthenticated, privyLogin, router, wallets]);
 
   const handleLogin = () => {
     console.log('🔓 Manual login clicked', { ready, authenticated });

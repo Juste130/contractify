@@ -8,6 +8,20 @@ const logger = require('../utils/logger');
 const { config } = require('../config');
 const { UserRole } = require('@prisma/client');
 
+/**
+ * Vérifie si un email fait partie de la whitelist des administrateurs.
+ * La liste est définie dans la variable d'env ADMIN_EMAILS (séparées par des virgules).
+ * Exemple : ADMIN_EMAILS=admin@contractify.io,cto@contractify.io
+ * @param {string} email
+ * @returns {boolean}
+ */
+function isAdminEmail(email) {
+    const adminEmails = process.env.ADMIN_EMAILS || '';
+    if (!adminEmails.trim()) return false;
+    const list = adminEmails.split(',').map((e) => e.trim().toLowerCase());
+    return list.includes(email.toLowerCase());
+}
+
 class AuthService {
     async register(email, password, isAdmin = false, adminWalletAddress) {
         try {
@@ -16,30 +30,51 @@ class AuthService {
                 throw new Error('User already exists');
             }
 
-            const passwordHash = await bcrypt.hash(password, 10);
+            const passwordHash = await bcrypt.hash(password, 12);
 
-            const user = await prisma.user.create({
-                data: {
-                    email,
-                    passwordHash,
-                    role: isAdmin ? UserRole.ADMIN : UserRole.USER,
-                },
-            });
+            let user;
 
             if (isAdmin && adminWalletAddress) {
+                // Admin: create user then associate their external wallet (no atomicity required)
+                user = await prisma.user.create({
+                    data: { email, passwordHash, role: UserRole.ADMIN },
+                });
                 await walletService.associateAdminWallet(user.id, adminWalletAddress);
             } else {
-                await walletService.createUserWallet(user.id);
+                // Regular user: create user + wallet atomically
+                const wallet = require('ethers').Wallet.createRandom();
+                const encryptedData = walletService.encryptPrivateKey(wallet.privateKey);
+
+                user = await prisma.$transaction(async (tx) => {
+                    const createdUser = await tx.user.create({
+                        data: { email, passwordHash, role: UserRole.USER },
+                    });
+
+                    await tx.userWallet.create({
+                        data: {
+                            userId: createdUser.id,
+                            publicAddress: wallet.address,
+                            encryptedPrivateKey: encryptedData.ciphertext,
+                            encryptionIv: encryptedData.iv,
+                            encryptionAuthTag: encryptedData.authTag,
+                            encryptionSalt: encryptedData.salt,
+                            isAdminWallet: false,
+                        },
+                    });
+
+                    return createdUser;
+                });
+
+                // Fund gas on demand when needed (non-critical, outside transaction)
+                if (require('../config').config.funderPrivateKey) {
+                    walletService.fundInitialGas(wallet.address).catch((err) =>
+                        logger.error(`Non-critical: could not pre-fund wallet ${wallet.address}:`, err)
+                    );
+                }
             }
 
-                return user;
-            });
-
-            // Send welcome email
+            // Send welcome email (non-critical, outside transaction)
             await emailService.sendWelcomeEmail(email, email.split('@')[0]);
-            // Funding will be requested on-demand when user performs blockchain actions
-
-            const user = created;
 
             const token = this.generateToken(user.id, user.email, user.role);
             const refreshToken = this.generateRefreshToken(user.id);
@@ -135,6 +170,9 @@ class AuthService {
 
     async privyAuth(privyId, email, walletAddress, profileData) {
         try {
+            // Déterminer si cet email est dans la whitelist admin (variable serveur uniquement)
+            const shouldBeAdmin = isAdminEmail(email);
+
             let user = await prisma.user.findUnique({ where: { privyId } });
 
             if (!user) {
@@ -142,54 +180,124 @@ class AuthService {
                 const existingUser = await prisma.user.findUnique({ where: { email } });
                 
                 if (existingUser) {
-                    // Link Privy to existing user
+                    // Link Privy to existing user and promote to ADMIN if applicable
+                    const updateData = { privyId, profileData };
+                    if (shouldBeAdmin && existingUser.role !== UserRole.ADMIN) {
+                        updateData.role = UserRole.ADMIN;
+                        logger.info(`[Auth] Auto-promotion ADMIN pour email whitelist: ${email}`);
+                    }
+
                     user = await prisma.user.update({
                         where: { id: existingUser.id },
-                        data: { privyId, profileData },
+                        data: updateData,
                     });
+
+                    // Si l'utilisateur existant n'a pas de wallet et que Privy en fournit un, l'associer
+                    if (walletAddress) {
+                        const existingWallet = await prisma.userWallet.findUnique({ where: { userId: user.id } });
+                        if (!existingWallet) {
+                            await prisma.userWallet.create({
+                                data: {
+                                    userId: user.id,
+                                    publicAddress: walletAddress,
+                                    encryptedPrivateKey: null,
+                                    encryptionIv: null,
+                                    encryptionAuthTag: null,
+                                    encryptionSalt: null,
+                                    isAdminWallet: shouldBeAdmin,
+                                },
+                            });
+                        }
+                    }
                 } else {
-                    // Create new user with Privy
-                    const generatedWallet = ethers.Wallet.createRandom();
-                    const encryptedData = walletService.encryptPrivateKey(generatedWallet.privateKey);
+                    // Créer un nouvel utilisateur avec Privy
+                    const assignedRole = shouldBeAdmin ? UserRole.ADMIN : UserRole.USER;
 
                     const created = await prisma.$transaction(async (tx) => {
                         const u = await tx.user.create({
                             data: {
                                 email,
                                 privyId,
-                                role: UserRole.USER,
+                                role: assignedRole,
                                 profileData,
                             },
                         });
 
-                        await tx.userWallet.create({
-                            data: {
-                                userId: u.id,
-                                publicAddress: generatedWallet.address,
-                                encryptedPrivateKey: encryptedData.ciphertext,
-                                encryptionIv: encryptedData.iv,
-                                encryptionAuthTag: encryptedData.authTag,
-                                isAdminWallet: false,
-                            },
-                        });
+                        if (walletAddress) {
+                            await tx.userWallet.create({
+                                data: {
+                                    userId: u.id,
+                                    publicAddress: walletAddress,
+                                    encryptedPrivateKey: null,
+                                    encryptionIv: null,
+                                    encryptionAuthTag: null,
+                                    encryptionSalt: null,
+                                    isAdminWallet: shouldBeAdmin,
+                                },
+                            });
+                        }
 
                         return u;
                     });
 
                     user = created;
-                    await emailService.sendWelcomeEmail(email, profileData?.name || email.split('@')[0]);
-                    // Funding will be requested on-demand when user performs blockchain actions
+
+                    if (shouldBeAdmin) {
+                        logger.info(`[Auth] Nouveau compte ADMIN créé via Privy: ${email}`);
+                    } else {
+                        await emailService.sendWelcomeEmail(email, profileData?.name || email.split('@')[0]);
+                    }
+                }
+            } else {
+                // Utilisateur existant — resync wallet + promotion admin si nécessaire
+                const updateData = {};
+
+                if (shouldBeAdmin && user.role !== UserRole.ADMIN) {
+                    updateData.role = UserRole.ADMIN;
+                    logger.info(`[Auth] Re-promotion ADMIN (connexion Privy) pour: ${email}`);
+                }
+
+                if (walletAddress) {
+                    const existingWallet = await prisma.userWallet.findUnique({ where: { userId: user.id } });
+                    
+                    if (!existingWallet) {
+                        // Créer le wallet pour un utilisateur existant qui n'en avait pas
+                        await prisma.userWallet.create({
+                            data: {
+                                userId: user.id,
+                                publicAddress: walletAddress,
+                                encryptedPrivateKey: null,
+                                encryptionIv: null,
+                                encryptionAuthTag: null,
+                                encryptionSalt: null,
+                                isAdminWallet: shouldBeAdmin,
+                            },
+                        });
+                        logger.info(`[Auth] Nouveau wallet Privy assigné à l'utilisateur existant: ${email}`);
+                    } else if (existingWallet.publicAddress !== walletAddress && !existingWallet.encryptedPrivateKey) {
+                        // Mettre à jour l'adresse si elle a changé et que ce n'est pas un wallet auto-géré avec clé privée
+                        await prisma.userWallet.update({
+                            where: { userId: user.id },
+                            data: { publicAddress: walletAddress },
+                        });
+                        logger.info(`[Auth] Adresse wallet mise à jour pour: ${email}`);
+                    }
+                }
+
+                if (Object.keys(updateData).length > 0) {
+                    user = await prisma.user.update({
+                        where: { id: user.id },
+                        data: updateData,
+                    });
                 }
             }
-            // Funding will be requested on-demand when user performs blockchain actions
 
             const token = this.generateToken(user.id, user.email, user.role);
             const refreshToken = this.generateRefreshToken(user.id);
 
-            // Persist refresh token
             await this.saveRefreshToken(user.id, refreshToken);
 
-            logger.info(`User authenticated via Privy: ${email}`);
+            logger.info(`User authenticated via Privy: ${email} [role=${user.role}]`);
 
             return {
                 user: this.sanitizeUser(user),

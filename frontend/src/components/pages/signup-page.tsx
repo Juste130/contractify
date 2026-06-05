@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { useAuthStore } from "@/hooks/useAuth";
 
 export function SignupPage() {
-  const { login, ready, authenticated, user } = usePrivy();
+  const { login, ready, authenticated, user, getAccessToken } = usePrivy();
   const router = useRouter();
   const { privyLogin, isAuthenticated } = useAuthStore();
   const [isSyncing, setIsSyncing] = useState(false);
@@ -20,6 +20,13 @@ export function SignupPage() {
       if (ready && authenticated && user && !isAuthenticated) {
         try {
           setIsSyncing(true);
+
+          const token = await getAccessToken();
+          if (!token) {
+            console.error("No Privy access token found");
+            return;
+          }
+
           // Get user info from Privy
           const email = user.email?.address || user.google?.email;
           const privyId = user.id;
@@ -31,14 +38,17 @@ export function SignupPage() {
           }
 
           // Call backend to authenticate with Privy
-          await privyLogin({
-            privyId,
-            email,
-            walletAddress,
-            profileData: {
-              name: user.google?.name || email.split('@')[0],
+          await privyLogin(
+            {
+              privyId,
+              email,
+              walletAddress,
+              profileData: {
+                name: user.google?.name || email.split('@')[0],
+              },
             },
-          });
+            token
+          );
 
           // Redirect to dashboard
           router.push("/dashboard");

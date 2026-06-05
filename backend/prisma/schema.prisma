@@ -46,6 +46,7 @@ model UserWallet {
   encryptedPrivateKey   String?  @map("encrypted_private_key") @db.Text
   encryptionIv          String?  @map("encryption_iv") @db.VarChar(32)
   encryptionAuthTag     String?  @map("encryption_auth_tag") @db.VarChar(32)
+  encryptionSalt        String?  @map("encryption_salt") @db.VarChar(32)
   isAdminWallet         Boolean  @default(false) @map("is_admin_wallet")
   createdAt             DateTime @default(now()) @map("created_at")
   fundedAt              DateTime? @map("funded_at")

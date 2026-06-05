@@ -14,7 +14,7 @@ interface AuthState {
     register: (data: RegisterData) => Promise<void>;
     logout: () => Promise<void>;
     checkAuth: () => Promise<void>;
-    privyLogin: (data: { privyId: string; email: string; walletAddress?: string; profileData?: any }) => Promise<void>;
+    privyLogin: (data: { privyId?: string; email: string; walletAddress?: string; profileData?: any }, token: string) => Promise<void>;
     clearError: () => void;
 }
 
@@ -104,10 +104,10 @@ export const useAuthStore = create<AuthState>()(
                 }
             },
 
-            privyLogin: async (data) => {
+            privyLogin: async (data, token) => {
                 set({ isLoading: true, error: null });
                 try {
-                    const response = await authApi.privyAuth(data);
+                    const response = await authApi.privyAuth(data, token);
                     set({
                         user: response.user as any,
                         isAuthenticated: true,

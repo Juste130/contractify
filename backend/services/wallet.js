@@ -22,6 +22,7 @@ class WalletService {
                     encryptedPrivateKey: encryptedData.ciphertext,
                     encryptionIv: encryptedData.iv,
                     encryptionAuthTag: encryptedData.authTag,
+                    encryptionSalt: encryptedData.salt,
                     isAdminWallet: false,
                 },
             });
@@ -65,9 +66,11 @@ class WalletService {
         });
     }
 
-    decryptPrivateKey(ciphertext, iv, authTag) {
+    decryptPrivateKey(ciphertext, iv, authTag, salt) {
         try {
-            const key = crypto.scryptSync(this.masterKey, 'salt', 32);
+            // Use the per-wallet salt if provided, fall back to static 'salt' for legacy records
+            const kdfSalt = salt || 'salt';
+            const key = crypto.scryptSync(this.masterKey, kdfSalt, 32);
             const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'hex'));
             decipher.setAuthTag(Buffer.from(authTag, 'hex'));
 
@@ -83,7 +86,8 @@ class WalletService {
 
     encryptPrivateKey(privateKey) {
         const iv = crypto.randomBytes(16);
-        const key = crypto.scryptSync(this.masterKey, 'salt', 32);
+        const salt = crypto.randomBytes(16).toString('hex'); // Dynamic per-wallet salt
+        const key = crypto.scryptSync(this.masterKey, salt, 32);
         const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
 
         let encrypted = cipher.update(privateKey, 'utf8', 'hex');
@@ -93,6 +97,7 @@ class WalletService {
             iv: iv.toString('hex'),
             ciphertext: encrypted,
             authTag: cipher.getAuthTag().toString('hex'),
+            salt,
         };
     }
 

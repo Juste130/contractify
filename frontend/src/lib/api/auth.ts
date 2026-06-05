@@ -94,14 +94,21 @@ export const authApi = {
     /**
      * Privy authentication
      */
-    async privyAuth(data: {
-        privyId: string;
-        email: string;
-        walletAddress?: string;
-        profileData?: any;
-    }): Promise<AuthResponse> {
+    async privyAuth(
+        data: {
+            privyId?: string;
+            email: string;
+            walletAddress?: string;
+            profileData?: any;
+        },
+        token: string
+    ): Promise<AuthResponse> {
         try {
-            const response = await apiClient.post('/api/auth/privy', data);
+            const response = await apiClient.post('/api/auth/privy', data, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
             return response.data;
         } catch (error) {
             throw new Error(handleApiError(error));

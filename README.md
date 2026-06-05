@@ -16,11 +16,11 @@ A **secure, blockchain-based contract management platform** combining smart cont
 - **💎 NFT Proof** - Automatic NFT generation as proof of contract finalization
 - **👥 Multi-Signer Support** - Multiple parties can sign contracts sequentially
 - **📄 IPFS Storage** - Decentralized contract storage via Pinata/IPFS
-- **🔐 Wallet Management** - Built-in Privy integration with automatic fund provisioning
+- **🔐 Wallet Management** - Built-in Privy integration with Smart Wallets (ERC-4337) and native gas sponsorship
 
 ### Developer Experience
 - **TypeScript** - Full type safety across frontend and backend
-- **Gas Optimization** - On-demand wallet funding with precise gas calculations
+- **Gas Optimization** - Gasless transactions via Privy Policy Engine (ERC-4337)
 - **Rate Limiting** - Protected endpoints with request throttling
 - **Error Handling** - Comprehensive error handling and logging
 - **Docker Support** - Containerized development environment
@@ -64,7 +64,7 @@ DATABASE_URL=postgresql://user:password@localhost:5433/contractify
 ALCHEMY_API_KEY=your_alchemy_key
 MASTER_ENCRYPTION_KEY=your_encryption_key
 JWT_SECRET=your_jwt_secret
-FUNDER_PRIVATE_KEY=0xyour_testnet_key
+FUNDER_PRIVATE_KEY=0xyour_testnet_key # (Optional/Legacy for fallback EOA funding)
 GEMINI_API_KEY=your_gemini_key
 PINATA_JWT=your_pinata_jwt
 ```
@@ -107,8 +107,8 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ### Key Guides
 - [On-Demand Fund Integration](./backend/docs/FUND_INTEGRATION.md)
-- [Gas Estimation Guide](./backend/docs/GAS_ESTIMATION.md)
-- [Funding Setup](./backend/docs/FUND_ON_DEMAND.md)
+- [Gas Estimation Guide](./backend/docs/GAS_ESTIMATION.md) (Legacy)
+- [Funding Setup](./backend/docs/FUND_ON_DEMAND.md) (Legacy)
 
 ## 🏗️ Project Structure
 
@@ -174,14 +174,14 @@ See [backend/docs/](./backend/docs/) for complete API reference.
 
 ## 💰 Gas Optimization
 
-The platform uses **on-demand wallet funding** to minimize gas costs:
+The platform uses **Privy Smart Wallets (ERC-4337)** and **Gas Sponsorship** to provide gasless transactions to users:
 
 ```javascript
-// Automatically funds wallet with exact amount needed
-router.post('/sign', authenticate, ensureFunded('0.05'), controller.sign);
+// Gas sponsorship is configured natively on the Privy Dashboard (Policy Engine).
+// No need for custom backend fund routing for standard smart contract interactions!
 ```
 
-See [Gas Estimation Guide](./backend/docs/GAS_ESTIMATION.md) for details.
+See the [Privy Dashboard](https://dashboard.privy.io/) for configuring your Gas Policy. (The legacy `ensureFunded` documentation is preserved for fallback EOA wallets).
 
 ## 🧪 Testing
 

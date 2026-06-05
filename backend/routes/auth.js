@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/auth');
 const { body, validationResult } = require('express-validator');
+const { verifyPrivyToken } = require('../middleware/privy-auth');
 
 // Validation result middleware
 const validateRequest = (req, res, next) => {
@@ -59,13 +60,13 @@ router.post(
 
 /**
  * @route   POST /api/auth/privy
- * @desc    Privy authentication
- * @access  Public
+ * @desc    Privy authentication (vérifié côté serveur via SDK Privy)
+ * @access  Public — nécessite un token Privy valide dans Authorization header
  */
 router.post(
 	'/privy',
+	verifyPrivyToken,
 	[
-		body('privyId').notEmpty(),
 		body('email').isEmail().normalizeEmail(),
 	],
 	validateRequest,

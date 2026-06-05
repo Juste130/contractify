@@ -27,8 +27,23 @@ export function WalletButton() {
         return "Polygon"
       case 80001:
         return "Mumbai Testnet"
+      case 80002:
+        return "Polygon Amoy Testnet"
       default:
         return "Unknown Network"
+    }
+  }
+
+  const getCurrencySymbol = (id: number | null) => {
+    switch (id) {
+      case 1:
+        return "ETH"
+      case 137:
+      case 80001:
+      case 80002:
+        return "MATIC"
+      default:
+        return "ETH"
     }
   }
 
@@ -65,7 +80,7 @@ export function WalletButton() {
           {balance && (
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Balance:</span>
-              <span>{balance} ETH</span>
+              <span>{balance} {getCurrencySymbol(chainId)}</span>
             </div>
           )}
         </div>

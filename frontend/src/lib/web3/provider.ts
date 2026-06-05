@@ -97,14 +97,14 @@ export const web3Provider = {
     },
 
     /**
-     * Switch network
+     * Switch to Polygon Amoy Testnet
      */
     async switchNetwork() {
         if (MOCK_MODE) return;
 
         if (typeof window === 'undefined' || !window.ethereum) return;
 
-        const chainId = toHex(process.env.NEXT_PUBLIC_CHAIN_ID || 80001); // Mumbai par défaut
+        const chainId = toHex(process.env.NEXT_PUBLIC_CHAIN_ID || 80002); // Amoy testnet
 
         try {
             await window.ethereum.request({
@@ -120,10 +120,10 @@ export const web3Provider = {
                         params: [
                             {
                                 chainId,
-                                chainName: 'Polygon Mumbai Testnet',
+                                chainName: 'Polygon Amoy Testnet',
                                 nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
-                                rpcUrls: [process.env.NEXT_PUBLIC_RPC_URL || 'https://rpc-mumbai.maticvigil.com'],
-                                blockExplorerUrls: [process.env.NEXT_PUBLIC_BLOCK_EXPLORER || 'https://mumbai.polygonscan.com'],
+                                rpcUrls: [process.env.NEXT_PUBLIC_RPC_URL || 'https://rpc-amoy.polygon.technology'],
+                                blockExplorerUrls: [process.env.NEXT_PUBLIC_BLOCK_EXPLORER || 'https://amoy.polygonscan.com'],
                             },
                         ],
                     });

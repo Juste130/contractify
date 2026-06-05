@@ -19,8 +19,8 @@ const config = {
     masterEncryptionKey: process.env.MASTER_ENCRYPTION_KEY,
 
     // Blockchain
-    polygonRpcUrl: process.env.POLYGON_RPC_URL,
-    polygonTestnetRpcUrl: process.env.POLYGON_TESTNET_RPC_URL,
+    polygonRpcUrl: process.env.ALCHEMY_POLYGON_TESTNET_RPC_URL || process.env.POLYGON_RPC_URL,
+    polygonTestnetRpcUrl: process.env.ALCHEMY_POLYGON_TESTNET_RPC_URL || process.env.POLYGON_TESTNET_RPC_URL,
     contractManagerAddress: process.env.CONTRACT_MANAGER_ADDRESS,
     contractNftAddress: process.env.CONTRACT_NFT_ADDRESS,
     adminWalletAddress: process.env.ADMIN_WALLET_ADDRESS,

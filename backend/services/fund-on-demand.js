@@ -125,7 +125,7 @@ class FundOnDemandService {
             }
 
             const balance = await this.getWalletBalance(wallet.publicAddress);
-            const needsFunding = balance < this.minGasThreshold;
+            const needsFunding = balance < this.minBuffer;
 
             return {
                 address: wallet.publicAddress,

@@ -104,13 +104,17 @@ exports.googleAuth = async (req, res, next) => {
 
 /**
  * Privy authentication
+ * Le privyId est extrait de req.privyUser (vérifié par le middleware verifyPrivyToken),
+ * pas du body client (qui ne doit plus être trusted pour l'identité).
  */
 exports.privyAuth = async (req, res, next) => {
     try {
-        const { privyId, email, walletAddress, profileData } = req.body;
+        const { email, walletAddress, profileData } = req.body;
+        // privyId extrait du token vérifié, pas du body
+        const privyId = req.privyUser?.userId;
 
         if (!privyId || !email) {
-            return res.status(400).json({ error: 'Privy ID and email are required' });
+            return res.status(400).json({ error: 'Token Privy invalide ou email manquant' });
         }
 
         const result = await authService.privyAuth(privyId, email, walletAddress, profileData);
