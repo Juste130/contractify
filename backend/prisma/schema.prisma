@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ==================== USER MANAGEMENT ====================
@@ -59,6 +60,8 @@ model UserWallet {
 // ==================== CONTRACT CACHE ====================
 
 enum ContractStatus {
+  DRAFT_WAITING_SIGNERS
+  READY_TO_DEPLOY
   DRAFT
   PENDING_SIGNATURES
   ACTIVE
@@ -71,20 +74,37 @@ enum ContractStatus {
 
 model ContractCache {
   id          String         @id @default(uuid())
-  contractId  Int            @unique @map("contract_id")
+  contractId  Int?           @unique @map("contract_id") // Optional for drafts
   userId      String         @map("user_id")
   title       String
-  ipfsHash    String         @map("ipfs_hash")
+  ipfsHash    String?        @map("ipfs_hash") // Optional until IPFS upload
   status      ContractStatus
   metadata    Json
   lastSync    DateTime       @map("last_sync")
   createdAt   DateTime       @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signatories ContractSignatory[]
 
   @@index([userId])
   @@index([status])
   @@map("contract_cache")
+}
+
+model ContractSignatory {
+  id              String         @id @default(uuid())
+  contractCacheId String         @map("contract_cache_id")
+  email           String
+  name            String?
+  role            Int            @default(1)
+  walletAddress   String?        @map("wallet_address")
+  isRegistered    Boolean        @default(false) @map("is_registered")
+
+  contract ContractCache @relation(fields: [contractCacheId], references: [id], onDelete: Cascade)
+
+  @@index([contractCacheId])
+  @@index([email])
+  @@map("contract_signatories")
 }
 
 // ==================== TEMPLATES ====================

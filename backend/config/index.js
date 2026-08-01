@@ -27,8 +27,8 @@ const config = {
     funderPrivateKey: process.env.FUNDER_PRIVATE_KEY,
     // Note: INITIAL_GAS_AMOUNT no longer used - amounts are now dynamic per action
 
-    // Gemini
-    geminiApiKey: process.env.GEMINI_API_KEY,
+    // Groq
+    groqApiKey: process.env.GROQ_API_KEY,
 
     // Pinata (IPFS)
     pinataJwt: process.env.PINATA_JWT,
@@ -83,7 +83,7 @@ const requiredEnvVars = [
     'MASTER_ENCRYPTION_KEY',
     'JWT_SECRET',
     'JWT_REFRESH_SECRET',
-    'GEMINI_API_KEY',
+    'GROQ_API_KEY',
     'PINATA_JWT',
     'POLYGON_RPC_URL',
     'CONTRACT_MANAGER_ADDRESS',

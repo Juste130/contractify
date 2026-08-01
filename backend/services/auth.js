@@ -292,6 +292,10 @@ class AuthService {
                 }
             }
 
+            if (walletAddress) {
+                await this.resolvePendingDrafts(email, walletAddress);
+            }
+
             const token = this.generateToken(user.id, user.email, user.role);
             const refreshToken = this.generateRefreshToken(user.id);
 
@@ -307,6 +311,55 @@ class AuthService {
         } catch (error) {
             logger.error('Error with Privy auth:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Résout les signataires en attente dans les contrats DRAFT.
+     * Appelé dès qu'on a la certitude qu'un email est associé à un wallet.
+     */
+    async resolvePendingDrafts(email, walletAddress) {
+        try {
+            // 1. Trouver les signataires en attente pour cet email
+            const pendingSignatories = await prisma.contractSignatory.findMany({
+                where: {
+                    email: email,
+                    isRegistered: false
+                }
+            });
+
+            if (pendingSignatories.length === 0) return;
+
+            logger.info(`[Drafts] Résolution de ${pendingSignatories.length} invitations pour l'email: ${email}`);
+
+            // 2. Mettre à jour ces signataires
+            await prisma.contractSignatory.updateMany({
+                where: { email: email, isRegistered: false },
+                data: { isRegistered: true, walletAddress }
+            });
+
+            // 3. Vérifier chaque contrat concerné
+            const draftIds = [...new Set(pendingSignatories.map(s => s.contractCacheId))];
+            
+            for (const draftId of draftIds) {
+                // Vérifier s'il reste des signataires non inscrits sur ce contrat
+                const pendingCount = await prisma.contractSignatory.count({
+                    where: { contractCacheId: draftId, isRegistered: false }
+                });
+
+                if (pendingCount === 0) {
+                    // Tous les signataires ont un wallet ! Le contrat est prêt.
+                    await prisma.contractCache.update({
+                        where: { id: draftId },
+                        data: { status: 'READY_TO_DEPLOY' }
+                    });
+                    logger.info(`[Drafts] Le brouillon ${draftId} est maintenant READY_TO_DEPLOY !`);
+                    
+                    // TODO: Envoyer un email au créateur pour lui dire de déployer
+                }
+            }
+        } catch (error) {
+            logger.error('Error resolving pending drafts:', error);
         }
     }
 

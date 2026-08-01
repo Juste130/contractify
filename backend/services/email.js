@@ -45,6 +45,44 @@ class EmailService {
     await this.sendEmail(to, subject, html);
   }
 
+  async sendDraftInvitationEmail(to, name, contractTitle, draftId) {
+    const subject = `Vous êtes invité(e) à signer un contrat : ${contractTitle}`;
+    const signupUrl = `${config.frontendUrl}/signup?redirect=/contract-details?id=${draftId}`;
+    const html = `
+      <div style="font-family: 'Inter', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0f0f1a; color: #e0e0e0; border-radius: 16px; overflow: hidden;">
+        <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 40px 40px 30px; text-align: center;">
+          <h1 style="color: #FFC107; font-size: 28px; margin: 0 0 8px;">ContracTify</h1>
+          <p style="color: #888; margin: 0; font-size: 14px;">Contrats intelligents sur blockchain</p>
+        </div>
+        <div style="padding: 40px;">
+          <h2 style="color: #ffffff; font-size: 22px; margin: 0 0 16px;">Bonjour ${name},</h2>
+          <p style="color: #aaa; line-height: 1.7; margin-bottom: 20px;">
+            Vous avez été invité(e) à signer le contrat suivant sur la plateforme ContracTify :
+          </p>
+          <div style="background: #1a1a2e; border: 1px solid #FFC10730; border-radius: 12px; padding: 20px; margin-bottom: 28px;">
+            <p style="color: #FFC107; font-weight: bold; font-size: 16px; margin: 0;">${contractTitle}</p>
+            <p style="color: #666; font-size: 12px; margin: 8px 0 0; font-family: monospace;">Réf: ${draftId.slice(0, 8)}...</p>
+          </div>
+          <p style="color: #aaa; line-height: 1.7; margin-bottom: 28px;">
+            Pour signer ce contrat, vous devez d'abord créer un compte gratuit sur ContracTify. 
+            Un portefeuille numérique sécurisé vous sera automatiquement attribué.
+          </p>
+          <div style="text-align: center; margin-bottom: 32px;">
+            <a href="${signupUrl}" 
+               style="background: #FFC107; color: #212121; padding: 14px 32px; text-decoration: none; border-radius: 10px; display: inline-block; font-weight: bold; font-size: 15px;">
+              Créer mon compte et signer
+            </a>
+          </div>
+          <p style="color: #555; font-size: 12px; text-align: center; border-top: 1px solid #222; padding-top: 20px; margin: 0;">
+            Votre signature aura valeur légale, conforme à la réglementation eIDAS.<br>
+            Si vous n'attendiez pas cet email, vous pouvez l'ignorer.
+          </p>
+        </div>
+      </div>
+    `;
+    await this.sendEmail(to, subject, html);
+  }
+
   async sendSignatureRequest(to, contractTitle, contractId, signerName) {
     const subject = `Signature requise: ${contractTitle}`;
     const html = `

@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, ReactNode } from 'react';
+import { useEffect, useRef, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/hooks/useAuth';
 import { Spinner } from '../ui/spinner';
+
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/how-it-works', '/reset-password'];
+
+function isPublicPath(pathname: string) {
+    return PUBLIC_PATHS.includes(pathname);
+}
 
 interface ProtectedRouteProps {
     children: ReactNode;
@@ -14,27 +20,28 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
     const { user, isAuthenticated, isLoading, checkAuth } = useAuthStore();
     const router = useRouter();
     const pathname = usePathname();
+    const hasChecked = useRef(false);
 
+    // Only verify auth once per session — avoid network call on every navigation
     useEffect(() => {
-        // Vérifier l'auth au chargement si on n'est pas déjà authentifié
-        if (!isAuthenticated) {
+        if (!isAuthenticated && !hasChecked.current && !isPublicPath(pathname)) {
+            hasChecked.current = true;
             checkAuth();
         }
-    }, [isAuthenticated, checkAuth]);
+    }, [isAuthenticated, checkAuth, pathname]);
 
+    // Redirect logic
     useEffect(() => {
-        // Si fini de charger et pas authentifié, rediriger vers login
-        if (!isLoading && !isAuthenticated && !['/login', '/signup', '/', '/how-it-works', '/reset-password'].includes(pathname)) {
-            router.push(`/login?callbackUrl=${encodeURIComponent(pathname)}`);
+        if (!isLoading && !isAuthenticated && !isPublicPath(pathname)) {
+            router.replace(`/login?callbackUrl=${encodeURIComponent(pathname)}`);
         }
-
-        // Si admin requis et utilisateur n'est pas admin
         if (isAuthenticated && requireAdmin && user?.role !== 'ADMIN') {
-            router.push('/dashboard');
+            router.replace('/dashboard');
         }
     }, [isAuthenticated, isLoading, user, requireAdmin, router, pathname]);
 
-    if (isLoading) {
+    // Only block render (show spinner) on protected routes while loading
+    if (isLoading && !isPublicPath(pathname)) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-background">
                 <Spinner size="xl" label="Chargement de votre session..." />
@@ -42,8 +49,9 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
         );
     }
 
-    if (!isAuthenticated && !['/login', '/signup', '/', '/how-it-works', '/reset-password'].includes(pathname)) {
-        return null; // Évite les flashs de contenu protégé
+    // Don't flash protected content before redirect
+    if (!isAuthenticated && !isPublicPath(pathname)) {
+        return null;
     }
 
     return <>{children}</>;

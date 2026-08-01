@@ -32,27 +32,21 @@ export function LandingPage() {
     }
   ];
 
-  const testimonials = [
+  const howItWorks = [
     {
-      name: "Marie Laurent",
-      role: "Directrice RH",
-      company: "TechCorp",
-      content: "Contractify nous a fait gagner 80% de temps sur la gestion des contrats. L'IA génère des documents parfaits à chaque fois.",
-      rating: 5
+      step: "1",
+      title: "Rédigez ou Importez",
+      description: "Générez un contrat sur mesure avec notre IA spécialisée (Droit OHADA/Bénin) ou importez directement votre propre PDF."
     },
     {
-      name: "Pierre Dubois",
-      role: "Freelance",
-      company: "Consultant",
-      content: "Enfin une solution simple pour mes contrats freelance. Plus besoin d'un juriste pour chaque mission !",
-      rating: 5
+      step: "2",
+      title: "Invitez et Signez",
+      description: "Ajoutez les adresses emails de vos signataires. Ils signent numériquement après une vérification d'identité sécurisée."
     },
     {
-      name: "Sophie Martin",
-      role: "CEO",
-      company: "StartupCo",
-      content: "La signature électronique et le suivi en temps réel ont transformé notre processus. Indispensable !",
-      rating: 5
+      step: "3",
+      title: "Sécurisation Blockchain",
+      description: "Votre contrat et ses signatures sont ancrés sur la blockchain et stockés sur IPFS pour garantir leur immuabilité."
     }
   ];
 
@@ -112,12 +106,12 @@ export function LandingPage() {
             </div>
           </div>
 
-          <div className="mt-16">
-            <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-border">
+          <div className="mt-16 flex justify-center">
+            <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-border w-full max-w-4xl transition-transform hover:scale-[1.01] duration-300">
               <ImageWithFallback
                 src="https://images.unsplash.com/photo-1748609339084-ea43ec1b8fbb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBidXNpbmVzcyUyMGRhc2hib2FyZHxlbnwxfHx8fDE3NjYwMDAyNjN8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
                 alt="Dashboard Contractify"
-                className="w-full"
+                className="w-full object-cover"
               />
             </div>
           </div>
@@ -227,31 +221,27 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Testimonials */}
-      <section id="testimonials" className="py-20 bg-muted px-4 sm:px-6 lg:px-8">
+      {/* How it works Section */}
+      <section id="how-it-works" className="py-20 bg-muted px-4 sm:px-6 lg:px-8">
         <div className="container mx-auto max-w-6xl">
-          <div className="text-center mb-12">
-            <h2 className="mb-4">Ils nous font confiance</h2>
-            <p className="text-muted-foreground">
-              Découvrez ce que nos utilisateurs pensent de Contractify
+          <div className="text-center mb-16">
+            <h2 className="mb-4 text-3xl font-bold">Comment ça marche ?</h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto">
+              Un processus simple en trois étapes pour créer, faire signer et sécuriser vos documents.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {testimonials.map((testimonial, index) => (
-              <Card key={index} className="p-6">
-                <div className="flex gap-1 mb-4">
-                  {[...Array(testimonial.rating)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-[#FFC107] text-[#FFC107]" />
-                  ))}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
+            {/* Connecting line for desktop */}
+            <div className="hidden md:block absolute top-1/2 left-0 w-full h-0.5 bg-border -translate-y-1/2 z-0" />
+            
+            {howItWorks.map((item, index) => (
+              <Card key={index} className="p-8 text-center relative z-10 bg-background border-2 hover:border-[#FFC107] transition-colors">
+                <div className="w-12 h-12 mx-auto mb-6 bg-[#FFC107] text-[#212121] rounded-full flex items-center justify-center font-bold text-xl shadow-lg">
+                  {item.step}
                 </div>
-                <p className="text-muted-foreground mb-6">"{testimonial.content}"</p>
-                <div>
-                  <p>{testimonial.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {testimonial.role} - {testimonial.company}
-                  </p>
-                </div>
+                <h3 className="mb-4 text-xl font-semibold">{item.title}</h3>
+                <p className="text-muted-foreground leading-relaxed">{item.description}</p>
               </Card>
             ))}
           </div>

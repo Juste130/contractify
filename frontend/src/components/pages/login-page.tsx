@@ -16,16 +16,17 @@ export function LoginPage() {
   const { privyLogin, isAuthenticated } = useAuthStore();
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Debug Privy state
+  // Debug Privy state (dev only)
   useEffect(() => {
-    console.log('🔐 Privy State:', { ready, authenticated, email: user?.email?.address, isAuthenticated });
-  }, [ready, authenticated, user, isAuthenticated]);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Privy State:', { ready, authenticated, isAuthenticated });
+    }
+  }, [ready, authenticated, isAuthenticated]);
 
   // Si déjà authentifié PARTOUT, rediriger vers dashboard
   useEffect(() => {
     if (ready && authenticated && user && isAuthenticated) {
-      console.log('✅ User already authenticated everywhere, redirecting to dashboard...');
-      router.push('/dashboard');
+      router.replace('/dashboard');
     }
   }, [ready, authenticated, user, isAuthenticated, router]);
 
@@ -33,46 +34,23 @@ export function LoginPage() {
   useEffect(() => {
     const autoSync = async () => {
       if (ready && authenticated && user && !isAuthenticated) {
-        console.log('⚡ Auto-syncing with backend...');
         try {
           setIsSyncing(true);
 
           const token = await getAccessToken();
-          if (!token) {
-            console.error("No Privy access token found");
-            setIsSyncing(false);
-            return;
-          }
+          if (!token) { setIsSyncing(false); return; }
 
           const email = user.email?.address || user.google?.email;
-
-          // Priorité : Smart Wallet Privy natif > EOA Privy > EOA du user object
           const smartWallet = wallets.find(w => w.walletClientType === 'smart_wallet');
           const eoaWallet = wallets.find(w => w.walletClientType === 'privy') || wallets[0];
           const walletAddress = smartWallet?.address || eoaWallet?.address || user.wallet?.address;
 
-          if (!email) {
-            console.error("No email found from Privy user");
-            setIsSyncing(false);
-            return;
-          }
+          if (!email) { setIsSyncing(false); return; }
 
-          await privyLogin(
-            {
-              privyId: user.id,
-              email,
-              walletAddress,
-              profileData: {
-                name: user.google?.name || email.split('@')[0],
-              },
-            },
-            token
-          );
-
-          console.log('✅ Sync successful, redirecting to dashboard...');
-          router.push("/dashboard");
+          await privyLogin({ privyId: user.id, email, walletAddress, profileData: { name: user.google?.name || email.split('@')[0] } }, token);
+          router.replace("/dashboard");
         } catch (error) {
-          console.error("Error auto-syncing with backend:", error);
+          console.error("Error syncing with backend:", error);
           setIsSyncing(false);
         }
       }
@@ -82,7 +60,6 @@ export function LoginPage() {
   }, [ready, authenticated, user, isAuthenticated, privyLogin, router, wallets]);
 
   const handleLogin = () => {
-    console.log('🔓 Manual login clicked', { ready, authenticated });
     if (ready && !authenticated) {
       login();
     }

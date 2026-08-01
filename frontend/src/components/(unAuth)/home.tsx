@@ -32,7 +32,7 @@ export default function HomePage() {
     {
       icon: Shield,
       title: "Signatures Cryptographiques", 
-      description: "Signez vos contrats de manière sécurisée via MetaMask avec preuve blockchain",
+      description: "Signez vos contrats de manière sécurisée avec preuve blockchain",
       color: "text-secondary-600"
     },
     {
@@ -65,7 +65,7 @@ export default function HomePage() {
     {
       step: "03",
       title: "Signer",
-      description: "Signatures cryptographiques sécurisées via MetaMask",
+      description: "Signatures cryptographiques sécurisées ",
       icon: Shield
     },
     {

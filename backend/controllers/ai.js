@@ -6,7 +6,7 @@ const logger = require('../utils/logger');
  */
 exports.generateContract = async (req, res, next) => {
     try {
-        const { templateType, partyAData, partyBData, additionalClauses } = req.body;
+        const { templateType, partyAData, partyBData, additionalClauses, context } = req.body;
 
         if (!templateType || !partyAData || !partyBData) {
             return res.status(400).json({
@@ -18,7 +18,8 @@ exports.generateContract = async (req, res, next) => {
             templateType,
             partyAData,
             partyBData,
-            additionalClauses
+            additionalClauses,
+            context
         );
 
         res.json({

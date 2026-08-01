@@ -1,48 +1,63 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 const logger = require('../utils/logger');
 const { config } = require('../config');
 
 class AIService {
     constructor() {
-        this.genAI = new GoogleGenerativeAI(config.geminiApiKey);
-        this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        this.client = new Groq({ apiKey: config.groqApiKey });
+        // llama-3.3-70b-versatile: rapide, très bon en raisonnement juridique
+        this.model = 'llama-3.3-70b-versatile';
     }
 
+    // ─── Méthode interne centrale ────────────────────────────────────────────────
+    async _chat(messages, options = {}) {
+        const completion = await this.client.chat.completions.create({
+            model: this.model,
+            messages,
+            temperature: options.temperature ?? 0.3,
+            max_tokens: options.max_tokens ?? 4096,
+        });
+        return completion.choices[0]?.message?.content?.trim() || '';
+    }
+
+    // ─── Correction d'un input utilisateur ──────────────────────────────────────
     async correctInput(text, context) {
         try {
-            const prompt = `
-            Agis comme un expert juridique. Corrige et reformule le texte suivant pour qu'il soit professionnel et adapté à un contrat juridique français.
-            Champ concerné : ${context}
-            Texte à corriger : "${text}"
-            
-            Retourne UNIQUEMENT le texte reformulé, sans guillemets, sans explications et sans markdown.
-            `;
-
-            const result = await this.model.generateContent(prompt);
-            const response = await result.response;
-            const correctedText = response.text().trim();
+            const content = await this._chat([
+                {
+                    role: 'system',
+                    content: 'Tu es un expert juridique. Tu retournes UNIQUEMENT le texte reformulé, sans guillemets, sans explications et sans markdown.',
+                },
+                {
+                    role: 'user',
+                    content: `Corrige et reformule ce texte pour qu'il soit professionnel et adapté à un contrat juridique.\nChamp concerné : ${context}\nTexte à corriger : "${text}"`,
+                },
+            ], { max_tokens: 512 });
 
             logger.info('Input corrected successfully');
-            return correctedText;
+            return content;
         } catch (error) {
             logger.error('Error correcting input:', error);
             throw new Error('Failed to correct input');
         }
     }
 
-    async generateContract(templateType, partyAData, partyBData, additionalClauses) {
-        // Keeping this for compatibility, but moving towards template filling
+    // ─── Génération d'un contrat complet ────────────────────────────────────────
+    async generateContract(templateType, partyAData, partyBData, additionalClauses, context) {
         try {
-            const prompt = this.buildContractPrompt(templateType, partyAData, partyBData, additionalClauses);
+            const prompt = this.buildContractPrompt(templateType, partyAData, partyBData, additionalClauses, context);
 
-            const result = await this.model.generateContent(prompt);
-            const response = await result.response;
-            const content = response.text();
+            const content = await this._chat([
+                {
+                    role: 'system',
+                    content: 'Tu es un avocat d\'affaires expert. Tu rédiges des contrats juridiques professionnels, structurés, complets et parfaitement formatés en Markdown. Tu n\'ajoutes aucun commentaire en dehors du contrat lui-même.',
+                },
+                { role: 'user', content: prompt },
+            ], { temperature: 0.2, max_tokens: 8192 });
 
             const suggestions = this.extractClauseSuggestions(content);
 
             logger.info(`Contract generated for template: ${templateType}`);
-
             return { content, suggestions };
         } catch (error) {
             logger.error('Error generating contract:', error);
@@ -50,28 +65,22 @@ class AIService {
         }
     }
 
+    // ─── Amélioration d'une clause ───────────────────────────────────────────────
     async improveClause(clause, context) {
         try {
-            const prompt = `
-Améliore la clause juridique suivante pour la rendre plus claire, précise et conforme au droit français.
-${context ? `Contexte: ${context}` : ''}
-
-Clause originale:
-${clause}
-
-Format de réponse attendu:
-AMÉLIORATION: [La clause améliorée]
-EXPLICATION: [Explication des améliorations]
-`;
-
-            const result = await this.model.generateContent(prompt);
-            const response = await result.response;
-            const text = response.text();
+            const text = await this._chat([
+                {
+                    role: 'system',
+                    content: 'Tu es un expert juridique. Tu améliores des clauses contractuelles. Tu réponds toujours avec le format :\nAMÉLIORATION: [la clause améliorée]\nEXPLICATION: [explication courte]',
+                },
+                {
+                    role: 'user',
+                    content: `Améliore cette clause juridique pour la rendre plus claire et précise.\n${context ? `Contexte: ${context}\n` : ''}Clause originale:\n${clause}`,
+                },
+            ], { max_tokens: 2048 });
 
             const [improved, explanation] = this.parseImprovement(text);
-
             logger.info('Clause improved successfully');
-
             return { improved, explanation };
         } catch (error) {
             logger.error('Error improving clause:', error);
@@ -79,18 +88,19 @@ EXPLICATION: [Explication des améliorations]
         }
     }
 
+    // ─── Suggestion de clauses ───────────────────────────────────────────────────
     async suggestClauses(contractType, specificNeeds) {
         try {
-            const prompt = `
-Suggère 5 clauses juridiques importantes pour un contrat de type "${contractType}" en droit français.
-${specificNeeds ? `Besoins spécifiques: ${specificNeeds.join(', ')}` : ''}
-
-Fournis uniquement la liste des clauses, une par ligne.
-`;
-
-            const result = await this.model.generateContent(prompt);
-            const response = await result.response;
-            const content = response.text();
+            const content = await this._chat([
+                {
+                    role: 'system',
+                    content: 'Tu es un expert juridique. Tu fournis uniquement une liste de clauses, une par ligne, sans numérotation ni explication.',
+                },
+                {
+                    role: 'user',
+                    content: `Suggère 5 clauses juridiques importantes pour un contrat de type "${contractType}".\n${specificNeeds ? `Besoins spécifiques: ${specificNeeds.join(', ')}` : ''}`,
+                },
+            ], { max_tokens: 1024 });
 
             const clauses = content
                 .split('\n')
@@ -99,7 +109,6 @@ Fournis uniquement la liste des clauses, une par ligne.
                 .slice(0, 5);
 
             logger.info(`Suggested ${clauses.length} clauses for ${contractType}`);
-
             return clauses;
         } catch (error) {
             logger.error('Error suggesting clauses:', error);
@@ -107,30 +116,21 @@ Fournis uniquement la liste des clauses, une par ligne.
         }
     }
 
+    // ─── Validation d'un contrat ─────────────────────────────────────────────────
     async validateContract(contractText) {
         try {
-            const prompt = `
-Analyse le contrat suivant et identifie:
-1. Les problèmes de conformité juridique
-2. Les clauses manquantes importantes
-3. Les suggestions d'amélioration
-
-Contrat:
-${contractText.substring(0, 3000)}
-
-Fournis une réponse structurée avec:
-PROBLÈMES:
-- [Liste des problèmes]
-SUGGESTIONS:
-- [Liste des suggestions]
-`;
-
-            const result = await this.model.generateContent(prompt);
-            const response = await result.response;
-            const text = response.text();
+            const text = await this._chat([
+                {
+                    role: 'system',
+                    content: 'Tu es un expert juridique. Tu analyses des contrats et réponds toujours avec le format exact :\nPROBLÈMES:\n- [liste]\nSUGGESTIONS:\n- [liste]',
+                },
+                {
+                    role: 'user',
+                    content: `Analyse ce contrat et identifie les problèmes de conformité et les suggestions d'amélioration :\n\n${contractText.substring(0, 3000)}`,
+                },
+            ], { max_tokens: 2048 });
 
             const { issues, suggestions } = this.parseValidation(text);
-
             logger.info('Contract validation completed');
 
             return {
@@ -144,48 +144,33 @@ SUGGESTIONS:
         }
     }
 
+    // ─── Extraction des paramètres pour le smart contract ────────────────────────
     async extractContractParameters(contractText) {
         try {
-            const prompt = `
-Tu es un expert en analyse juridique et en blockchain.
-Extrais les informations suivantes du contrat ci-dessous pour alimenter un smart contract.
-Retourne UNIQUEMENT un objet JSON valide, sans balises markdown ni texte supplémentaire.
+            const text = await this._chat([
+                {
+                    role: 'system',
+                    content: 'Tu es un expert en analyse juridique et blockchain. Tu retournes UNIQUEMENT un objet JSON valide, sans balises markdown ni texte supplémentaire.',
+                },
+                {
+                    role: 'user',
+                    content: `Extrais les informations suivantes du contrat pour alimenter un smart contract. Structure JSON attendue :\n{\n  "contractType": "type du contrat",\n  "escrowAmountWei": "montant en WEI (string), '0' si non trouvé",\n  "deadlineTimestamp": "timestamp UNIX (number), 0 si non trouvé",\n  "penaltyPercent": "pourcentage de pénalité (number), 0 si non trouvé"\n}\n\nContrat :\n${contractText.substring(0, 10000)}`,
+                },
+            ], { temperature: 0.1, max_tokens: 512 });
 
-Structure JSON attendue :
-{
-  "contractType": "type du contrat (ex: prestation_services, nda, etc)",
-  "escrowAmountWei": "Montant de la prestation converti en WEI sous forme de chaîne de caractères (ex: 250000000000000000 pour 0.25 MATIC). Met '0' si non trouvé",
-  "deadlineTimestamp": "Timestamp UNIX de la date limite d'exécution ou de livraison. Met 0 si non trouvé",
-  "penaltyPercent": "Pourcentage de pénalité par jour de retard (entier, ex: 10 pour 10%). Met 0 si non trouvé"
-}
+            let cleaned = text;
+            if (cleaned.startsWith('```json')) cleaned = cleaned.substring(7);
+            else if (cleaned.startsWith('```')) cleaned = cleaned.substring(3);
+            if (cleaned.endsWith('```')) cleaned = cleaned.substring(0, cleaned.length - 3);
 
-Contrat :
-${contractText.substring(0, 10000)}
-`;
+            const jsonParams = JSON.parse(cleaned.trim());
+            logger.info('Contract parameters extracted successfully via Groq');
 
-            const result = await this.model.generateContent(prompt);
-            const response = await result.response;
-            let text = response.text().trim();
-            
-            // Clean markdown blocks if present
-            if (text.startsWith('\`\`\`json')) {
-                text = text.substring(7);
-            } else if (text.startsWith('\`\`\`')) {
-                text = text.substring(3);
-            }
-            if (text.endsWith('\`\`\`')) {
-                text = text.substring(0, text.length - 3);
-            }
-
-            const jsonParams = JSON.parse(text.trim());
-            logger.info('Contract parameters extracted successfully via Gemini');
-            
-            // Ensure values are strings or numbers as expected
             return {
                 contractType: jsonParams.contractType || 'prestation_services',
                 escrowAmountWei: String(jsonParams.escrowAmountWei || '0'),
                 deadlineTimestamp: Number(jsonParams.deadlineTimestamp || 0),
-                penaltyPercent: Number(jsonParams.penaltyPercent || 0)
+                penaltyPercent: Number(jsonParams.penaltyPercent || 0),
             };
         } catch (error) {
             logger.error('Error extracting contract parameters:', error);
@@ -193,60 +178,53 @@ ${contractText.substring(0, 10000)}
         }
     }
 
-    buildContractPrompt(templateType, partyAData, partyBData, additionalClauses) {
-        return `
-Génère un contrat de ${templateType} en français, professionnel et conforme au droit français.
+    // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-PARTIE A (${partyAData.type || 'Partie A'}):
+    buildContractPrompt(templateType, partyAData, partyBData, additionalClauses, context) {
+        return `${context || `Génère un contrat de type "${templateType}" professionnel et complet.`}
+
+PARTIE A (${partyAData.type || 'Partie A'}) :
 ${JSON.stringify(partyAData, null, 2)}
 
-PARTIE B (${partyBData.type || 'Partie B'}):
+PARTIE B (${partyBData.type || 'Partie B'}) :
 ${JSON.stringify(partyBData, null, 2)}
 
-${additionalClauses ? `CLAUSES ADDITIONNELLES:\n${additionalClauses.join('\n')}` : ''}
+${additionalClauses && additionalClauses.length > 0 ? `CLAUSES ADDITIONNELLES REQUISES :\n${additionalClauses.join('\n')}` : ''}
 
-Le contrat doit inclure:
-1. Préambule
+Le contrat doit obligatoirement inclure les sections suivantes, bien séparées et titrées :
+1. Préambule & identification des parties
 2. Objet du contrat
-3. Durée et date d'effet
-4. Obligations des parties
-5. Conditions de paiement (si applicable)
-6. Clause de confidentialité
-7. Clause de résiliation
-8. Clause de litige et juridiction compétente
-9. Signatures
+3. Durée et date d'entrée en vigueur
+4. Obligations de chaque partie
+5. Conditions financières et modalités de paiement
+6. Confidentialité
+7. Résiliation
+8. Droit applicable et juridiction compétente
+9. Signatures et date
 
-Utilise un langage juridique précis et professionnel.
-`;
+Rédige un contrat complet, structuré en Markdown (# pour les titres, ## pour les articles). Utilise un langage juridique précis et professionnel.`;
     }
 
     extractClauseSuggestions(content) {
-        const suggestions = [];
-        const lines = content.split('\n');
-
-        for (const line of lines) {
-            if (line.includes('Clause') || line.includes('Article') || line.match(/^\d+\./)) {
-                suggestions.push(line.trim());
-            }
-        }
-
-        return suggestions.slice(0, 5);
+        return content
+            .split('\n')
+            .filter(line => line.includes('Article') || line.match(/^#{1,2}\s/))
+            .map(line => line.replace(/^[#\s]+/, '').trim())
+            .filter(Boolean)
+            .slice(0, 5);
     }
 
     parseImprovement(result) {
         const improvedMatch = result.match(/AMÉLIORATION:([\s\S]*?)(?=EXPLICATION:|$)/i);
         const explanationMatch = result.match(/EXPLICATION:([\s\S]*?)$/i);
-
         const improved = improvedMatch ? improvedMatch[1].trim() : result;
         const explanation = explanationMatch ? explanationMatch[1].trim() : '';
-
         return [improved, explanation];
     }
 
     parseValidation(result) {
         const issues = [];
         const suggestions = [];
-
         const problemsSection = result.match(/PROBLÈMES:([\s\S]*?)(?=SUGGESTIONS:|$)/i);
         const suggestionsSection = result.match(/SUGGESTIONS:([\s\S]*?)$/i);
 
@@ -258,7 +236,6 @@ Utilise un langage juridique précis et professionnel.
                     .filter(line => line.length > 0)
             );
         }
-
         if (suggestionsSection) {
             suggestions.push(
                 ...suggestionsSection[1]
@@ -267,7 +244,6 @@ Utilise un langage juridique précis et professionnel.
                     .filter(line => line.length > 0)
             );
         }
-
         return { issues, suggestions };
     }
 }

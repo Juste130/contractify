@@ -4,6 +4,27 @@ const contractController = require('../controllers/contract');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 
 /**
+ * @route   POST /api/contracts/draft
+ * @desc    Save a new contract draft and wait for signers
+ * @access  Private
+ */
+router.post('/draft', authenticate, contractController.saveDraft);
+
+/**
+ * @route   GET /api/contracts/draft/:id
+ * @desc    Get details of a draft contract
+ * @access  Private
+ */
+router.get('/draft/:id', authenticate, contractController.getDraftDetails);
+
+/**
+ * @route   POST /api/contracts/draft/:id/deploy
+ * @desc    Mark draft as deployed with on-chain ID
+ * @access  Private
+ */
+router.post('/draft/:id/deploy', authenticate, contractController.markDraftDeployed);
+
+/**
  * @route   GET /api/contracts/cached
  * @desc    Get cached contracts for current user
  * @access  Private

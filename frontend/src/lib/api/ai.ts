@@ -26,6 +26,7 @@ export const aiApi = {
         partyAData: Record<string, any>;
         partyBData: Record<string, any>;
         additionalClauses?: string[];
+        context?: string;
     }): Promise<{
         contract: string;
         suggestions: string[];

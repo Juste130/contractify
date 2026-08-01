@@ -17,9 +17,6 @@ export function LandingHeader() {
             <a href="#how-it-works" className="text-foreground hover:text-[#FFC107] transition-colors">
               Comment ça marche
             </a>
-            <a href="#testimonials" className="text-foreground hover:text-[#FFC107] transition-colors">
-              Témoignages
-            </a>
             <a href="#faq" className="text-foreground hover:text-[#FFC107] transition-colors">
               FAQ
             </a>

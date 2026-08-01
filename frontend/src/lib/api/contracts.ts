@@ -7,6 +7,8 @@ export interface Contract {
     title: string;
     ipfsHash: string;
     status:
+    | 'DRAFT_WAITING_SIGNERS'
+    | 'READY_TO_DEPLOY'
     | 'DRAFT'
     | 'PENDING_SIGNATURES'
     | 'ACTIVE'
@@ -21,6 +23,42 @@ export interface Contract {
 }
 
 export const contractsApi = {
+    /**
+     * Save a draft contract and wait for signers (Option 1)
+     */
+    async saveDraft(data: any): Promise<{ contract: Contract }> {
+        try {
+            const response = await apiClient.post('/api/contracts/draft', data);
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
+    /**
+     * Get details of a draft contract
+     */
+    async getDraftDetails(id: string): Promise<{ contract: Contract & { signatories?: any[] } }> {
+        try {
+            const response = await apiClient.get(`/api/contracts/draft/${id}`);
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
+    /**
+     * Mark draft as deployed on chain
+     */
+    async markDraftDeployed(id: string, data: { contractId: number; transactionHash: string }): Promise<{ contract: Contract }> {
+        try {
+            const response = await apiClient.post(`/api/contracts/draft/${id}/deploy`, data);
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
     /**
      * Get cached contracts for current user
      */
