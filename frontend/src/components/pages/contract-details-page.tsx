@@ -12,7 +12,6 @@ import { useContract } from "@/hooks/useContract"
 import {
   FileText,
   Users,
-  Calendar,
   Shield,
   Download,
   ExternalLink,
@@ -23,6 +22,8 @@ import {
   Send
 } from "lucide-react"
 import { KycSignatureModal } from "@/components/contract/kyc-signature-modal"
+import { SignaturePanel } from "@/components/contract/signaturePanel"
+import { NFTViewer } from "@/components/nft/NFTViewer"
 import { AiBadge } from "../ui/ai-badge"
 import { ContractMarkdownRenderer } from "@/components/contract/contract-markdown-renderer"
 
@@ -325,6 +326,14 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
 
             {/* Sidebar: Metadata & Signers */}
             <div className="space-y-6">
+              {(canSign || currentUserSigner?.hasSigned) && (
+                <SignaturePanel
+                  hasSigned={!!currentUserSigner?.hasSigned}
+                  onSign={() => setShowKycModal(true)}
+                  isSigning={isSigning}
+                />
+              )}
+
               <Card className="p-6">
                 <h3 className="font-bold flex items-center gap-2 mb-6">
                   <Users className="w-5 h-5 text-primary" />
@@ -394,12 +403,21 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                     <p className="text-[10px] text-muted-foreground mb-4">
                       Ce contrat est immuable et ancré sur le réseau Polygon. Chaque signature est une transaction vérifiable.
                     </p>
-                    <Button variant="outline" className="w-full text-xs gap-2" asChild>
-                      <a href={`https://gateway.pinata.cloud/ipfs/${contract.ipfsHash}`} target="_blank" rel="noopener noreferrer">
-                        <Download className="w-3 h-3" />
-                        Voir sur IPFS
-                      </a>
-                    </Button>
+                    <div className="flex flex-col gap-2">
+                      <NFTViewer
+                        tokenId={contract.metadata?.nftTokenId || String(contract.contractId || 1)}
+                        contractId={String(contract.contractId || contract.id)}
+                        title={contract.title}
+                        effectiveDate={contract.createdAt}
+                        ipfsUrl={contract.ipfsHash ? ipfsApi.getPublicUrl(contract.ipfsHash) : undefined}
+                      />
+                      <Button variant="outline" className="w-full text-xs gap-2" asChild>
+                        <a href={`https://gateway.pinata.cloud/ipfs/${contract.ipfsHash}`} target="_blank" rel="noopener noreferrer">
+                          <Download className="w-3 h-3" />
+                          Voir sur IPFS
+                        </a>
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </Card>

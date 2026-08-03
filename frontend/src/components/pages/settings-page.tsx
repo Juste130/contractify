@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { AppSidebar } from "../layout/app-sidebar";
@@ -10,6 +10,7 @@ import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Switch } from "../ui/switch";
 import { Separator } from "../ui/separator";
 import { useAuthStore } from "@/hooks/useAuth";
+import { useNotifications } from "@/hooks/useNotifications";
 import { useWeb3 } from "@/contexts/web3-context";
 import { usersApi } from "@/lib/api/users";
 import {
@@ -31,6 +32,7 @@ export function SettingsPage() {
   const [selectedSection, setSelectedSection] = useState("profile");
   const { user, checkAuth } = useAuthStore();
   const { account, balance, chainId, connect, disconnect, isConnecting, isConnected } = useWeb3();
+  const { notifySuccess, notifyError } = useNotifications();
   const [isUpdating, setIsUpdating] = useState(false);
   const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
 
@@ -52,8 +54,11 @@ export function SettingsPage() {
       await usersApi.updateProfile({ name });
       await checkAuth(); // Refresh user data
       setMessage({ text: "Profil mis à jour avec succès !", type: 'success' });
+      notifySuccess("Profil mis à jour", "Vos informations ont été enregistrées avec succès.");
     } catch (err: any) {
-      setMessage({ text: err.response?.data?.error || "Erreur lors de la mise à jour", type: 'error' });
+      const errMsg = err.response?.data?.error || "Erreur lors de la mise à jour";
+      setMessage({ text: errMsg, type: 'error' });
+      notifyError("Erreur de mise à jour", errMsg);
     } finally {
       setIsUpdating(false);
     }

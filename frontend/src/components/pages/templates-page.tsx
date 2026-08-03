@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { TemplateSelector } from "@/components/contract/templateSelector";
 
 export function TemplatesPage() {
   const router = useRouter();
@@ -123,38 +124,10 @@ export function TemplatesPage() {
             <AiBadge />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {aiTemplates.map((template) => {
-              const Icon = template.icon;
-              return (
-                <Card key={template.id} className="p-6 hover:shadow-lg transition-shadow">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-[#FFC107]/10 flex items-center justify-center">
-                      <Icon className="w-6 h-6 text-[#FFC107]" />
-                    </div>
-                    <AiBadge />
-                  </div>
-
-                  <h3 className="mb-2">{template.name}</h3>
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
-                    {template.description}
-                  </p>
-
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-muted-foreground">
-                      {template.uses} utilisations
-                    </p>
-                    <Button
-                      className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300]"
-                      onClick={() => router.push('/create-contract')}
-                    >
-                      Utiliser
-                    </Button>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
+          <TemplateSelector
+            templates={aiTemplates.map(t => ({ ...t, isAi: true }))}
+            onSelect={() => router.push('/create-contract')}
+          />
         </div>
 
         {/* Custom Templates */}

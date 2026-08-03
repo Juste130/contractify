@@ -1,5 +1,5 @@
-import { Button } from "../ui/button";
 import Link from "next/link";
+import { AuthAwareCta } from "./auth-aware-cta";
 
 export function LandingHeader() {
   return (
@@ -22,18 +22,7 @@ export function LandingHeader() {
             </a>
           </nav>
 
-          <div className="flex items-center gap-3">
-            <Link href="/login">
-              <Button variant="ghost">
-                Se connecter
-              </Button>
-            </Link>
-            <Link href="/signup">
-              <Button className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300]">
-                Commencer gratuitement
-              </Button>
-            </Link>
-          </div>
+          <AuthAwareCta />
         </div>
       </div>
     </header>
