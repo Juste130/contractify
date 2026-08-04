@@ -5,7 +5,7 @@ import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuthStore } from "@/hooks/useAuth";
 import { Spinner } from "../ui/spinner";
 
@@ -15,6 +15,10 @@ export function LoginPage() {
   const router = useRouter();
   const { privyLogin, isAuthenticated } = useAuthStore();
   const [isSyncing, setIsSyncing] = useState(false);
+  // Empêche des appels privyLogin() concurrents/en rafale pendant la création
+  // du wallet embarqué Privy (le tableau `wallets` change plusieurs fois juste
+  // après la connexion, ce qui pouvait redéclencher l'effet ci-dessous en boucle).
+  const syncInProgress = useRef(false);
 
   // Debug Privy state (dev only)
   useEffect(() => {
@@ -33,7 +37,8 @@ export function LoginPage() {
   // Auto-sync if already authenticated via Privy but not backend
   useEffect(() => {
     const autoSync = async () => {
-      if (ready && authenticated && user && !isAuthenticated) {
+      if (ready && authenticated && user && !isAuthenticated && !syncInProgress.current) {
+        syncInProgress.current = true;
         try {
           setIsSyncing(true);
 
@@ -52,12 +57,17 @@ export function LoginPage() {
         } catch (error) {
           console.error("Error syncing with backend:", error);
           setIsSyncing(false);
+        } finally {
+          syncInProgress.current = false;
         }
       }
     };
 
     autoSync();
-  }, [ready, authenticated, user, isAuthenticated, privyLogin, router, wallets]);
+    // `wallets` retiré des dépendances : ce tableau change plusieurs fois pendant
+    // la création du wallet embarqué et redéclenchait cet effet en rafale.
+    // `wallets` est lu depuis la closure au moment de l'exécution, ce qui suffit ici.
+  }, [ready, authenticated, user, isAuthenticated, privyLogin, router]);
 
   const handleLogin = () => {
     if (ready && !authenticated) {
@@ -117,4 +127,3 @@ export function LoginPage() {
     </div>
   );
 }
-

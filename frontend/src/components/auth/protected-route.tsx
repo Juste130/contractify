@@ -22,13 +22,18 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
     const pathname = usePathname();
     const hasChecked = useRef(false);
 
-    // Only verify auth once per session — avoid network call on every navigation
+    // Vérifie TOUJOURS la session une fois par chargement d'app sur une route
+    // protégée — peu importe ce que dit l'état persisté (localStorage). Ce dernier
+    // n'est qu'un indice d'affichage optimiste, jamais une preuve de session valide.
+    // (Le retrait de "!isAuthenticated" de cette condition est LE correctif qui
+    // empêche la boucle login <-> dashboard : sans lui, un flag "isAuthenticated:true"
+    // périmé en localStorage empêchait toute revérification côté serveur.)
     useEffect(() => {
-        if (!isAuthenticated && !hasChecked.current && !isPublicPath(pathname)) {
+        if (!hasChecked.current && !isPublicPath(pathname)) {
             hasChecked.current = true;
             checkAuth();
         }
-    }, [isAuthenticated, checkAuth, pathname]);
+    }, [checkAuth, pathname]);
 
     // Redirect logic
     useEffect(() => {

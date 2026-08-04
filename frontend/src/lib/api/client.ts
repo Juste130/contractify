@@ -45,12 +45,15 @@ apiClient.interceptors.response.use(
                 // Retry la requête originale
                 return apiClient(originalRequest);
             } catch (refreshError) {
-                // Si refresh échoue, rediriger vers login
-                // Si refresh échoue, rediriger vers login seulement si on n'y est pas déjà
+                // Si refresh échoue, la session est réellement morte côté backend.
+                // On DOIT nettoyer l'état persisté ici, sinon login-page.tsx va lire
+                // un "isAuthenticated: true" périmé et nous renvoyer aussitôt vers
+                // /dashboard, recréant la boucle infinie login <-> dashboard.
                 if (typeof window !== 'undefined' &&
                     !window.location.pathname.includes('/login') &&
                     !window.location.pathname.includes('/register') &&
                     window.location.pathname !== '/') {
+                    localStorage.removeItem('auth-storage');
                     window.location.href = '/login';
                 }
                 return Promise.reject(refreshError);
