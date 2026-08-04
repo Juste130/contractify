@@ -27,7 +27,8 @@ build/
 Thumbs.db
 
 # Prisma
-prisma/migrations/
+# migrations are tracked in git
+
 
 # Testing
 coverage/

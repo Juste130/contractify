@@ -1,0 +1,34 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, justedev ]
+  pull_request:
+    branches: [ main, justedev ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install & Build Backend
+        run: |
+          cd backend
+          npm ci
+          npm test --if-present
+
+      - name: Install & Build Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run lint --if-present
+          npm run build

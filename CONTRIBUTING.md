@@ -44,7 +44,8 @@ The following behaviors are not tolerated:
 ### Prerequisites
 
 Ensure you have:
-- Node.js 18+
+- Node.js 20+
+- npm 10+ (official package manager for all sub-projects)
 - PostgreSQL 14+
 - Git
 - A GitHub account

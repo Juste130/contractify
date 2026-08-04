@@ -37,13 +37,11 @@ class BlockchainSyncService {
         try {
             const contractIds = await this.contractManager.getUserContracts(userAddress);
 
-            let syncedCount = 0;
+            await Promise.all(
+                contractIds.map((contractId) => this.syncContract(contractId.toString(), userId))
+            );
 
-            for (const contractId of contractIds) {
-                await this.syncContract(contractId.toString(), userId);
-                syncedCount++;
-            }
-
+            const syncedCount = contractIds.length;
             logger.info(`Synced ${syncedCount} contracts for user ${userAddress}`);
 
             return syncedCount;
@@ -121,50 +119,96 @@ class BlockchainSyncService {
             return;
         }
 
-        try {
-            this.contractManager.on('ContractCreated', async (contractId, creator, createdAt, additionalSigners) => {
-                logger.info(`New contract created: ${contractId} by ${creator}`);
+        // Stop any existing polling before starting a new one
+        if (this._pollingInterval) {
+            clearInterval(this._pollingInterval);
+        }
 
+        // Use polling via queryFilter instead of contract.on() which relies on
+        // server-side eth_newFilter with a short TTL (~5min) causing "filter not found" errors.
+        try {
+            this._lastScannedBlock = await this.provider.getBlockNumber();
+            logger.info(`Blockchain event listener started (polling from block ${this._lastScannedBlock})`);
+        } catch (error) {
+            logger.error('Could not get current block number, event listener disabled:', error);
+            return;
+        }
+
+        // Free tier RPC plans (Alchemy, etc.) limit eth_getLogs to 10 blocks per request.
+        // We use 9 as a safe ceiling to stay under that limit.
+        const MAX_BLOCK_CHUNK = 9;
+
+        const processChunk = async (fromBlock, toBlock) => {
+            // ContractCreated
+            const createdEvents = await this.contractManager.queryFilter(
+                this.contractManager.filters.ContractCreated(),
+                fromBlock, toBlock
+            );
+            for (const event of createdEvents) {
+                const [contractId, creator] = event.args;
+                logger.info(`New contract created: ${contractId} by ${creator}`);
                 const wallet = await prisma.userWallet.findUnique({
                     where: { publicAddress: creator },
                 });
-
                 if (wallet) {
                     await this.syncContract(contractId.toString(), wallet.userId);
                 }
-            });
+            }
 
-            this.contractManager.on('ContractFinalized', async (contractId, nftTokenId, effectiveDate) => {
+            // ContractFinalized
+            const finalizedEvents = await this.contractManager.queryFilter(
+                this.contractManager.filters.ContractFinalized(),
+                fromBlock, toBlock
+            );
+            for (const event of finalizedEvents) {
+                const [contractId, nftTokenId] = event.args;
                 logger.info(`Contract finalized: ${contractId}, NFT: ${nftTokenId}`);
-
                 await prisma.contractCache.updateMany({
                     where: { contractId: Number(contractId) },
-                    data: {
-                        status: ContractStatus.ACTIVE,
-                        lastSync: new Date(),
-                    },
+                    data: { status: ContractStatus.ACTIVE, lastSync: new Date() },
                 });
-            });
+            }
 
-            this.contractManager.on('ContractStatusUpdated', async (contractId, oldStatus, newStatus, justification, updatedBy) => {
-                logger.info(`Contract ${contractId} status updated: ${oldStatus} -> ${newStatus}`);
-
-                const status = this.mapContractStatus(newStatus);
-
+            // ContractStatusUpdated
+            const statusEvents = await this.contractManager.queryFilter(
+                this.contractManager.filters.ContractStatusUpdated(),
+                fromBlock, toBlock
+            );
+            for (const event of statusEvents) {
+                const [contractId, , newStatus] = event.args;
+                logger.info(`Contract ${contractId} status updated to: ${newStatus}`);
+                const status = this.mapContractStatus(Number(newStatus));
                 await prisma.contractCache.updateMany({
                     where: { contractId: Number(contractId) },
-                    data: {
-                        status,
-                        lastSync: new Date(),
-                    },
+                    data: { status, lastSync: new Date() },
                 });
-            });
+            }
+        };
 
-            logger.info('Blockchain event listener started');
-        } catch (error) {
-            logger.error('Error starting event listener:', error);
-            // Don't throw, just log
-        }
+        const pollEvents = async () => {
+            try {
+                const currentBlock = await this.provider.getBlockNumber();
+                if (currentBlock <= this._lastScannedBlock) return;
+
+                let from = this._lastScannedBlock + 1;
+                const to = currentBlock;
+
+                // Process in chunks of MAX_BLOCK_CHUNK to respect free tier block range limits
+                while (from <= to) {
+                    const chunkTo = Math.min(from + MAX_BLOCK_CHUNK - 1, to);
+                    await processChunk(from, chunkTo);
+                    // Advance cursor after each successful chunk so progress is never lost
+                    this._lastScannedBlock = chunkTo;
+                    from = chunkTo + 1;
+                }
+            } catch (error) {
+                // Log but don't crash — next poll will retry from where we left off
+                logger.error('Blockchain event polling error:', error);
+            }
+        };
+
+        // Poll every 15 seconds — Polygon ~1 block/2s → ~7 blocks/poll, well within 9-block limit
+        this._pollingInterval = setInterval(pollEvents, 15_000);
     }
 
     mapContractStatus(blockchainStatus) {

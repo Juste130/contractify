@@ -105,10 +105,6 @@ Open [http://localhost:3000](http://localhost:3000)
 | [backend/docs/](./backend/docs/) | Backend API & integration guides |
 | [backend/README.md](./backend/README.md) | Backend-specific documentation |
 
-### Key Guides
-- [On-Demand Fund Integration](./backend/docs/FUND_INTEGRATION.md)
-- [Gas Estimation Guide](./backend/docs/GAS_ESTIMATION.md) (Legacy)
-- [Funding Setup](./backend/docs/FUND_ON_DEMAND.md) (Legacy)
 
 ## 🏗️ Project Structure
 
@@ -122,7 +118,6 @@ contractify/
 │   ├── routes/              # API routes
 │   ├── services/            # Business logic
 │   ├── utils/               # Utilities
-│   ├── docs/                # Documentation
 │   └── server.js            # Entry point
 ├── frontend/
 │   ├── src/
