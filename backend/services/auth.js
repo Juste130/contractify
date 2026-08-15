@@ -1,8 +1,6 @@
-const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const prisma = require('../models/prisma');
-const walletService = require('./wallet');
 const emailService = require('./email');
 const logger = require('../utils/logger');
 const { config } = require('../config');
@@ -23,150 +21,9 @@ function isAdminEmail(email) {
 }
 
 class AuthService {
-    async register(email, password, isAdmin = false, adminWalletAddress) {
-        try {
-            const existingUser = await prisma.user.findUnique({ where: { email } });
-            if (existingUser) {
-                throw new Error('User already exists');
-            }
-
-            const passwordHash = await bcrypt.hash(password, 12);
-
-            let user;
-
-            if (isAdmin && adminWalletAddress) {
-                // Admin: create user then associate their external wallet (no atomicity required)
-                user = await prisma.user.create({
-                    data: { email, passwordHash, role: UserRole.ADMIN },
-                });
-                await walletService.associateAdminWallet(user.id, adminWalletAddress);
-            } else {
-                // Regular user: create user + wallet atomically
-                const wallet = require('ethers').Wallet.createRandom();
-                const encryptedData = walletService.encryptPrivateKey(wallet.privateKey);
-
-                user = await prisma.$transaction(async (tx) => {
-                    const createdUser = await tx.user.create({
-                        data: { email, passwordHash, role: UserRole.USER },
-                    });
-
-                    await tx.userWallet.create({
-                        data: {
-                            userId: createdUser.id,
-                            publicAddress: wallet.address,
-                            encryptedPrivateKey: encryptedData.ciphertext,
-                            encryptionIv: encryptedData.iv,
-                            encryptionAuthTag: encryptedData.authTag,
-                            encryptionSalt: encryptedData.salt,
-                            isAdminWallet: false,
-                        },
-                    });
-
-                    return createdUser;
-                });
-
-                // Fund gas on demand when needed (non-critical, outside transaction)
-                if (require('../config').config.funderPrivateKey) {
-                    walletService.fundInitialGas(wallet.address).catch((err) =>
-                        logger.error(`Non-critical: could not pre-fund wallet ${wallet.address}:`, err)
-                    );
-                }
-            }
-
-            // Send welcome email (non-critical, outside transaction)
-            await emailService.sendWelcomeEmail(email, email.split('@')[0]);
-
-            const token = this.generateToken(user.id, user.email, user.role);
-            const refreshToken = this.generateRefreshToken(user.id);
-
-            // Persist refresh token
-            await this.saveRefreshToken(user.id, refreshToken);
-
-            logger.info(`User registered: ${email}`);
-
-            return {
-                user: this.sanitizeUser(user),
-                token,
-                refreshToken,
-            };
-        } catch (error) {
-            logger.error('Error registering user:', error);
-            throw error;
-        }
-    }
-
-    async login(email, password) {
-        try {
-            const user = await prisma.user.findUnique({ where: { email } });
-            if (!user || !user.passwordHash) {
-                throw new Error('Invalid credentials');
-            }
-
-            const isValid = await bcrypt.compare(password, user.passwordHash);
-            if (!isValid) {
-                throw new Error('Invalid credentials');
-            }
-
-            if (!user.isActive) {
-                throw new Error('User account is disabled');
-            }
-
-            const token = this.generateToken(user.id, user.email, user.role);
-            const refreshToken = this.generateRefreshToken(user.id);
-
-            // Persist refresh token
-            await this.saveRefreshToken(user.id, refreshToken);
-
-            logger.info(`User logged in: ${email}`);
-
-            return {
-                user: this.sanitizeUser(user),
-                token,
-                refreshToken,
-            };
-        } catch (error) {
-            logger.error('Error logging in:', error);
-            throw error;
-        }
-    }
-
-    async googleAuth(googleId, email, profileData) {
-        try {
-            let user = await prisma.user.findUnique({ where: { googleId } });
-
-            if (!user) {
-                user = await prisma.user.create({
-                    data: {
-                        email,
-                        googleId,
-                        role: UserRole.USER,
-                        profileData,
-                    },
-                });
-
-                await walletService.createUserWallet(user.id);
-                await emailService.sendWelcomeEmail(email, profileData.name || email.split('@')[0]);
-                // Funding will be requested on-demand when user performs blockchain actions
-            }
-
-            const token = this.generateToken(user.id, user.email, user.role);
-            const refreshToken = this.generateRefreshToken(user.id);
-
-            // Persist refresh token
-            await this.saveRefreshToken(user.id, refreshToken);
-
-            logger.info(`User authenticated via Google: ${email}`);
-
-            return {
-                user: this.sanitizeUser(user),
-                token,
-                refreshToken,
-            };
-        } catch (error) {
-            logger.error('Error with Google auth:', error);
-            throw error;
-        }
-    }
+    // NOTE: les anciens flux register/login/googleAuth (email+mot de passe et Google OAuth
+    // maison) ont été retirés — Privy gère désormais entièrement l'authentification, la
+    // création de wallet et le financement MATIC. Seul `privyAuth` reste le point d'entrée.
 
     async privyAuth(privyId, email, walletAddress, profileData) {
         try {

@@ -29,6 +29,19 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        {process.env.NEXT_PUBLIC_MOCK_BLOCKCHAIN === 'true' && (
+          <div style={{
+            backgroundColor: '#FF9800',
+            color: '#fff',
+            textAlign: 'center',
+            padding: '8px',
+            fontWeight: 'bold',
+            zIndex: 9999,
+            position: 'relative'
+          }}>
+            MODE DÉMO : Les transactions blockchain sont simulées.
+          </div>
+        )}
         <NextTopLoader color="#9C27B0" showSpinner={false} />
         <Providers>
           {children}

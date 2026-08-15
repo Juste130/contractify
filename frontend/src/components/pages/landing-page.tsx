@@ -2,7 +2,7 @@ import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { LandingHeader } from "../layout/landing-header";
 import { LandingFooter } from "../layout/landing-footer";
-import { Zap, Shield, Smile, Brain, ChevronDown, Star } from "lucide-react";
+import { Zap, Shield, Smile, Brain } from "lucide-react";
 import { AiBadge } from "../ui/ai-badge";
 import Link from "next/link";
 import {

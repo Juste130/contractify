@@ -16,7 +16,7 @@ router.post('/generate-contract', authenticate, aiLimiter, aiController.generate
  * @desc    Correct input text
  * @access  Private
  */
-router.post('/correct-input', aiLimiter, aiController.correctInput);
+router.post('/correct-input', authenticate, aiLimiter, aiController.correctInput);
 
 /**
  * @route   POST /api/ai/improve-clause

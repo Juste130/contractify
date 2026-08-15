@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { authApi, LoginCredentials, RegisterData } from '@/lib/api/auth';
+import { authApi } from '@/lib/api/auth';
 import { usersApi, User } from '@/lib/api/users';
 
 interface AuthState {
@@ -10,8 +10,6 @@ interface AuthState {
     error: string | null;
 
     // Actions
-    login: (credentials: LoginCredentials) => Promise<void>;
-    register: (data: RegisterData) => Promise<void>;
     logout: () => Promise<void>;
     checkAuth: () => Promise<void>;
     privyLogin: (data: { privyId?: string; email: string; walletAddress?: string; profileData?: any }, token: string) => Promise<void>;
@@ -26,42 +24,6 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
             error: null,
 
-            login: async (credentials) => {
-                set({ isLoading: true, error: null });
-                try {
-                    const response = await authApi.login(credentials);
-                    set({
-                        user: response.user as any,
-                        isAuthenticated: true,
-                        isLoading: false
-                    });
-                } catch (error: any) {
-                    set({
-                        error: error.message || 'Erreur lors de la connexion',
-                        isLoading: false
-                    });
-                    throw error;
-                }
-            },
-
-            register: async (data) => {
-                set({ isLoading: true, error: null });
-                try {
-                    const response = await authApi.register(data);
-                    set({
-                        user: response.user as any,
-                        isAuthenticated: true,
-                        isLoading: false
-                    });
-                } catch (error: any) {
-                    set({
-                        error: error.message || 'Erreur lors de l\'inscription',
-                        isLoading: false
-                    });
-                    throw error;
-                }
-            },
-
             logout: async () => {
                 set({ isLoading: true });
                 try {
@@ -72,7 +34,7 @@ export const useAuthStore = create<AuthState>()(
                         isLoading: false
                     });
                     // Rediriger vers Home ou Login possible ici ou dans le composant
-                } catch (error) {
+                } catch {
                     // Même si l'API échoue, on logout localement
                     set({
                         user: null,

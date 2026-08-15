@@ -101,15 +101,7 @@ class IPFSService {
         return `${config.pinataGateway}/ipfs/${cid}`;
     }
 
-    async listPinnedFiles() {
-        try {
-            const files = await this.pinata.listFiles();
-            return files;
-        } catch (error) {
-            logger.error('Error listing pinned files:', error);
-            throw new Error('Failed to list pinned files');
-        }
-    }
+
 }
 
 module.exports = new IPFSService();

@@ -1,6 +1,6 @@
 "use client";
 import React, { useState } from 'react';
-import { Shield, Bell, User, Search } from 'lucide-react';
+import { Bell, User, Search } from 'lucide-react';
 
 export interface Notification {
     id: number;
@@ -13,7 +13,7 @@ export interface Notification {
 export default function DashboardHeader() {
     const [searchTerm, setSearchTerm] = useState('');
     const [showNotifications, setShowNotifications] = useState(false);
-    const [walletConnected, setWalletConnected] = useState(true);
+    const [walletConnected] = useState(true);
 
     const notifications: Notification[] = [
         {

@@ -1,5 +1,4 @@
 const authService = require('../services/auth');
-const walletService = require('../services/wallet');
 const logger = require('../utils/logger');
 
 /**
@@ -23,83 +22,6 @@ const setAuthCookies = (res, token, refreshToken) => {
         ...cookieOptions,
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
-};
-
-/**
- * Register new user
- */
-exports.register = async (req, res, next) => {
-    try {
-        const { email, password, isAdmin, adminWalletAddress } = req.body;
-
-        if (!email || !password) {
-            return res.status(400).json({ error: 'Email and password are required' });
-        }
-
-        const result = await authService.register(
-            email,
-            password,
-            isAdmin,
-            adminWalletAddress
-        );
-
-        setAuthCookies(res, result.token, result.refreshToken);
-
-        res.status(201).json({
-            message: 'User registered successfully',
-            user: result.user
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-/**
- * Login user
- */
-exports.login = async (req, res, next) => {
-    try {
-        const { email, password } = req.body;
-
-        if (!email || !password) {
-            return res.status(400).json({ error: 'Email and password are required' });
-        }
-
-        const result = await authService.login(email, password);
-
-        setAuthCookies(res, result.token, result.refreshToken);
-
-        res.json({
-            message: 'Login successful',
-            user: result.user
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-/**
- * Google OAuth callback
- */
-exports.googleAuth = async (req, res, next) => {
-    try {
-        const { googleId, email, profileData } = req.body;
-
-        if (!googleId || !email) {
-            return res.status(400).json({ error: 'Google ID and email are required' });
-        }
-
-        const result = await authService.googleAuth(googleId, email, profileData);
-
-        setAuthCookies(res, result.token, result.refreshToken);
-
-        res.json({
-            message: 'Google authentication successful',
-            user: result.user
-        });
-    } catch (error) {
-        next(error);
-    }
 };
 
 /**

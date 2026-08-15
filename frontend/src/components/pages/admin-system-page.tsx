@@ -1,14 +1,39 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import apiClient from "@/lib/api/client";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Shield, Server, AlertCircle, CheckCircle, Activity } from "lucide-react";
+import { Shield, Server, AlertCircle, CheckCircle, Activity, XCircle } from "lucide-react";
 
 export function AdminSystemPage() {
+    const [apiStatus, setApiStatus] = useState<'loading' | 'online' | 'offline'>('loading');
+    const [dbStatus, setDbStatus] = useState<'loading' | 'online' | 'offline'>('loading');
+
+    useEffect(() => {
+        const checkHealth = async () => {
+            try {
+                await apiClient.get('/api/users?limit=1');
+                setApiStatus('online');
+                setDbStatus('online');
+            } catch {
+                setApiStatus('offline');
+                setDbStatus('offline');
+            }
+        };
+        checkHealth();
+    }, []);
+
+    const StatusBadge = ({ status }: { status: 'loading' | 'online' | 'offline' }) => {
+        if (status === 'loading') return <Badge className="bg-gray-400 text-white">Chargement…</Badge>;
+        if (status === 'online') return <Badge className="bg-[#4CAF50] text-white"><CheckCircle className="w-3 h-3 mr-1" />En ligne</Badge>;
+        return <Badge className="bg-destructive text-white"><XCircle className="w-3 h-3 mr-1" />Hors ligne</Badge>;
+    };
+
     return (
         <div className="flex min-h-screen bg-muted">
             <AppSidebar />
@@ -31,12 +56,9 @@ export function AdminSystemPage() {
                         <div className="flex items-center justify-between p-4 rounded-lg bg-muted">
                             <div>
                                 <p className="text-sm text-muted-foreground">API Backend</p>
-                                <p className="font-medium">Opérationnel</p>
+                                <p className="font-medium">{apiStatus === 'online' ? 'Opérationnel' : apiStatus === 'loading' ? 'Vérification…' : 'Inaccessible'}</p>
                             </div>
-                            <Badge className="bg-[#4CAF50] text-white">
-                                <CheckCircle className="w-3 h-3 mr-1" />
-                                En ligne
-                            </Badge>
+                            <StatusBadge status={apiStatus} />
                         </div>
                         <div className="flex items-center justify-between p-4 rounded-lg bg-muted">
                             <div>
@@ -51,12 +73,9 @@ export function AdminSystemPage() {
                         <div className="flex items-center justify-between p-4 rounded-lg bg-muted">
                             <div>
                                 <p className="text-sm text-muted-foreground">Base de données</p>
-                                <p className="font-medium">Sain</p>
+                                <p className="font-medium">{dbStatus === 'online' ? 'Sain' : dbStatus === 'loading' ? 'Vérification…' : 'Erreur'}</p>
                             </div>
-                            <Badge className="bg-[#4CAF50] text-white">
-                                <CheckCircle className="w-3 h-3 mr-1" />
-                                OK
-                            </Badge>
+                            <StatusBadge status={dbStatus} />
                         </div>
                     </div>
                 </Card>

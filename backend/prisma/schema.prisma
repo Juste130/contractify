@@ -33,8 +33,7 @@ model User {
 
   wallet        UserWallet?
   contracts     ContractCache[]
-  notifications Notification[]
-  auditLogs     AuditLog[]
+
   refreshTokens RefreshToken[]
 
   @@map("users")
@@ -107,85 +106,6 @@ model ContractSignatory {
   @@map("contract_signatories")
 }
 
-// ==================== TEMPLATES ====================
-
-model ContractTemplate {
-  id           String   @id @default(uuid())
-  name         String
-  description  String   @db.Text
-  templateJson Json     @map("template_json")
-  category     String
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  @@index([category])
-  @@map("contract_templates")
-}
-
-// ==================== NOTIFICATIONS ====================
-
-enum NotificationType {
-  CONTRACT_CREATED
-  CONTRACT_SIGNED
-  CONTRACT_FINALIZED
-  CONTRACT_TERMINATED
-  CONTRACT_DISPUTED
-  PAYMENT_RECEIVED
-  SIGNATURE_REQUIRED
-  SYSTEM_ALERT
-}
-
-model Notification {
-  id        String           @id @default(uuid())
-  userId    String           @map("user_id")
-  type      NotificationType
-  title     String
-  message   String           @db.Text
-  read      Boolean          @default(false)
-  metadata  Json?
-  createdAt DateTime         @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, read])
-  @@map("notifications")
-}
-
-// ==================== AUDIT LOGS ====================
-
-enum AuditAction {
-  USER_CREATED
-  USER_UPDATED
-  USER_DELETED
-  WALLET_CREATED
-  WALLET_ACCESSED
-  CONTRACT_SYNCED
-  AI_GENERATION
-  IPFS_UPLOAD
-  PAYMENT_INITIATED
-  ADMIN_ACTION
-  LOGIN
-  LOGOUT
-}
-
-model AuditLog {
-  id        String      @id @default(uuid())
-  userId    String?     @map("user_id")
-  action    AuditAction
-  resource  String
-  details   Json?
-  ipAddress String?     @map("ip_address")
-  createdAt DateTime    @default(now()) @map("created_at")
-
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  @@index([userId])
-  @@index([action])
-  @@index([createdAt])
-  @@map("audit_logs")
-}
-
 // ==================== IPFS DOCUMENTS ====================
 
 model IpfsDocument {
@@ -198,41 +118,6 @@ model IpfsDocument {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("ipfs_documents")
-}
-
-// ==================== PAYMENT TRACKING ====================
-
-enum PaymentProvider {
-  RAMP_NETWORK
-  STRIPE
-  MANUAL
-}
-
-enum PaymentStatus {
-  PENDING
-  PROCESSING
-  COMPLETED
-  FAILED
-  REFUNDED
-}
-
-model Payment {
-  id              String          @id @default(uuid())
-  userId          String          @map("user_id")
-  provider        PaymentProvider
-  providerTxId    String?         @unique @map("provider_tx_id")
-  amount          Decimal         @db.Decimal(18, 8)
-  currency        String
-  cryptoAmount    Decimal?        @db.Decimal(18, 8) @map("crypto_amount")
-  cryptoCurrency  String?         @map("crypto_currency")
-  status          PaymentStatus
-  metadata        Json?
-  createdAt       DateTime        @default(now()) @map("created_at")
-  completedAt     DateTime?       @map("completed_at")
-
-  @@index([userId])
-  @@index([status])
-  @@map("payments")
 }
 
 // ==================== REFRESH TOKENS ====================

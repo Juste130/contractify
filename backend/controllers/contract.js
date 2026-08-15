@@ -245,11 +245,30 @@ exports.searchContracts = async (req, res, next) => {
 exports.getContractDetails = async (req, res, next) => {
     try {
         const { contractId } = req.params;
+        const userId = req.user.userId;
+        const userRole = req.user.role;
 
         const contract = await blockchainSyncService.getCachedContract(parseInt(contractId));
 
         if (!contract) {
             return res.status(404).json({ error: 'Contract not found' });
+        }
+
+        let isSignatory = false;
+        
+        // Find user's wallet address to check if they are a signer
+        const userWallet = await prisma.userWallet.findUnique({
+            where: { userId }
+        });
+        
+        if (userWallet && contract.metadata && contract.metadata.signers) {
+            isSignatory = contract.metadata.signers.some(
+                s => s.address.toLowerCase() === userWallet.publicAddress.toLowerCase()
+            );
+        }
+
+        if (contract.userId !== userId && !isSignatory && userRole !== 'ADMIN') {
+            return res.status(403).json({ error: 'Unauthorized to view this contract' });
         }
 
         res.json({ contract });

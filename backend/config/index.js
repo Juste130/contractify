@@ -12,8 +12,6 @@ const config = {
     // Database
     databaseUrl: process.env.DATABASE_URL,
 
-    // Redis
-    redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
 
     // Encryption
     masterEncryptionKey: process.env.MASTER_ENCRYPTION_KEY,
@@ -34,10 +32,6 @@ const config = {
     pinataJwt: process.env.PINATA_JWT,
     pinataGateway: process.env.PINATA_GATEWAY || 'https://gateway.pinata.cloud',
 
-    // Ramp Network
-    rampApiKey: process.env.RAMP_API_KEY,
-    rampWebhookSecret: process.env.RAMP_WEBHOOK_SECRET,
-    rampHostApiKey: process.env.RAMP_HOST_API_KEY,
 
     // Email
     smtp: {
@@ -57,12 +51,6 @@ const config = {
         refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
     },
 
-    // Google OAuth
-    google: {
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackUrl: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3001/api/auth/google/callback',
-    },
 
     // Rate Limiting
     rateLimit: {

@@ -15,8 +15,6 @@ const userRoutes = require('./routes/user');
 const aiRoutes = require('./routes/ai');
 const ipfsRoutes = require('./routes/ipfs');
 const contractRoutes = require('./routes/contract');
-// const adminRoutes = require('./routes/admin');
-const fundRoutes = require('./routes/fund');
 
 const app = express();
 
@@ -53,22 +51,10 @@ app.use('/api/users', userRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/ipfs', ipfsRoutes);
 app.use('/api/contracts', contractRoutes);
-// app.use('/api/admin', adminRoutes);
-app.use('/api/fund', fundRoutes);
 
-// Schedule hourly reconciliation job (configurable)
-const reconcileIntervalMs = parseInt(process.env.RECONCILE_INTERVAL_MS || String(60 * 60 * 1000), 10);
-setInterval(async () => {
-    try {
-        const walletReconcile = require('./services/wallet-reconcile');
-        const res = await walletReconcile.reconcileMissingWallets(200);
-        if (res && res.processed > 0) {
-            logger.info(`Wallet reconciliation executed: processed=${res.processed}, success=${res.success}`);
-        }
-    } catch (err) {
-        logger.error('Error during scheduled wallet reconciliation:', err);
-    }
-}, reconcileIntervalMs);
+// NOTE: le job horaire de réconciliation des wallets a été retiré — avec Privy, le
+// wallet est fourni par le client dès l'authentification, il n'y a plus de scénario
+// "utilisateur sans wallet" à rattraper.
 
 // 404 handler
 app.use((req, res) => {

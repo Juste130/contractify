@@ -9,22 +9,7 @@ import { SidebarProvider } from "@/contexts/sidebar-context";
 import { SidebarWidthHandler } from "@/components/layout/sidebar-width-handler";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 
-// Use a private RPC (e.g. Alchemy/Infura) if configured, otherwise fall back to public RPC
-const POLYGON_AMOY_RPC = process.env.NEXT_PUBLIC_RPC_URL || 'https://rpc-amoy.polygon.technology';
-
-const polygonAmoy = {
-  id: 80002,
-  name: 'Polygon Amoy',
-  network: 'amoy',
-  nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
-  rpcUrls: {
-    default: { http: [POLYGON_AMOY_RPC] },
-    public: { http: ['https://rpc-amoy.polygon.technology'] },
-  },
-  blockExplorers: {
-    default: { name: 'PolygonScan', url: 'https://amoy.polygonscan.com' },
-  },
-};
+import { polygonAmoy } from 'viem/chains';
 
 export default function Providers({ children }: { children: ReactNode }) {
   const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
@@ -67,8 +52,8 @@ export default function Providers({ children }: { children: ReactNode }) {
             createOnLogin: 'users-without-wallets',
           },
         },
-        defaultChain: polygonAmoy as any,
-        supportedChains: [polygonAmoy as any],
+        defaultChain: polygonAmoy,
+        supportedChains: [polygonAmoy],
       }}
     >
       <QueryClientProvider client={queryClient}>

@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 // Create axios instance
 const apiClient: AxiosInstance = axios.create({
@@ -51,7 +51,7 @@ apiClient.interceptors.response.use(
                 // /dashboard, recréant la boucle infinie login <-> dashboard.
                 if (typeof window !== 'undefined' &&
                     !window.location.pathname.includes('/login') &&
-                    !window.location.pathname.includes('/register') &&
+                    !window.location.pathname.includes('/signup') &&
                     window.location.pathname !== '/') {
                     localStorage.removeItem('auth-storage');
                     window.location.href = '/login';

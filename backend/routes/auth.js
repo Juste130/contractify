@@ -13,50 +13,9 @@ const validateRequest = (req, res, next) => {
 	next();
 };
 
-/**
- * @route   POST /api/auth/register
- * @desc    Register new user
- * @access  Public
- */
-router.post(
-	'/register',
-	[
-		body('email').isEmail().normalizeEmail(),
-		body('password').isLength({ min: 8 }),
-	],
-	validateRequest,
-	authController.register
-);
-
-/**
- * @route   POST /api/auth/login
- * @desc    Login user
- * @access  Public
- */
-router.post(
-	'/login',
-	[
-		body('email').isEmail().normalizeEmail(),
-		body('password').exists(),
-	],
-	validateRequest,
-	authController.login
-);
-
-/**
- * @route   POST /api/auth/google
- * @desc    Google OAuth authentication
- * @access  Public
- */
-router.post(
-	'/google',
-	[
-		body('googleId').notEmpty(),
-		body('email').isEmail().normalizeEmail(),
-	],
-	validateRequest,
-	authController.googleAuth
-);
+// Anciennes routes /register, /login, /google (email+mot de passe et Google OAuth maison)
+// retirées — Privy gère désormais entièrement l'authentification, la création de wallet
+// et le financement MATIC. Seule /privy ci-dessous reste active.
 
 /**
  * @route   POST /api/auth/privy

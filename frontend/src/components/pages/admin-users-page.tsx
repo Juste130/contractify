@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import apiClient from "@/lib/api/client";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,49 +35,32 @@ export function AdminUsersPage() {
     const [searchQuery, setSearchQuery] = useState("");
     const [roleFilter, setRoleFilter] = useState("all");
 
-    // Mock data - TODO: Replace with real API call
-    const users = [
-        {
-            id: 1,
-            name: "Jean Dupont",
-            email: "jean@exemple.com",
-            avatar: "JD",
-            role: "Admin",
-            status: "active",
-            contracts: 12,
-            joinedDate: "01/01/2024",
-        },
-        {
-            id: 2,
-            name: "Sophie Martin",
-            email: "sophie@exemple.com",
-            avatar: "SM",
-            role: "Éditeur",
-            status: "active",
-            contracts: 8,
-            joinedDate: "15/02/2024",
-        },
-        {
-            id: 3,
-            name: "Pierre Dubois",
-            email: "pierre@exemple.com",
-            avatar: "PD",
-            role: "Visionneur",
-            status: "active",
-            contracts: 3,
-            joinedDate: "01/03/2024",
-        },
-        {
-            id: 4,
-            name: "Marie Laurent",
-            email: "marie@exemple.com",
-            avatar: "ML",
-            role: "Éditeur",
-            status: "suspended",
-            contracts: 5,
-            joinedDate: "10/03/2024",
-        },
-    ];
+    const [users, setUsers] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchUsers = async () => {
+            try {
+                const response = await apiClient.get('/api/users');
+                const mappedUsers = response.data.users.map((u: any) => ({
+                    id: u.id,
+                    name: u.profileData?.name || 'Inconnu',
+                    email: u.email,
+                    avatar: (u.profileData?.name || u.email).substring(0, 2).toUpperCase(),
+                    role: u.role === 'ADMIN' ? 'Admin' : u.role === 'USER' ? 'Éditeur' : 'Visionneur',
+                    status: u.isActive ? 'active' : 'suspended',
+                    contracts: u._count?.contracts || 0,
+                    joinedDate: new Date(u.createdAt).toLocaleDateString('fr-FR'),
+                }));
+                setUsers(mappedUsers);
+            } catch (error) {
+                console.error("Error fetching users:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchUsers();
+    }, []);
 
     const getRoleBadgeColor = (role: string) => {
         switch (role) {
@@ -127,19 +111,19 @@ export function AdminUsersPage() {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
                     <Card className="p-6">
                         <p className="text-sm text-muted-foreground mb-2">Total utilisateurs</p>
-                        <p className="text-3xl">{users.length}</p>
+                        <p className="text-3xl">{loading ? '…' : users.length}</p>
                     </Card>
                     <Card className="p-6">
                         <p className="text-sm text-muted-foreground mb-2">Utilisateurs actifs</p>
-                        <p className="text-3xl">{users.filter(u => u.status === 'active').length}</p>
+                        <p className="text-3xl">{loading ? '…' : users.filter(u => u.status === 'active').length}</p>
                     </Card>
                     <Card className="p-6">
                         <p className="text-sm text-muted-foreground mb-2">Administrateurs</p>
-                        <p className="text-3xl">{users.filter(u => u.role === 'Admin').length}</p>
+                        <p className="text-3xl">{loading ? '…' : users.filter(u => u.role === 'Admin').length}</p>
                     </Card>
                     <Card className="p-6">
-                        <p className="text-sm text-muted-foreground mb-2">Nouveaux ce mois</p>
-                        <p className="text-3xl">2</p>
+                        <p className="text-sm text-muted-foreground mb-2">Suspendus</p>
+                        <p className="text-3xl">{loading ? '…' : users.filter(u => u.status === 'suspended').length}</p>
                     </Card>
                 </div>
 

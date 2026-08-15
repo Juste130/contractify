@@ -61,8 +61,14 @@ exports.uploadJSON = async (req, res, next) => {
 exports.getDocumentMetadata = async (req, res, next) => {
     try {
         const { cid } = req.params;
+        const userId = req.user.userId;
+        const userRole = req.user.role;
 
         const metadata = await ipfsService.getDocumentMetadata(cid);
+
+        if (metadata.uploadedBy !== userId && userRole !== 'ADMIN') {
+            return res.status(403).json({ error: 'Unauthorized to access this document' });
+        }
 
         res.json({
             metadata,
@@ -79,6 +85,14 @@ exports.getDocumentMetadata = async (req, res, next) => {
 exports.unpinDocument = async (req, res, next) => {
     try {
         const { cid } = req.params;
+        const userId = req.user.userId;
+        const userRole = req.user.role;
+
+        const metadata = await ipfsService.getDocumentMetadata(cid);
+
+        if (metadata.uploadedBy !== userId && userRole !== 'ADMIN') {
+            return res.status(403).json({ error: 'Unauthorized to unpin this document' });
+        }
 
         await ipfsService.unpinDocument(cid);
 

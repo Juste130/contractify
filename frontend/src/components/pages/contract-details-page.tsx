@@ -435,7 +435,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                   <div className="flex gap-3 items-start">
                     <div className="w-1 self-stretch bg-green-500/20 rounded shrink-0"></div>
                     <div>
-                      <p className="text-[11px] font-bold text-green-700">Certifié & ancré</p>
+                      <p className="text-[11px] font-bold text-green-700">Certifié &amp; ancré</p>
                       <p className="text-[10px] text-muted-foreground mt-1">Hash SHA-256 calculé et stocké sur IPFS + Polygon.</p>
                     </div>
                   </div>

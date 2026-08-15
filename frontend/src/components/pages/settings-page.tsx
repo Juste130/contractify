@@ -18,8 +18,6 @@ import {
   Brain,
   Lock,
   Bell,
-  CreditCard,
-  Info,
   Camera,
   Shield,
   Wallet,

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -7,7 +7,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Card } from "../ui/card";
 import { StatusBadge } from "../ui/status-badge";
-import { Avatar, AvatarFallback } from "../ui/avatar";
+
 import { Spinner } from "../ui/spinner";
 import { useRouter } from "next/navigation";
 import Link from "next/link";

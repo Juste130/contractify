@@ -4,13 +4,7 @@ import { createContext, useContext, useEffect, useState, useCallback, type React
 import { usePrivy, useWallets } from "@privy-io/react-auth"
 import { ethers } from "ethers"
 
-// Type du Smart Wallet Privy natif
-// useSmartWallets() n'existe que dans @privy-io/react-auth >= 1.80
-// Le wallet "smart" est un ConnectedWallet avec type === 'smart_wallet'
-type SmartWallet = {
-  address: string;
-  sendTransaction: (tx: { to: string; data?: string; value?: string }) => Promise<{ hash: string }>;
-} | null;
+
 
 interface Web3ContextType {
   account: string | null;           // Adresse principale (Smart Wallet si dispo, sinon EOA)
@@ -35,7 +29,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
   const [balance, setBalance] = useState<string | null>(null)
   const [chainId, setChainId] = useState<number | null>(null)
-  const [isInitializing, setIsInitializing] = useState(false)
 
   // Séparer EOA et Smart Wallet depuis la liste Privy
   const eoaWallet = wallets.find(w => w.walletClientType === 'privy') || wallets[0] || null
@@ -48,7 +41,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const account = smartWalletAddress || eoaAddress
 
   const isConnected = ready && authenticated && !!account
-  const isConnecting = !ready || isInitializing
+  const isConnecting = !ready
 
   const refreshBalance = useCallback(async () => {
     if (!eoaWallet || !account) {

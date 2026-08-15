@@ -42,9 +42,6 @@
     "exclude": [
         "node_modules",
         "dist",
-        "**/*.spec.ts",
-        "FUND_INTEGRATION_EXAMPLE.js",
-        "ESTIMATE_GAS_COSTS.js",
-        "FUND_ON_DEMAND_SETUP.md"
+        "**/*.spec.ts"
     ]
 }
