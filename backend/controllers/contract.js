@@ -11,6 +11,25 @@ exports.saveDraft = async (req, res, next) => {
         const userId = req.user.userId;
         const { title, metadata, signatories, ipfsHash } = req.body;
 
+        // Automatically resolve signatories that are already registered on the platform
+        const processedSignatories = await Promise.all(signatories.map(async s => {
+            const user = await prisma.user.findUnique({
+                where: { email: s.email },
+                include: { wallet: true }
+            });
+
+            const walletAddress = s.walletAddress || (user?.wallet?.publicAddress) || null;
+            const isRegistered = !!walletAddress;
+
+            return {
+                email: s.email,
+                name: s.name || null,
+                role: s.role,
+                walletAddress,
+                isRegistered
+            };
+        }));
+
         // Create the draft in ContractCache
         const contract = await prisma.contractCache.create({
             data: {
@@ -21,12 +40,12 @@ exports.saveDraft = async (req, res, next) => {
                 metadata,
                 lastSync: new Date(),
                 signatories: {
-                    create: signatories.map(s => ({
+                    create: processedSignatories.map(s => ({
                         email: s.email,
                         name: s.name,
                         role: s.role,
-                        walletAddress: s.walletAddress || null,
-                        isRegistered: !!s.walletAddress
+                        walletAddress: s.walletAddress,
+                        isRegistered: s.isRegistered
                     }))
                 }
             },

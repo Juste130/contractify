@@ -63,6 +63,25 @@ class BlockchainSyncService {
 
             const status = this.mapContractStatus(contractData.status);
 
+            // Lookup each signer's address in our database to resolve their name and email
+            // (case-insensitive: on-chain addresses may be checksummed differently than stored)
+            const enrichedSigners = await Promise.all(signers.map(async (s) => {
+                const wallet = await prisma.userWallet.findFirst({
+                    where: { publicAddress: { equals: s.signer, mode: 'insensitive' } },
+                    include: { user: true }
+                });
+
+                return {
+                    address: s.signer,
+                    name: wallet?.user?.profileData?.name || wallet?.user?.email || null,
+                    email: wallet?.user?.email || null,
+                    role: Number(s.role),
+                    customRole: s.customRole,
+                    hasSigned: s.hasSignedContract,
+                    signedAt: Number(s.signedAt),
+                };
+            }));
+
             const metadata = {
                 creator: contractData.creator,
                 createdAt: Number(contractData.createdAt),
@@ -76,17 +95,24 @@ class BlockchainSyncService {
                 releasedAmount: contractData.releasedAmount.toString(),
                 nftTokenId: contractData.nftTokenId.toString(),
                 isEscrowDeposited: contractData.isEscrowDeposited,
-                signers: signers.map((s) => ({
-                    address: s.signer,
-                    role: s.role,
-                    customRole: s.customRole,
-                    hasSigned: s.hasSignedContract,
-                    signedAt: Number(s.signedAt),
-                })),
+                signers: enrichedSigners,
                 allSigned: details.allSigned,
                 justificationCount: Number(details.justificationCount),
                 paymentCount: Number(details.paymentCount),
             };
+
+            let finalUserId = userId;
+            if (!finalUserId) {
+                const creatorWallet = await prisma.userWallet.findFirst({
+                    where: { publicAddress: { equals: contractData.creator, mode: 'insensitive' } }
+                });
+                finalUserId = creatorWallet?.userId || null;
+            }
+
+            if (!finalUserId) {
+                logger.warn(`Could not resolve userId for creator: ${contractData.creator}. Skipping cache upsert.`);
+                return;
+            }
 
             await prisma.contractCache.upsert({
                 where: { contractId: parseInt(contractId) },
@@ -97,7 +123,7 @@ class BlockchainSyncService {
                 },
                 create: {
                     contractId: parseInt(contractId),
-                    userId,
+                    userId: finalUserId,
                     title: `Contract #${contractId}`,
                     ipfsHash: '',
                     status,
@@ -147,8 +173,8 @@ class BlockchainSyncService {
             for (const event of createdEvents) {
                 const [contractId, creator] = event.args;
                 logger.info(`New contract created: ${contractId} by ${creator}`);
-                const wallet = await prisma.userWallet.findUnique({
-                    where: { publicAddress: creator },
+                const wallet = await prisma.userWallet.findFirst({
+                    where: { publicAddress: { equals: creator, mode: 'insensitive' } },
                 });
                 if (wallet) {
                     await this.syncContract(contractId.toString(), wallet.userId);
@@ -163,10 +189,26 @@ class BlockchainSyncService {
             for (const event of finalizedEvents) {
                 const [contractId, nftTokenId] = event.args;
                 logger.info(`Contract finalized: ${contractId}, NFT: ${nftTokenId}`);
-                await prisma.contractCache.updateMany({
-                    where: { contractId: Number(contractId) },
-                    data: { status: ContractStatus.ACTIVE, lastSync: new Date() },
+                
+                // First sync contract details to keep cache accurate
+                await this.syncContract(contractId.toString(), null);
+
+                const contract = await prisma.contractCache.findUnique({
+                    where: { contractId: Number(contractId) }
                 });
+
+                if (contract && contract.metadata && contract.metadata.signers) {
+                    const emailService = require('./email');
+                    for (const signer of contract.metadata.signers) {
+                        if (signer.email) {
+                            emailService.sendContractFinalizedNotification(
+                                signer.email,
+                                contract.title,
+                                contractId.toString()
+                            ).catch(err => logger.error(`[Email] Failed to send finalized notification to ${signer.email}:`, err));
+                        }
+                    }
+                }
             }
 
             // ContractStatusUpdated
@@ -177,11 +219,28 @@ class BlockchainSyncService {
             for (const event of statusEvents) {
                 const [contractId, , newStatus] = event.args;
                 logger.info(`Contract ${contractId} status updated to: ${newStatus}`);
-                const status = this.mapContractStatus(Number(newStatus));
-                await prisma.contractCache.updateMany({
-                    where: { contractId: Number(contractId) },
-                    data: { status, lastSync: new Date() },
+                
+                // First sync contract details to keep cache accurate
+                await this.syncContract(contractId.toString(), null);
+
+                const contract = await prisma.contractCache.findUnique({
+                    where: { contractId: Number(contractId) }
                 });
+
+                if (contract && contract.metadata && contract.metadata.signers) {
+                    const statusString = contract.status;
+                    const emailService = require('./email');
+                    for (const signer of contract.metadata.signers) {
+                        if (signer.email) {
+                            emailService.sendContractStatusNotification(
+                                signer.email,
+                                contract.title,
+                                contractId.toString(),
+                                statusString
+                            ).catch(err => logger.error(`[Email] Failed to send status notification to ${signer.email}:`, err));
+                        }
+                    }
+                }
             }
         };
 

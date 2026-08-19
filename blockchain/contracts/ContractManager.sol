@@ -99,6 +99,7 @@ contract ContractManager is Ownable, ReentrancyGuard {
         uint88 releasedAmount; //@dev Montant total déjà libéré
         uint256 nftTokenId;
         bool isEscrowDeposited;
+        address escrowPayer;
     }
 
     mapping(uint256 => ContractData) public contracts;
@@ -578,13 +579,14 @@ contract ContractManager is Ownable, ReentrancyGuard {
     /**
      * @dev Dépôt des fonds dans l'Escrow
      */
-    function depositEscrow(uint256 contractId) external payable whenNotPaused validContractId(contractId) onlyParticipant(contractId) {
+    function depositEscrow(uint256 contractId) external payable nonReentrant whenNotPaused validContractId(contractId) onlyParticipant(contractId) {
         ContractData storage contractData = contracts[contractId];
         require(contractData.status == ContractStatus.Active, "Contract must be active");
         require(!contractData.isEscrowDeposited, "Escrow already deposited");
         require(msg.value == contractData.escrowAmount, "Incorrect escrow amount");
 
         contractData.isEscrowDeposited = true;
+        contractData.escrowPayer = msg.sender;
         _addJustification(contractId, "Escrow funds deposited securely");
         _notifyAllParticipants(contractId, "Escrow funds deposited");
     }
@@ -592,12 +594,11 @@ contract ContractManager is Ownable, ReentrancyGuard {
     /**
      * @dev Libération des fonds au créateur 
      */
-    function releaseEscrow(uint256 contractId) external whenNotPaused validContractId(contractId) onlyParticipant(contractId) {
+    function releaseEscrow(uint256 contractId) external nonReentrant whenNotPaused validContractId(contractId) onlyParticipant(contractId) {
         ContractData storage contractData = contracts[contractId];
         require(contractData.isEscrowDeposited, "No funds in escrow");
         require(contractData.status == ContractStatus.Active, "Contract not active");
-        // Simple trust-based release: whoever calls this function authorizes the release to the creator
-        require(msg.sender != contractData.creator, "Creator cannot release to self");
+        require(msg.sender == contractData.escrowPayer, "Only the escrow payer can release funds");
 
         uint256 amountToRelease = contractData.escrowAmount;
         contractData.isEscrowDeposited = false;
@@ -614,11 +615,11 @@ contract ContractManager is Ownable, ReentrancyGuard {
     /**
      * @dev Application de la pénalité de retard ou litige
      */
-    function applyPenalty(uint256 contractId) external whenNotPaused validContractId(contractId) onlyParticipant(contractId) {
+    function applyPenalty(uint256 contractId) external nonReentrant whenNotPaused validContractId(contractId) onlyParticipant(contractId) {
         ContractData storage contractData = contracts[contractId];
         require(contractData.isEscrowDeposited, "No funds in escrow");
         require(contractData.status == ContractStatus.Active || contractData.status == ContractStatus.Disputed, "Invalid status for penalty");
-        require(msg.sender != contractData.creator, "Creator cannot apply penalty to self");
+        require(msg.sender == contractData.escrowPayer, "Only the escrow payer can apply penalty");
 
         uint256 penaltyAmount = (contractData.escrowAmount * contractData.penaltyPercent) / 100;
         uint256 remainingAmount = contractData.escrowAmount - penaltyAmount;
@@ -626,8 +627,8 @@ contract ContractManager is Ownable, ReentrancyGuard {
         contractData.isEscrowDeposited = false;
         contractData.releasedAmount += uint88(remainingAmount);
         
-        // Return penalty to the payer (msg.sender)
-        (bool pSuccess, ) = payable(msg.sender).call{value: penaltyAmount}("");
+        // Return penalty to the payer
+        (bool pSuccess, ) = payable(contractData.escrowPayer).call{value: penaltyAmount}("");
         require(pSuccess, "Penalty transfer failed");
 
         // Send remaining to creator
@@ -795,22 +796,6 @@ contract ContractManager is Ownable, ReentrancyGuard {
         }
         return string(buffer);
     }
-     /**
-     * @dev Convertit une adresse en string hex (0x...)
-     */
-    function _addressToString(address account) internal pure returns (string memory) {
-        bytes20 data = bytes20(account);
-        bytes memory hexChars = "0123456789abcdef";
-        bytes memory str = new bytes(42);
-        str[0] = "0";
-        str[1] = "x";
-        for (uint i = 0; i < 20; i++) {
-            uint8 b = uint8(data[i]);
-            str[2 + i * 2] = hexChars[b >> 4];
-            str[3 + i * 2] = hexChars[b & 0x0f];
-        }
-        return string(str);
-    }
 
     // ==================== FONCTIONS DE LECTURE ====================
 
@@ -915,14 +900,6 @@ contract ContractManager is Ownable, ReentrancyGuard {
         paused = true;
         pausedAt = uint40(block.timestamp);
         
-        // 🔔 Notification à tous les contrats actifs
-       for (uint256 cid = 1; cid <= _contractIds; cid++) {
-            if (contracts[cid].status == ContractStatus.Active) {
-                _notifyAllParticipants(cid, string(abi.encodePacked("EMERGENCY PAUSE: ", reason)));
-                // Ajoute une justification par contrat (évite _addGlobalJustification)
-                _addJustification(cid, string(abi.encodePacked("System paused: ", reason)));
-            }
-        }
         emit ContractPaused(msg.sender, reason, pausedAt);
     }
     /**
@@ -945,12 +922,6 @@ contract ContractManager is Ownable, ReentrancyGuard {
         paused = false;
         
         emit ContractResumed(msg.sender, reason, uint40(block.timestamp));
-        for (uint256 cid = 1; cid <= _contractIds; cid++) {
-            if (contracts[cid].status == ContractStatus.Active) {
-                _notifyAllParticipants(cid, string(abi.encodePacked("SYSTEM RESUMED: ", reason)));
-                _addJustification(cid, string(abi.encodePacked("System resumed: ", reason)));
-            }
-        }
     }
     /**
      * @dev Reprise forcée après durée maximale - ANTI-CENSURE
@@ -968,11 +939,6 @@ contract ContractManager is Ownable, ReentrancyGuard {
             msg.sender, 
             "Community force resume after max pause duration"
         );
-        for (uint256 cid = 1; cid <= _contractIds; cid++) {
-            if (contracts[cid].status == ContractStatus.Active) {
-                _notifyAllParticipants(cid, "SYSTEM RESUMED: Community force execution");
-            }
-        }
     }
 
     /**
@@ -988,13 +954,6 @@ contract ContractManager is Ownable, ReentrancyGuard {
         emergencyAdmin = newAdmin;
         
         emit EmergencyAdminUpdated(oldAdmin, newAdmin);
-        
-        // 🔐 Le nouvel admin ne peut pas pause immédiatement
-        for (uint256 cid = 1; cid <= _contractIds; cid++) {
-            if (contracts[cid].status == ContractStatus.Active) {
-                _addJustification(cid, string(abi.encodePacked("Emergency admin updated from ", _addressToString(oldAdmin), " to ", _addressToString(newAdmin))));
-            }
-        }
     }
     /**
      * @dev Ajout d'un pauser autorisé - LIMITÉ À 3
@@ -1006,11 +965,10 @@ contract ContractManager is Ownable, ReentrancyGuard {
         require(pauser != owner() && pauser != emergencyAdmin, "Cannot add owner/emergencyAdmin as pauser");
         
         // ✅ LIMITATION STRICTE : maximum 3 pausers
-        uint8 currentPauserCount = 0;
-        // ... comptage des pausers existants
-        require(currentPauserCount < MAX_PAUSERS, "Maximum pausers reached");
+        require(_authorizedPauserCount < MAX_PAUSERS, "Maximum pausers reached");
         
         authorizedPausers[pauser] = true;
+        _authorizedPauserCount++;
         emit PauserAuthorizationUpdated(pauser, true);
     }
 
@@ -1021,14 +979,8 @@ contract ContractManager is Ownable, ReentrancyGuard {
         require(authorizedPausers[pauser], "Not an authorized pauser");
         
         authorizedPausers[pauser] = false;
+        _authorizedPauserCount--;
         emit PauserAuthorizationUpdated(pauser, false);
-        
-        for (uint256 cid = 1; cid <= _contractIds; cid++) {
-            if (contracts[cid].status == ContractStatus.Active) {
-                _addJustification(cid, string(abi.encodePacked("Pauser authorization revoked for: ", _addressToString(pauser))));
-            }
-        }
-        
     }
 
 }

@@ -107,7 +107,47 @@ class EmailService {
     await this.sendEmail(to, subject, html);
   }
 
+  async sendContractFinalizedNotification(to, contractTitle, contractId) {
+    const safeTitle = this.escapeHtml(contractTitle || '');
+    const subject = `Félicitations ! Le contrat "${safeTitle}" est maintenant actif`;
+    const html = `
+      <h1>Votre contrat est actif !</h1>
+      <p>Bonjour,</p>
+      <p>Toutes les signatures ont été collectées. Le contrat suivant est maintenant actif sur la blockchain :</p>
+      <h2>${safeTitle}</h2>
+      <p>ID du contrat : #${contractId}</p>
+      <p>Un NFT de preuve a été généré avec succès.</p>
+      <p>
+        <a href="${config.frontendUrl}/contract-details?id=${contractId}" 
+           style="background-color: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">
+          Consulter le contrat actif
+        </a>
+      </p>
+      <p>Cordialement,<br>L'équipe Contractify</p>
+    `;
+    await this.sendEmail(to, subject, html);
+  }
 
+  async sendContractStatusNotification(to, contractTitle, contractId, newStatus) {
+    const safeTitle = this.escapeHtml(contractTitle || '');
+    const subject = `Mise à jour du contrat : "${safeTitle}" est ${newStatus}`;
+    const html = `
+      <h1>Statut du contrat mis à jour</h1>
+      <p>Bonjour,</p>
+      <p>Le contrat suivant a changé de statut :</p>
+      <h2>${safeTitle}</h2>
+      <p>ID du contrat : #${contractId}</p>
+      <p>Nouveau statut : <strong>${newStatus}</strong></p>
+      <p>
+        <a href="${config.frontendUrl}/contract-details?id=${contractId}" 
+           style="background-color: #FFC107; color: #212121; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">
+          Consulter les détails du contrat
+        </a>
+      </p>
+      <p>Cordialement,<br>L'équipe Contractify</p>
+    `;
+    await this.sendEmail(to, subject, html);
+  }
 
   stripHtml(html) {
     return html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();

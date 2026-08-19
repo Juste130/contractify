@@ -67,6 +67,7 @@ export default function DashboardHeader() {
                     <button
                     onClick={() => setShowNotifications(!showNotifications)}
                     className="relative p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                    aria-label="Notifications"
                     >
                     <Bell className="w-6 h-6" />
                     {notifications.some(n => n.unread) && (
@@ -115,7 +116,10 @@ export default function DashboardHeader() {
 
                 {/* Profile Menu */}
                 <div className="relative">
-                    <button className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center hover:bg-gray-300 transition-colors">
+                    <button 
+                    className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center hover:bg-gray-300 transition-colors"
+                    aria-label="Profil utilisateur"
+                    >
                     <User className="w-4 h-4 text-gray-600" />
                     </button>
                 </div>

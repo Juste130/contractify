@@ -90,6 +90,7 @@ export function AIInput({ className, context, value, onChange, onAIChange, ...pr
                                     type="button"
                                     variant="ghost"
                                     size="icon"
+                                    aria-label="Annuler la correction"
                                     className="h-8 w-8 text-muted-foreground hover:text-foreground"
                                     onClick={handleUndo}
                                     disabled={isLoading}
@@ -111,6 +112,7 @@ export function AIInput({ className, context, value, onChange, onAIChange, ...pr
                                 type="button"
                                 variant="ghost"
                                 size="icon"
+                                aria-label="Améliorer avec l'IA (Magic Pen)"
                                 className={cn(
                                     "h-8 w-8 transition-colors",
                                     isLoading ? "text-muted-foreground" : "text-[#9C27B0] hover:bg-[#9C27B0]/10"

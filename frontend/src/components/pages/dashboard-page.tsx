@@ -194,7 +194,7 @@ export function DashboardPage() {
                     .filter(c => c.status === 'PENDING_SIGNATURES')
                     .slice(0, 3)
                     .map((contract) => (
-                      <Link href={`/contracts/${contract.contractId}`} key={contract.id}>
+                      <Link href={`/contracts/${contract.contractId ?? contract.id}`} key={contract.id}>
                         <div
                           className="flex items-center gap-4 p-4 bg-muted rounded-lg hover:bg-muted/80 cursor-pointer transition-colors"
                         >
@@ -249,5 +249,3 @@ export function DashboardPage() {
     </div>
   );
 }
-
-

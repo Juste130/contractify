@@ -129,6 +129,7 @@ export function AppSidebar() {
           variant="ghost"
           size="sm"
           onClick={toggleSidebar}
+          aria-label={isCollapsed ? "Développer la barre latérale" : "Réduire la barre latérale"}
           className={cn(
             "w-full flex items-center gap-2",
             isCollapsed && "justify-center px-2"

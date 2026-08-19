@@ -152,7 +152,7 @@ export function ContractsPage() {
                   <TableRow
                     key={contract.id}
                     className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => router.push(`/contracts/${contract.contractId}`)}
+                    onClick={() => router.push(`/contracts/${contract.contractId ?? contract.id}`)}
                   >
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -180,7 +180,7 @@ export function ContractsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => router.push(`/contracts/${contract.contractId}`)}>
+                          <DropdownMenuItem onClick={() => router.push(`/contracts/${contract.contractId ?? contract.id}`)}>
                             <FileText className="w-4 h-4 mr-2" />
                             Détails
                           </DropdownMenuItem>
@@ -233,4 +233,3 @@ export function ContractsPage() {
     </div>
   );
 }
-

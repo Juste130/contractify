@@ -19,11 +19,15 @@ const contractRoutes = require('./routes/contract');
 const app = express();
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+    crossOriginResourcePolicy: {policy: "cross-origin"}
+}));
 app.use(cookieParser());
 app.use(cors({
     origin: config.frontendUrl,
     credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
