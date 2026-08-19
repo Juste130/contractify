@@ -22,13 +22,24 @@ export default function Providers({ children }: { children: ReactNode }) {
     },
   }));
 
+  const appProviders = (
+    <QueryClientProvider client={queryClient}>
+      <Web3Provider>
+        <SidebarProvider>
+          <SidebarWidthHandler>
+            <ProtectedRoute>
+              <AuthInitializer />
+              {children}
+            </ProtectedRoute>
+          </SidebarWidthHandler>
+        </SidebarProvider>
+      </Web3Provider>
+    </QueryClientProvider>
+  );
+
   if (!privyAppId) {
     console.warn('NEXT_PUBLIC_PRIVY_APP_ID is not set. PrivyProvider disabled.');
-    return (
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
-    );
+    return appProviders;
   }
 
   return (
@@ -56,18 +67,7 @@ export default function Providers({ children }: { children: ReactNode }) {
         supportedChains: [polygonAmoy],
       }}
     >
-      <QueryClientProvider client={queryClient}>
-        <Web3Provider>
-          <SidebarProvider>
-            <SidebarWidthHandler>
-              <ProtectedRoute>
-                <AuthInitializer />
-                {children}
-              </ProtectedRoute>
-            </SidebarWidthHandler>
-          </SidebarProvider>
-        </Web3Provider>
-      </QueryClientProvider>
+      {appProviders}
     </PrivyProvider>
   );
 }

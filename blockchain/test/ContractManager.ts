@@ -79,11 +79,13 @@ describe("Système de Gestion de Contrats NFT", function () {
       // ✅ CRÉATION AVEC ETHERS.JS
       const tx = await contractManager.connect(creator).createContract(
         "QmTestHash123",
+        "sha256TestHash123",
         signersWithRoles,
         expiresAt,
         true, // allowTermination
         true, // allowDispute
         ethers.parseEther("1.0"),
+        10, // penaltyPercent
         "Création du contrat de développement"
       );
 
@@ -116,11 +118,13 @@ describe("Système de Gestion de Contrats NFT", function () {
       // Premier contrat
       await contractManager.connect(creator).createContract(
         "QmDuplicateHash",
+        "sha256DuplicateHash1",
         signersWithRoles,
         expiresAt,
         true,
         true,
         ethers.parseEther("1.0"),
+        10,
         "Premier contrat"
       );
 
@@ -128,11 +132,13 @@ describe("Système de Gestion de Contrats NFT", function () {
       await expect(
         contractManager.connect(creator).createContract(
           "QmDuplicateHash",
+          "sha256DuplicateHash2",
           signersWithRoles,
           expiresAt,
           true,
           true,
           ethers.parseEther("2.0"),
+          10,
           "Deuxième contrat"
         )
       ).to.be.revertedWith("IPFS hash already used");
@@ -155,11 +161,13 @@ describe("Système de Gestion de Contrats NFT", function () {
       await expect(
         contractManager.connect(creator).createContract(
           "QmTestHash",
+          "sha256TestHash",
           signersWithRoles,
           pastDate,
           true,
           true,
           ethers.parseEther("1.0"),
+          10,
           "Contrat avec date passée"
         )
       ).to.be.revertedWith("Invalid expiration time");
@@ -191,11 +199,13 @@ describe("Système de Gestion de Contrats NFT", function () {
 
       await contractManager.connect(creator).createContract(
         "QmSignatureTest",
+        "sha256SignatureTest",
         signersWithRoles,
         expiresAt,
         true,
         true,
         ethers.parseEther("1.0"),
+        10,
         "Test de signatures"
       );
     });
@@ -253,11 +263,13 @@ describe("Système de Gestion de Contrats NFT", function () {
 
       await contractManager.connect(creator).createContract(
         "QmPaymentTest",
+        "sha256PaymentTest",
         signersWithRoles,
         expiresAt,
         true,
         true,
         ethers.parseEther("2.0"),
+        10,
         "Test paiements"
       );
 
@@ -326,11 +338,13 @@ describe("Système de Gestion de Contrats NFT", function () {
 
       await contractManager.connect(creator).createContract(
         "QmDisputeTest",
+        "sha256DisputeTest",
         signersWithRoles,
         expiresAt,
         true, // allowTermination
         true, // allowDispute
         ethers.parseEther("1.0"),
+        10,
         "Test résiliation"
       );
 
@@ -373,11 +387,13 @@ describe("Système de Gestion de Contrats NFT", function () {
       // Créer un contrat sans résiliation autorisée
       await contractManager.connect(creator).createContract(
         "QmNoTermination",
+        "sha256NoTermination",
         [],
         expiresAt,
         false, // allowTermination = false
         true,
         ethers.parseEther("1.0"),
+        10,
         "Contrat sans résiliation"
       );
 
@@ -426,11 +442,13 @@ describe("Système de Gestion de Contrats NFT", function () {
       await expect(
         contractManager.connect(creator).createContract(
           "QmPausedTest",
+          "sha256PausedTest",
           signersWithRoles,
           expiresAt,
           true,
           true,
           ethers.parseEther("1.0"),
+          10,
           "Test pendant pause"
         )
       ).to.be.revertedWith("Contract is paused");
@@ -468,11 +486,13 @@ describe("Système de Gestion de Contrats NFT", function () {
 
       await contractManager.connect(creator).createContract(
         "QmJustificationTest",
+        "sha256JustificationTest",
         signersWithRoles,
         expiresAt,
         true,
         true,
         ethers.parseEther("1.0"),
+        10,
         "Test justifications"
       );
     });

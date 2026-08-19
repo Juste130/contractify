@@ -91,7 +91,7 @@ export function TemplatesPage() {
 
       <main className="flex-1 transition-all duration-300" style={{ marginLeft: 'var(--sidebar-width, 256px)', padding: '2rem' }}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="mb-2">Modèles de contrats</h1>
             <p className="text-muted-foreground">
@@ -138,7 +138,7 @@ export function TemplatesPage() {
             <div className="space-y-4">
               {customTemplates.map((template) => (
                 <Card key={template.id} className="p-6">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex-1">
                       <h3 className="mb-2">{template.name}</h3>
                       <p className="text-sm text-muted-foreground mb-2">
@@ -151,7 +151,7 @@ export function TemplatesPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Button variant="outline" size="sm">
                         <Pencil className="w-4 h-4 mr-2" />
                         Modifier
@@ -162,7 +162,7 @@ export function TemplatesPage() {
                       >
                         Utiliser
                       </Button>
-                      <Button variant="ghost" size="sm">
+                      <Button variant="ghost" size="sm" aria-label="Supprimer le modèle">
                         <Trash2 className="w-4 h-4 text-destructive" />
                       </Button>
                     </div>

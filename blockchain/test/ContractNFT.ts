@@ -52,11 +52,13 @@ describe("ContractNFT", function () {
       // Mint via ContractManager (qui est maintenant le owner) via Auto-Finalize (0 signers additionnels)
       const tx = await contractManager.connect(user1).createContract(
         "QmTestHash",
+        "sha256TestHash",
         [], // Pas de signataires additionnels -> Finalisation immédiate
         Math.floor(Date.now() / 1000) + 86400,
         true,
         true,
         0,
+        10,
         "Test creation"
       );
 
@@ -77,6 +79,7 @@ describe("ContractNFT", function () {
       // 1. User1 crée le contrat avec User2 comme signataire
       await contractManager.connect(user1).createContract(
         "QmTestHash123",
+        "sha256TestHash123",
         [{
           signer: user2Address,
           role: 1, // CoSigner
@@ -88,6 +91,7 @@ describe("ContractNFT", function () {
         true,
         true,
         0,
+        10,
         "Test proofs"
       );
 
@@ -142,11 +146,13 @@ describe("ContractNFT", function () {
       // ✅ TEST FONCTIONNALITÉ COMPLÈTE AVEC ETHERS.JS
       const tx = await contractManager.connect(owner).createContract(
         "QmOwnershipTest",
+        "sha256OwnershipTest",
         [],
         expiresAt,
         true,
         true,
         ethers.parseEther("1.0"),
+        10,
         "Test ownership"
       );
 
@@ -168,11 +174,13 @@ describe("ContractNFT", function () {
       // Mint un NFT pour les tests ERC721 via Auto-Finalize
       const tx = await contractManager.connect(user1).createContract(
         "QmTestERC721",
+        "sha256TestERC721",
         [],
         Math.floor(Date.now() / 1000) + 86400,
         true,
         true,
         0,
+        10,
         "Test ERC721"
       );
       await tx.wait();
@@ -234,6 +242,7 @@ describe("ContractNFT", function () {
       // User1 crée, ajoute User2 et Owner
       await contractManager.connect(user1).createContract(
         "QmMultiSigners",
+        "sha256MultiSigners",
         [
           { signer: user2Address, role: 1, customRole: "", hasSignedContract: false, signedAt: 0 },
           { signer: ownerAddress, role: 1, customRole: "", hasSignedContract: false, signedAt: 0 }
@@ -242,6 +251,7 @@ describe("ContractNFT", function () {
         true,
         true,
         0,
+        10,
         "Multi signers"
       );
 
@@ -262,9 +272,10 @@ describe("ContractNFT", function () {
 
       const tx = await contractManager.connect(user1).createContract(
         "QmActiveTest",
+        "sha256ActiveTest",
         [],
         Math.floor(Date.now() / 1000) + 86400,
-        true, true, 0, "Active test"
+        true, true, 0, 10, "Active test"
       );
       await tx.wait();
 
