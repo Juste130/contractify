@@ -1,5 +1,5 @@
 import { Shield } from 'lucide-react';
-import Navigation from './navigation';
+import { AuthAwareCta } from './auth-aware-cta';
 export default function Header() {
     return (
         <header className="bg-white border-b border-gray-100 sticky top-0 z-50">
@@ -10,8 +10,8 @@ export default function Header() {
                 <Shield className="w-6 h-6 text-white" />
               </div>
               <span className="text-2xl font-bold text-[#3b82f6]">Contrac<span className='text-[#22c55e]'>Tify</span></span>
-            </div>    
-            <Navigation/>
+            </div>
+            <AuthAwareCta />
           </div>
         </div>
       </header>

@@ -26,17 +26,30 @@ const setAuthCookies = (res, token, refreshToken) => {
 
 /**
  * Privy authentication
- * Le privyId est extrait de req.privyUser (vérifié par le middleware verifyPrivyToken),
- * pas du body client (qui ne doit plus être trusted pour l'identité).
+ * Le privyId ET l'email sont extraits de req.privyUser (vérifiés par le middleware
+ * verifyPrivyToken via l'API Privy), jamais du body client — un email fourni par le
+ * client ne doit pas être trusted pour l'identité (voir audit v4).
  */
 exports.privyAuth = async (req, res, next) => {
     try {
-        const { email, walletAddress, profileData } = req.body;
-        // privyId extrait du token vérifié, pas du body
+        const { walletAddress, profileData, email: bodyEmail } = req.body;
         const privyId = req.privyUser?.userId;
+        const email = req.privyUser?.verifiedEmail;
 
-        if (!privyId || !email) {
-            return res.status(400).json({ error: 'Token Privy invalide ou email manquant' });
+        if (!privyId) {
+            return res.status(400).json({ error: 'Token Privy invalide' });
+        }
+
+        if (!email) {
+            return res.status(400).json({ error: 'Email non vérifié par Privy' });
+        }
+
+        if (bodyEmail && bodyEmail.toLowerCase() !== email.toLowerCase()) {
+            logger.warn('privyAuth: email du body différent de l\'email vérifié par Privy', {
+                privyId,
+                bodyEmail,
+                verifiedEmail: email,
+            });
         }
 
         const result = await authService.privyAuth(privyId, email, walletAddress, profileData);

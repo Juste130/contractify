@@ -3,6 +3,7 @@ const router = express.Router();
 const authController = require('../controllers/auth');
 const { body, validationResult } = require('express-validator');
 const { verifyPrivyToken } = require('../middleware/privy-auth');
+const { authLimiter } = require('../middleware/rate-limit');
 
 // Validation result middleware
 const validateRequest = (req, res, next) => {
@@ -21,12 +22,15 @@ const validateRequest = (req, res, next) => {
  * @route   POST /api/auth/privy
  * @desc    Privy authentication (vérifié côté serveur via SDK Privy)
  * @access  Public — nécessite un token Privy valide dans Authorization header
+ * @note    L'email utilisé pour l'identité vient de req.privyUser.verifiedEmail (vérifié
+ *          côté serveur par verifyPrivyToken), pas de ce champ body — il n'est plus qu'informatif.
  */
 router.post(
 	'/privy',
+	authLimiter,
 	verifyPrivyToken,
 	[
-		body('email').isEmail().normalizeEmail(),
+		body('email').optional().isEmail().normalizeEmail(),
 	],
 	validateRequest,
 	authController.privyAuth

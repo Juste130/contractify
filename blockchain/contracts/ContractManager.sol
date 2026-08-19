@@ -445,6 +445,7 @@ contract ContractManager is Ownable, ReentrancyGuard {
         ContractData storage contractData = contracts[contractId];
         require(contractData.allowTermination, "Termination not allowed");
         require(contractData.status == ContractStatus.Active, "Contract not active");
+        require(!contractData.isEscrowDeposited, "Release or penalize escrow before terminating");
         require(reason != TerminationReason.None, "Invalid termination reason");
 
         ContractStatus oldStatus = contractData.status;
@@ -512,7 +513,7 @@ contract ContractManager is Ownable, ReentrancyGuard {
         string calldata currency,
         string calldata proofIpfsHash
     ) external whenNotPaused validContractId(contractId) onlyContractCreator(contractId) {
-        require(amount > 0, "Amount must be greater than zero");
+        require(amount > 0 && amount <= type(uint88).max, "Amount must be > 0 and <= uint88 max");
         _paymentIds++;
         uint256 newPaymentId = _paymentIds;
 
@@ -626,7 +627,8 @@ contract ContractManager is Ownable, ReentrancyGuard {
 
         contractData.isEscrowDeposited = false;
         contractData.releasedAmount += uint88(remainingAmount);
-        
+        contractData.status = ContractStatus.Completed;
+
         // Return penalty to the payer
         (bool pSuccess, ) = payable(contractData.escrowPayer).call{value: penaltyAmount}("");
         require(pSuccess, "Penalty transfer failed");
@@ -646,14 +648,14 @@ contract ContractManager is Ownable, ReentrancyGuard {
         require(uint40(block.timestamp) <= contracts[contractId].expiresAt, "Contract expired");
         ContractData storage contractData = contracts[contractId];
         ContractStatus oldStatus = contractData.status;
-        
-        // ✅ CRÉATION DU NFT SEULEMENT ICI - APRÈS TOUTES LES SIGNATURES
-        uint256 nftTokenId = _mintContractNFT(contractId);
-        
+
         contractData.status = ContractStatus.Active;
         contractData.effectiveDate = uint40(block.timestamp);
+
+        // ✅ CRÉATION DU NFT SEULEMENT ICI - APRÈS TOUTES LES SIGNATURES, ET APRÈS MISE À JOUR DE L'ÉTAT (pattern CEI)
+        uint256 nftTokenId = _mintContractNFT(contractId);
         contractData.nftTokenId = nftTokenId;
-        
+
         _addJustification(contractId, justification);
         _notifyAllParticipants(contractId, "Contract finalized and active");
 
@@ -981,6 +983,14 @@ contract ContractManager is Ownable, ReentrancyGuard {
         authorizedPausers[pauser] = false;
         _authorizedPauserCount--;
         emit PauserAuthorizationUpdated(pauser, false);
+    }
+
+    /**
+     * @dev Désactive renounceOwnership() : un appel accidentel figerait owner() à address(0)
+     * et rendrait setEmergencyAdmin/addAuthorizedPauser/revokePauser définitivement inutilisables.
+     */
+    function renounceOwnership() public view override onlyOwner {
+        revert("ContractManager: renounceOwnership disabled");
     }
 
 }

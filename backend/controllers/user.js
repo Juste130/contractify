@@ -140,6 +140,18 @@ exports.updateUserRole = async (req, res, next) => {
             return res.status(400).json({ error: 'Invalid role' });
         }
 
+        if (role !== 'ADMIN') {
+            const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+            if (targetUser?.role === 'ADMIN') {
+                const remainingAdmins = await prisma.user.count({
+                    where: { role: 'ADMIN', isActive: true, id: { not: userId } },
+                });
+                if (remainingAdmins === 0) {
+                    return res.status(400).json({ error: 'Impossible de rétrograder le dernier administrateur' });
+                }
+            }
+        }
+
         const updatedUser = await prisma.user.update({
             where: { id: userId },
             data: { role },

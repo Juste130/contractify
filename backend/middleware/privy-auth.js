@@ -26,8 +26,12 @@ const getPrivyClient = () => {
  * Middleware : vérifie le token Privy envoyé dans le header Authorization.
  * Format attendu : "Authorization: Bearer <privy-id-token>"
  *
- * Si valide, ajoute req.privyUser = { userId, address, ... } puis appelle next().
+ * Si valide, ajoute req.privyUser = { userId, verifiedEmail, ... } puis appelle next().
  * Si invalide ou absent, retourne 401.
+ *
+ * IMPORTANT : verifiedEmail est récupéré depuis l'API Privy (client.getUserById), jamais
+ * depuis req.body — un email fourni par le client n'est pas fiable pour l'identité
+ * (voir audit v4, faille de prise de contrôle de compte).
  */
 const verifyPrivyToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
@@ -40,10 +44,12 @@ const verifyPrivyToken = async (req, res, next) => {
     const client = getPrivyClient();
 
     if (!client) {
-        // En mode dégradé (pas de clés configurées), on laisse passer en dev seulement
+        // En mode dégradé (pas de clés configurées), on laisse passer en dev seulement.
+        // Dans ce mode, aucun appel réseau à Privy n'est possible : on retombe sur
+        // req.body.email à titre dev-only, non sécurisé (jamais en production).
         if (process.env.NODE_ENV !== 'production') {
-            logger.warn('verifyPrivyToken: Privy client non configuré, mode dégradé (dev uniquement)');
-            req.privyUser = { userId: 'dev-user', address: null };
+            logger.warn('verifyPrivyToken: Privy client non configuré, mode dégradé (dev uniquement, email non vérifié)');
+            req.privyUser = { userId: 'dev-user', address: null, verifiedEmail: req.body?.email || null };
             return next();
         }
         return res.status(503).json({ error: 'Service d\'authentification non disponible' });
@@ -52,7 +58,18 @@ const verifyPrivyToken = async (req, res, next) => {
     try {
         const verifiedClaims = await client.verifyAuthToken(token);
         // verifiedClaims contient : userId (DID Privy), expiration, etc.
-        req.privyUser = verifiedClaims;
+
+        // Récupère l'utilisateur complet côté serveur pour obtenir un email vérifié par Privy,
+        // jamais fourni par le client.
+        let verifiedEmail = null;
+        try {
+            const privyUserRecord = await client.getUserById(verifiedClaims.userId);
+            verifiedEmail = privyUserRecord?.email?.address || null;
+        } catch (fetchError) {
+            logger.warn('verifyPrivyToken: échec de récupération de l\'utilisateur Privy', { error: fetchError.message });
+        }
+
+        req.privyUser = { ...verifiedClaims, verifiedEmail };
         next();
     } catch (error) {
         logger.warn('verifyPrivyToken: Token invalide ou expiré', { error: error.message });
