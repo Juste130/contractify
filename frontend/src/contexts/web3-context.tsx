@@ -1,190 +1,140 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react"
+import { usePrivy, useWallets } from "@privy-io/react-auth"
+import { ethers } from "ethers"
 
-// Types pour le contexte
+
+
 interface Web3ContextType {
-  account: string | null;
+  account: string | null;           // Adresse principale (Smart Wallet si dispo, sinon EOA)
+  eoaAddress: string | null;        // Adresse EOA Privy (embedded wallet)
+  smartWalletAddress: string | null; // Adresse du Smart Wallet Privy natif
   isConnected: boolean;
   isConnecting: boolean;
   connect: () => Promise<void>;
   disconnect: () => void;
   chainId: number | null;
   balance: string | null;
+  refreshBalance: () => Promise<void>;
+  // Méthode unifiée pour envoyer une tx (smart wallet ou EOA selon dispo)
+  sendTransaction: (to: string, data: string, value?: string) => Promise<{ hash: string }>;
 }
-
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined)
 
-const MOCK_MODE = process.env.NEXT_PUBLIC_MOCK_BLOCKCHAIN === 'true';
-
 export function Web3Provider({ children }: { children: ReactNode }) {
-  const [account, setAccount] = useState<string | null>(null)
-  const [isConnecting, setIsConnecting] = useState<boolean>(false)
-  const [chainId, setChainId] = useState<number | null>(null)
+  const { ready, authenticated, login, logout } = usePrivy()
+  const { wallets } = useWallets()
+
   const [balance, setBalance] = useState<string | null>(null)
+  const [chainId, setChainId] = useState<number | null>(null)
 
-  const isConnected: boolean = !!account
+  // Séparer EOA et Smart Wallet depuis la liste Privy
+  const eoaWallet = wallets.find(w => w.walletClientType === 'privy') || wallets[0] || null
+  const smartWalletEntry = wallets.find(w => w.walletClientType === 'smart_wallet') || null
 
-  const handleAccountsChanged = (accounts: unknown): void => {
-    if (Array.isArray(accounts)) {
-      if (accounts.length === 0) {
-        disconnect()
-      } else {
-        setAccount(accounts[0])
-        if (accounts[0]) {
-          fetchBalance(accounts[0])
-        }
-      }
-    }
-  }
+  const eoaAddress = eoaWallet?.address || null
+  const smartWalletAddress = smartWalletEntry?.address || null
 
-  const handleChainChanged = (): void => {
-    window.location.reload()
-  }
+  // Adresse principale : smart wallet si disponible, sinon EOA
+  const account = smartWalletAddress || eoaAddress
 
-  const checkConnection = async (): Promise<void> => {
-    if (MOCK_MODE) {
-      const savedAccount = localStorage.getItem('mock_account')
-      if (savedAccount) {
-        setAccount(savedAccount)
-        setChainId(80001)
-        setBalance('10.5')
-      }
+  const isConnected = ready && authenticated && !!account
+  const isConnecting = !ready
+
+  const refreshBalance = useCallback(async () => {
+    if (!eoaWallet || !account) {
+      setBalance(null)
       return
     }
+    try {
+      const eip1193provider = await eoaWallet.getEthereumProvider()
+      const provider = new ethers.BrowserProvider(eip1193provider)
+      const rawBalance = await provider.getBalance(account)
+      setBalance(parseFloat(ethers.formatEther(rawBalance)).toFixed(4))
+    } catch (err) {
+      console.warn('[Web3] Failed to fetch wallet balance:', err)
+      setBalance('0.0000')
+    }
+  }, [eoaWallet, account])
 
-    if (typeof window !== "undefined" && window.ethereum) {
-      try {
-        const accounts = await window.ethereum.request({
-          method: "eth_accounts"
-        }) as string[]
-
-        if (accounts.length > 0) {
-          setAccount(accounts[0])
-          await fetchChainId()
-          await fetchBalance(accounts[0])
-        }
-      } catch (error) {
-        console.error("Error checking connection:", error)
+  useEffect(() => {
+    if (eoaWallet) {
+      const cid = eoaWallet.chainId
+      if (cid && cid.startsWith('eip155:')) {
+        setChainId(Number(cid.split(':')[1]))
       }
+      refreshBalance()
+    } else {
+      setChainId(null)
+      setBalance(null)
     }
-  }
+  }, [eoaWallet, refreshBalance])
 
-  const fetchChainId = async (): Promise<void> => {
-    if (MOCK_MODE) {
-      setChainId(80001)
-      return
+  /**
+   * Méthode unifiée pour envoyer une transaction.
+   * - Si un Smart Wallet Privy est disponible → passe par lui (gasless si paymaster configuré)
+   * - Sinon → passe par l'EOA Privy classique via ethers
+   */
+  const sendTransaction = useCallback(async (
+    to: string,
+    data: string,
+    value?: string
+  ): Promise<{ hash: string }> => {
+    if (smartWalletEntry) {
+      // Smart Wallet Privy natif — envoie via l'EIP-1193 provider du smart wallet
+      console.log('[Privy Smart Wallet] Sending transaction via smart wallet:', smartWalletAddress)
+      const eip1193provider = await smartWalletEntry.getEthereumProvider()
+      const provider = new ethers.BrowserProvider(eip1193provider)
+      const signer = await provider.getSigner()
+      const tx = await signer.sendTransaction({
+        to,
+        data,
+        ...(value ? { value: BigInt(value) } : {}),
+      })
+      console.log('[Privy Smart Wallet] Transaction sent:', tx.hash)
+      return { hash: tx.hash }
     }
 
-    if (typeof window !== "undefined" && window.ethereum) {
-      try {
-        const chainIdHex = await window.ethereum.request({
-          method: "eth_chainId"
-        }) as string
-
-        if (typeof chainIdHex === 'string') {
-          setChainId(Number.parseInt(chainIdHex, 16))
-        }
-      } catch (error) {
-        console.error("Error fetching chain ID:", error)
-      }
-    }
-  }
-
-  const fetchBalance = async (address: string): Promise<void> => {
-    if (MOCK_MODE) {
-      setBalance('10.5')
-      return
+    if (eoaWallet) {
+      // Fallback : EOA Privy classique
+      console.log('[Privy EOA] Sending transaction via EOA:', eoaAddress)
+      const eip1193provider = await eoaWallet.getEthereumProvider()
+      const provider = new ethers.BrowserProvider(eip1193provider)
+      const signer = await provider.getSigner()
+      const tx = await signer.sendTransaction({
+        to,
+        data,
+        ...(value ? { value: BigInt(value) } : {}),
+      })
+      console.log('[Privy EOA] Transaction sent:', tx.hash)
+      return { hash: tx.hash }
     }
 
-    if (typeof window !== "undefined" && window.ethereum) {
-      try {
-        const balanceHex = await window.ethereum.request({
-          method: "eth_getBalance",
-          params: [address, "latest"],
-        }) as string
-
-        if (typeof balanceHex === 'string') {
-          const balanceWei = BigInt(balanceHex);
-          const balanceEth = (Number(balanceWei) / 1e18).toFixed(4)
-          setBalance(balanceEth)
-        }
-      } catch (error) {
-        console.error("Error fetching balance:", error)
-      }
-    }
-  }
+    throw new Error('Aucun wallet connecté')
+  }, [smartWalletEntry, eoaWallet, smartWalletAddress, eoaAddress])
 
   const connect = async (): Promise<void> => {
-    if (MOCK_MODE) {
-      setIsConnecting(true)
-      setTimeout(() => {
-        const mockAcc = '0x' + Math.random().toString(16).slice(2, 42).padStart(40, '0')
-        setAccount(mockAcc)
-        setChainId(80001)
-        setBalance('10.5')
-        localStorage.setItem('mock_account', mockAcc)
-        setIsConnecting(false)
-      }, 1000)
-      return
-    }
-
-    if (typeof window === "undefined" || !window.ethereum) {
-      alert("MetaMask is not installed. Please install MetaMask to use this feature.")
-      return
-    }
-
-    setIsConnecting(true)
-    try {
-      const accounts = await window.ethereum.request({
-        method: "eth_requestAccounts",
-      }) as string[]
-
-      if (accounts.length > 0) {
-        setAccount(accounts[0])
-        await fetchChainId()
-        await fetchBalance(accounts[0])
-      }
-    } catch (error) {
-      console.error("Error connecting to MetaMask:", error)
-      alert("Failed to connect to MetaMask. Please try again.")
-    } finally {
-      setIsConnecting(false)
-    }
+    login()
   }
 
   const disconnect = (): void => {
-    setAccount(null)
-    setChainId(null)
-    setBalance(null)
-    if (MOCK_MODE) {
-      localStorage.removeItem('mock_account')
-    }
+    logout()
   }
-
-  useEffect(() => {
-    checkConnection()
-
-    if (typeof window !== "undefined" && window.ethereum && !MOCK_MODE) {
-      window.ethereum.on("accountsChanged", handleAccountsChanged)
-      window.ethereum.on("chainChanged", handleChainChanged)
-
-      return () => {
-        window.ethereum?.removeListener("accountsChanged", handleAccountsChanged)
-        window.ethereum?.removeListener("chainChanged", handleChainChanged)
-      }
-    }
-  }, [])
 
   const contextValue: Web3ContextType = {
     account,
+    eoaAddress,
+    smartWalletAddress,
     isConnected,
     isConnecting,
     connect,
     disconnect,
     chainId,
     balance,
+    refreshBalance,
+    sendTransaction,
   }
 
   return (

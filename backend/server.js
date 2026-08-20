@@ -4,10 +4,10 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const cookieParser = require('cookie-parser');
 const { config } = require('./config');
-const logger = require('./utils/logger').default;
+const logger = require('./utils/logger');
 const { errorHandler } = require('./middleware/error-handler');
 const { generalLimiter } = require('./middleware/rate-limit');
-const blockchainSyncService = require('./services/blockchain-sync').default;
+const blockchainSyncService = require('./services/blockchain-sync');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -19,11 +19,15 @@ const contractRoutes = require('./routes/contract');
 const app = express();
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+    crossOriginResourcePolicy: {policy: "cross-origin"}
+}));
 app.use(cookieParser());
 app.use(cors({
     origin: config.frontendUrl,
     credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -51,6 +55,10 @@ app.use('/api/users', userRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/ipfs', ipfsRoutes);
 app.use('/api/contracts', contractRoutes);
+
+// NOTE: le job horaire de réconciliation des wallets a été retiré — avec Privy, le
+// wallet est fourni par le client dès l'authentification, il n'y a plus de scénario
+// "utilisateur sans wallet" à rattraper.
 
 // 404 handler
 app.use((req, res) => {

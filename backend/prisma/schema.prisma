@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ==================== USER MANAGEMENT ====================
@@ -23,6 +24,7 @@ model User {
   email         String    @unique
   passwordHash  String?   @map("password_hash")
   googleId      String?   @unique @map("google_id")
+  privyId       String?   @unique @map("privy_id")
   role          UserRole  @default(USER)
   isActive      Boolean   @default(true) @map("is_active")
   createdAt     DateTime  @default(now()) @map("created_at")
@@ -31,8 +33,8 @@ model User {
 
   wallet        UserWallet?
   contracts     ContractCache[]
-  notifications Notification[]
-  auditLogs     AuditLog[]
+
+  refreshTokens RefreshToken[]
 
   @@map("users")
 }
@@ -44,6 +46,7 @@ model UserWallet {
   encryptedPrivateKey   String?  @map("encrypted_private_key") @db.Text
   encryptionIv          String?  @map("encryption_iv") @db.VarChar(32)
   encryptionAuthTag     String?  @map("encryption_auth_tag") @db.VarChar(32)
+  encryptionSalt        String?  @map("encryption_salt") @db.VarChar(32)
   isAdminWallet         Boolean  @default(false) @map("is_admin_wallet")
   createdAt             DateTime @default(now()) @map("created_at")
   fundedAt              DateTime? @map("funded_at")
@@ -56,6 +59,8 @@ model UserWallet {
 // ==================== CONTRACT CACHE ====================
 
 enum ContractStatus {
+  DRAFT_WAITING_SIGNERS
+  READY_TO_DEPLOY
   DRAFT
   PENDING_SIGNATURES
   ACTIVE
@@ -68,99 +73,37 @@ enum ContractStatus {
 
 model ContractCache {
   id          String         @id @default(uuid())
-  contractId  Int            @unique @map("contract_id")
+  contractId  Int?           @unique @map("contract_id") // Optional for drafts
   userId      String         @map("user_id")
   title       String
-  ipfsHash    String         @map("ipfs_hash")
+  ipfsHash    String?        @map("ipfs_hash") // Optional until IPFS upload
   status      ContractStatus
   metadata    Json
   lastSync    DateTime       @map("last_sync")
   createdAt   DateTime       @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  signatories ContractSignatory[]
 
   @@index([userId])
   @@index([status])
   @@map("contract_cache")
 }
 
-// ==================== TEMPLATES ====================
+model ContractSignatory {
+  id              String         @id @default(uuid())
+  contractCacheId String         @map("contract_cache_id")
+  email           String
+  name            String?
+  role            Int            @default(1)
+  walletAddress   String?        @map("wallet_address")
+  isRegistered    Boolean        @default(false) @map("is_registered")
 
-model ContractTemplate {
-  id           String   @id @default(uuid())
-  name         String
-  description  String   @db.Text
-  templateJson Json     @map("template_json")
-  category     String
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  contract ContractCache @relation(fields: [contractCacheId], references: [id], onDelete: Cascade)
 
-  @@index([category])
-  @@map("contract_templates")
-}
-
-// ==================== NOTIFICATIONS ====================
-
-enum NotificationType {
-  CONTRACT_CREATED
-  CONTRACT_SIGNED
-  CONTRACT_FINALIZED
-  CONTRACT_TERMINATED
-  CONTRACT_DISPUTED
-  PAYMENT_RECEIVED
-  SIGNATURE_REQUIRED
-  SYSTEM_ALERT
-}
-
-model Notification {
-  id        String           @id @default(uuid())
-  userId    String           @map("user_id")
-  type      NotificationType
-  title     String
-  message   String           @db.Text
-  read      Boolean          @default(false)
-  metadata  Json?
-  createdAt DateTime         @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, read])
-  @@map("notifications")
-}
-
-// ==================== AUDIT LOGS ====================
-
-enum AuditAction {
-  USER_CREATED
-  USER_UPDATED
-  USER_DELETED
-  WALLET_CREATED
-  WALLET_ACCESSED
-  CONTRACT_SYNCED
-  AI_GENERATION
-  IPFS_UPLOAD
-  PAYMENT_INITIATED
-  ADMIN_ACTION
-  LOGIN
-  LOGOUT
-}
-
-model AuditLog {
-  id        String      @id @default(uuid())
-  userId    String?     @map("user_id")
-  action    AuditAction
-  resource  String
-  details   Json?
-  ipAddress String?     @map("ip_address")
-  createdAt DateTime    @default(now()) @map("created_at")
-
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  @@index([userId])
-  @@index([action])
-  @@index([createdAt])
-  @@map("audit_logs")
+  @@index([contractCacheId])
+  @@index([email])
+  @@map("contract_signatories")
 }
 
 // ==================== IPFS DOCUMENTS ====================
@@ -177,37 +120,21 @@ model IpfsDocument {
   @@map("ipfs_documents")
 }
 
-// ==================== PAYMENT TRACKING ====================
+// ==================== REFRESH TOKENS ====================
 
-enum PaymentProvider {
-  RAMP_NETWORK
-  STRIPE
-  MANUAL
-}
+model RefreshToken {
+  id         String   @id @default(uuid())
+  tokenHash  String   @unique @map("token_hash")
+  userId     String   @map("user_id")
+  revoked    Boolean  @default(false)
+  replacedBy String?  @map("replaced_by")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+  expiresAt  DateTime @map("expires_at")
 
-enum PaymentStatus {
-  PENDING
-  PROCESSING
-  COMPLETED
-  FAILED
-  REFUNDED
-}
-
-model Payment {
-  id              String          @id @default(uuid())
-  userId          String          @map("user_id")
-  provider        PaymentProvider
-  providerTxId    String?         @unique @map("provider_tx_id")
-  amount          Decimal         @db.Decimal(18, 8)
-  currency        String
-  cryptoAmount    Decimal?        @db.Decimal(18, 8) @map("crypto_amount")
-  cryptoCurrency  String?         @map("crypto_currency")
-  status          PaymentStatus
-  metadata        Json?
-  createdAt       DateTime        @default(now()) @map("created_at")
-  completedAt     DateTime?       @map("completed_at")
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([status])
-  @@map("payments")
+  @@map("refresh_tokens")
 }

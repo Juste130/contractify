@@ -1,6 +1,6 @@
-const prisma = require('../models/prisma').default;
-const walletService = require('../services/wallet').default;
-const logger = require('../utils/logger').default;
+const prisma = require('../models/prisma');
+const walletService = require('../services/wallet');
+const logger = require('../utils/logger');
 
 /**
  * Get current user profile
@@ -138,6 +138,18 @@ exports.updateUserRole = async (req, res, next) => {
 
         if (!['ADMIN', 'USER', 'VIEWER'].includes(role)) {
             return res.status(400).json({ error: 'Invalid role' });
+        }
+
+        if (role !== 'ADMIN') {
+            const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+            if (targetUser?.role === 'ADMIN') {
+                const remainingAdmins = await prisma.user.count({
+                    where: { role: 'ADMIN', isActive: true, id: { not: userId } },
+                });
+                if (remainingAdmins === 0) {
+                    return res.status(400).json({ error: 'Impossible de rétrograder le dernier administrateur' });
+                }
+            }
         }
 
         const updatedUser = await prisma.user.update({

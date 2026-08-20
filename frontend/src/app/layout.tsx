@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Providers } from "@/components/providers";
+import NextTopLoader from "nextjs-toploader";
 import "./globals.css";
+import Providers from "./providers";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,6 +29,20 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        {process.env.NEXT_PUBLIC_MOCK_BLOCKCHAIN === 'true' && (
+          <div style={{
+            backgroundColor: '#FF9800',
+            color: '#fff',
+            textAlign: 'center',
+            padding: '8px',
+            fontWeight: 'bold',
+            zIndex: 9999,
+            position: 'relative'
+          }}>
+            MODE DÉMO : Les transactions blockchain sont simulées.
+          </div>
+        )}
+        <NextTopLoader color="#9C27B0" showSpinner={false} />
         <Providers>
           {children}
         </Providers>

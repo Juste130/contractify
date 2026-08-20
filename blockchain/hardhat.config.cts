@@ -1,5 +1,9 @@
 import type { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
+import * as dotenv from "dotenv";
+import path from "path";
+
+dotenv.config({ path: path.join(__dirname, "../backend/.env") });
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -20,6 +24,20 @@ const config: HardhatUserConfig = {
       chainId: 11155111,
       url: process.env.SEPOLIA_RPC_URL || "",
       accounts: process.env.SEPOLIA_PRIVATE_KEY ? [process.env.SEPOLIA_PRIVATE_KEY] : []
+    },
+    tenderly: {
+      url: process.env.POLYGON_RPC_URL || "",
+      accounts: process.env.FUNDER_PRIVATE_KEY
+        ? [process.env.FUNDER_PRIVATE_KEY.startsWith("0x") ? process.env.FUNDER_PRIVATE_KEY : `0x${process.env.FUNDER_PRIVATE_KEY}`]
+        : [],
+      chainId: 137
+    },
+    amoy: {
+      url: process.env.ALCHEMY_POLYGON_TESTNET_RPC_URL || "https://rpc-amoy.polygon.technology",
+      accounts: process.env.FUNDER_PRIVATE_KEY
+        ? [process.env.FUNDER_PRIVATE_KEY.startsWith("0x") ? process.env.FUNDER_PRIVATE_KEY : `0x${process.env.FUNDER_PRIVATE_KEY}`]
+        : [],
+      chainId: 80002
     }
   }
 };

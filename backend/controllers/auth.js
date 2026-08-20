@@ -1,96 +1,63 @@
 const authService = require('../services/auth');
-const walletService = require('../services/wallet');
-const logger = require('../utils/logger').default;
+const logger = require('../utils/logger');
 
 /**
  * Helper to set auth cookies
  */
 const setAuthCookies = (res, token, refreshToken) => {
-    res.cookie('accessToken', token, {
+    const isProd = process.env.NODE_ENV === 'production';
+    const cookieOptions = {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        secure: isProd, // secure in production
+        sameSite: isProd ? 'none' : 'lax', // none+secure for cross-site in prod, lax in dev
+        path: '/',
+    };
+
+    res.cookie('accessToken', token, {
+        ...cookieOptions,
         maxAge: 60 * 60 * 1000, // 1 hour
     });
 
     res.cookie('refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
+        ...cookieOptions,
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 };
 
 /**
- * Register new user
+ * Privy authentication
+ * Le privyId ET l'email sont extraits de req.privyUser (vérifiés par le middleware
+ * verifyPrivyToken via l'API Privy), jamais du body client — un email fourni par le
+ * client ne doit pas être trusted pour l'identité (voir audit v4).
  */
-exports.register = async (req, res, next) => {
+exports.privyAuth = async (req, res, next) => {
     try {
-        const { email, password, isAdmin, adminWalletAddress } = req.body;
+        const { walletAddress, profileData, email: bodyEmail } = req.body;
+        const privyId = req.privyUser?.userId;
+        const email = req.privyUser?.verifiedEmail;
 
-        if (!email || !password) {
-            return res.status(400).json({ error: 'Email and password are required' });
+        if (!privyId) {
+            return res.status(400).json({ error: 'Token Privy invalide' });
         }
 
-        const result = await authService.default.register(
-            email,
-            password,
-            isAdmin,
-            adminWalletAddress
-        );
-
-        setAuthCookies(res, result.token, result.refreshToken);
-
-        res.status(201).json({
-            message: 'User registered successfully',
-            user: result.user
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-/**
- * Login user
- */
-exports.login = async (req, res, next) => {
-    try {
-        const { email, password } = req.body;
-
-        if (!email || !password) {
-            return res.status(400).json({ error: 'Email and password are required' });
+        if (!email) {
+            return res.status(400).json({ error: 'Email non vérifié par Privy' });
         }
 
-        const result = await authService.default.login(email, password);
+        if (bodyEmail && bodyEmail.toLowerCase() !== email.toLowerCase()) {
+            logger.warn('privyAuth: email du body différent de l\'email vérifié par Privy', {
+                privyId,
+                bodyEmail,
+                verifiedEmail: email,
+            });
+        }
+
+        const result = await authService.privyAuth(privyId, email, walletAddress, profileData);
 
         setAuthCookies(res, result.token, result.refreshToken);
 
         res.json({
-            message: 'Login successful',
-            user: result.user
-        });
-    } catch (error) {
-        next(error);
-    }
-};
-
-/**
- * Google OAuth callback
- */
-exports.googleAuth = async (req, res, next) => {
-    try {
-        const { googleId, email, profileData } = req.body;
-
-        if (!googleId || !email) {
-            return res.status(400).json({ error: 'Google ID and email are required' });
-        }
-
-        const result = await authService.default.googleAuth(googleId, email, profileData);
-
-        setAuthCookies(res, result.token, result.refreshToken);
-
-        res.json({
-            message: 'Google authentication successful',
+            message: 'Privy authentication successful',
             user: result.user
         });
     } catch (error) {
@@ -110,19 +77,12 @@ exports.refreshToken = async (req, res, next) => {
             return res.status(401).json({ error: 'Refresh token is required' });
         }
 
-        const result = await authService.default.refreshAccessToken(refreshToken);
+        const result = await authService.refreshAccessToken(refreshToken);
 
-        // Set the new access token cookie
-        res.cookie('accessToken', result.token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: 60 * 60 * 1000, // 1 hour
-        });
+        // Set the new access token and rotated refresh token cookies
+        setAuthCookies(res, result.token, result.refreshToken);
 
-        res.json({
-            message: 'Token refreshed successfully'
-        });
+        res.json({ message: 'Token refreshed successfully' });
     } catch (error) {
         next(error);
     }
@@ -132,6 +92,15 @@ exports.refreshToken = async (req, res, next) => {
  * Logout
  */
 exports.logout = async (req, res) => {
+    try {
+        const refreshToken = req.cookies.refreshToken;
+        if (refreshToken) {
+            await authService.revokeRefreshToken(refreshToken);
+        }
+    } catch (err) {
+        logger.error('Error revoking refresh token on logout', err);
+    }
+
     res.clearCookie('accessToken');
     res.clearCookie('refreshToken');
     res.json({ message: 'Logout successful' });

@@ -12,6 +12,13 @@ const { aiLimiter } = require('../middleware/rate-limit');
 router.post('/generate-contract', authenticate, aiLimiter, aiController.generateContract);
 
 /**
+ * @route   POST /api/ai/correct-input
+ * @desc    Correct input text
+ * @access  Private
+ */
+router.post('/correct-input', authenticate, aiLimiter, aiController.correctInput);
+
+/**
  * @route   POST /api/ai/improve-clause
  * @desc    Improve specific clause
  * @access  Private

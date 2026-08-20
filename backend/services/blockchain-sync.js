@@ -6,7 +6,7 @@ const { ContractStatus } = require('@prisma/client');
 
 const CONTRACT_MANAGER_ABI = [
     'function getUserContracts(address user) external view returns (uint256[])',
-    'function getContractDetails(uint256 contractId) external view returns (tuple(uint256 id, address creator, uint40 createdAt, uint40 expiresAt, uint40 effectiveDate, uint8 status, bool allowTermination, bool allowDispute, tuple(uint8 reason, string customReason, string proofIpfsHash, tuple(string justification, uint40 timestamp, address updatedBy) justification) terminationInfo, tuple(uint8 reason, string customReason, string proofIpfsHash, tuple(string justification, uint40 timestamp, address updatedBy) justification) disputeInfo, uint88 totalAmount, uint88 releasedAmount, uint256 nftTokenId) contractData, tuple(address signer, uint8 role, string customRole, bool hasSignedContract, uint40 signedAt)[] signers, bool allSigned, uint256 justificationCount, uint256 paymentCount)',
+    'function getContractDetails(uint256 contractId) external view returns (tuple(uint256 id, address creator, uint40 createdAt, uint40 expiresAt, uint40 effectiveDate, uint8 status, bool allowTermination, bool allowDispute, tuple(uint8 reason, string customReason, string proofIpfsHash, tuple(string justification, uint40 timestamp, address updatedBy) justification) terminationInfo, tuple(uint8 reason, string customReason, string proofIpfsHash, tuple(string justification, uint40 timestamp, address updatedBy) justification) disputeInfo, uint88 escrowAmount, uint8 penaltyPercent, string sha256Hash, uint88 releasedAmount, uint256 nftTokenId, bool isEscrowDeposited, address escrowPayer) contractData, tuple(address signer, uint8 role, string customRole, bool hasSignedContract, uint40 signedAt)[] signers, bool allSigned, uint256 justificationCount, uint256 paymentCount)',
     'event ContractCreated(uint256 indexed contractId, address indexed creator, uint40 createdAt, address[] additionalSigners)',
     'event ContractFinalized(uint256 indexed contractId, uint256 nftTokenId, uint40 effectiveDate)',
     'event ContractStatusUpdated(uint256 indexed contractId, uint8 oldStatus, uint8 newStatus, string justification, address updatedBy)',
@@ -15,34 +15,46 @@ const CONTRACT_MANAGER_ABI = [
 class BlockchainSyncService {
     constructor() {
         this.provider = new ethers.JsonRpcProvider(config.polygonRpcUrl);
-        this.contractManager = new ethers.Contract(
-            config.contractManagerAddress,
-            CONTRACT_MANAGER_ABI,
-            this.provider
-        );
+
+        if (ethers.isAddress(config.contractManagerAddress)) {
+            this.contractManager = new ethers.Contract(
+                config.contractManagerAddress,
+                CONTRACT_MANAGER_ABI,
+                this.provider
+            );
+        } else {
+            logger.warn(`Invalid Contract Manager Address: ${config.contractManagerAddress}. Blockchain sync disabled.`);
+            this.contractManager = null;
+        }
     }
 
     async syncUserContracts(userAddress, userId) {
+        if (!this.contractManager) {
+            logger.warn('Skipping user contract sync: No valid contract manager');
+            return 0;
+        }
+
         try {
             const contractIds = await this.contractManager.getUserContracts(userAddress);
 
-            let syncedCount = 0;
+            await Promise.all(
+                contractIds.map((contractId) => this.syncContract(contractId.toString(), userId))
+            );
 
-            for (const contractId of contractIds) {
-                await this.syncContract(contractId.toString(), userId);
-                syncedCount++;
-            }
-
+            const syncedCount = contractIds.length;
             logger.info(`Synced ${syncedCount} contracts for user ${userAddress}`);
 
             return syncedCount;
         } catch (error) {
             logger.error('Error syncing user contracts:', error);
-            throw new Error('Failed to sync user contracts');
+            // Don't throw to avoid blocking the main flow
+            return 0;
         }
     }
 
     async syncContract(contractId, userId) {
+        if (!this.contractManager) return;
+
         try {
             const details = await this.contractManager.getContractDetails(contractId);
 
@@ -51,6 +63,25 @@ class BlockchainSyncService {
 
             const status = this.mapContractStatus(contractData.status);
 
+            // Lookup each signer's address in our database to resolve their name and email
+            // (case-insensitive: on-chain addresses may be checksummed differently than stored)
+            const enrichedSigners = await Promise.all(signers.map(async (s) => {
+                const wallet = await prisma.userWallet.findFirst({
+                    where: { publicAddress: { equals: s.signer, mode: 'insensitive' } },
+                    include: { user: true }
+                });
+
+                return {
+                    address: s.signer,
+                    name: wallet?.user?.profileData?.name || wallet?.user?.email || null,
+                    email: wallet?.user?.email || null,
+                    role: Number(s.role),
+                    customRole: s.customRole,
+                    hasSigned: s.hasSignedContract,
+                    signedAt: Number(s.signedAt),
+                };
+            }));
+
             const metadata = {
                 creator: contractData.creator,
                 createdAt: Number(contractData.createdAt),
@@ -58,20 +89,31 @@ class BlockchainSyncService {
                 effectiveDate: Number(contractData.effectiveDate),
                 allowTermination: contractData.allowTermination,
                 allowDispute: contractData.allowDispute,
-                totalAmount: contractData.totalAmount.toString(),
+                escrowAmount: contractData.escrowAmount.toString(),
+                penaltyPercent: Number(contractData.penaltyPercent),
+                sha256Hash: contractData.sha256Hash,
                 releasedAmount: contractData.releasedAmount.toString(),
                 nftTokenId: contractData.nftTokenId.toString(),
-                signers: signers.map((s) => ({
-                    address: s.signer,
-                    role: s.role,
-                    customRole: s.customRole,
-                    hasSigned: s.hasSignedContract,
-                    signedAt: Number(s.signedAt),
-                })),
+                isEscrowDeposited: contractData.isEscrowDeposited,
+                escrowPayer: contractData.escrowPayer,
+                signers: enrichedSigners,
                 allSigned: details.allSigned,
                 justificationCount: Number(details.justificationCount),
                 paymentCount: Number(details.paymentCount),
             };
+
+            let finalUserId = userId;
+            if (!finalUserId) {
+                const creatorWallet = await prisma.userWallet.findFirst({
+                    where: { publicAddress: { equals: contractData.creator, mode: 'insensitive' } }
+                });
+                finalUserId = creatorWallet?.userId || null;
+            }
+
+            if (!finalUserId) {
+                logger.warn(`Could not resolve userId for creator: ${contractData.creator}. Skipping cache upsert.`);
+                return;
+            }
 
             await prisma.contractCache.upsert({
                 where: { contractId: parseInt(contractId) },
@@ -82,7 +124,7 @@ class BlockchainSyncService {
                 },
                 create: {
                     contractId: parseInt(contractId),
-                    userId,
+                    userId: finalUserId,
                     title: `Contract #${contractId}`,
                     ipfsHash: '',
                     status,
@@ -94,55 +136,158 @@ class BlockchainSyncService {
             logger.info(`Contract ${contractId} synced successfully`);
         } catch (error) {
             logger.error(`Error syncing contract ${contractId}:`, error);
-            throw new Error(`Failed to sync contract ${contractId}`);
+            // Don't throw
         }
     }
 
     async startEventListener() {
+        if (!this.contractManager) {
+            logger.warn('Blockchain event listener skipped: No valid contract manager');
+            return;
+        }
+
+        // Stop any existing polling before starting a new one
+        if (this._pollingInterval) {
+            clearInterval(this._pollingInterval);
+        }
+
+        // Use polling via queryFilter instead of contract.on() which relies on
+        // server-side eth_newFilter with a short TTL (~5min) causing "filter not found" errors.
         try {
-            this.contractManager.on('ContractCreated', async (contractId, creator, createdAt, additionalSigners) => {
+            this._lastScannedBlock = await this.provider.getBlockNumber();
+            logger.info(`Blockchain event listener started (polling from block ${this._lastScannedBlock})`);
+        } catch (error) {
+            logger.error('Could not get current block number, event listener disabled:', error);
+            return;
+        }
+
+        // Free tier RPC plans (Alchemy, etc.) limit eth_getLogs to 10 blocks per request.
+        // We use 9 as a safe ceiling to stay under that limit.
+        const MAX_BLOCK_CHUNK = 9;
+
+        const processChunk = async (fromBlock, toBlock) => {
+            // ContractCreated
+            const createdEvents = await this.contractManager.queryFilter(
+                this.contractManager.filters.ContractCreated(),
+                fromBlock, toBlock
+            );
+            for (const event of createdEvents) {
+                const [contractId, creator] = event.args;
                 logger.info(`New contract created: ${contractId} by ${creator}`);
-
-                const wallet = await prisma.userWallet.findUnique({
-                    where: { publicAddress: creator },
+                const wallet = await prisma.userWallet.findFirst({
+                    where: { publicAddress: { equals: creator, mode: 'insensitive' } },
                 });
-
                 if (wallet) {
                     await this.syncContract(contractId.toString(), wallet.userId);
                 }
-            });
+            }
 
-            this.contractManager.on('ContractFinalized', async (contractId, nftTokenId, effectiveDate) => {
+            // ContractFinalized
+            const finalizedEvents = await this.contractManager.queryFilter(
+                this.contractManager.filters.ContractFinalized(),
+                fromBlock, toBlock
+            );
+            for (const event of finalizedEvents) {
+                const [contractId, nftTokenId] = event.args;
                 logger.info(`Contract finalized: ${contractId}, NFT: ${nftTokenId}`);
+                
+                // First sync contract details to keep cache accurate
+                await this.syncContract(contractId.toString(), null);
 
-                await prisma.contractCache.updateMany({
-                    where: { contractId: Number(contractId) },
-                    data: {
-                        status: ContractStatus.ACTIVE,
-                        lastSync: new Date(),
-                    },
+                const contract = await prisma.contractCache.findUnique({
+                    where: { contractId: Number(contractId) }
                 });
-            });
 
-            this.contractManager.on('ContractStatusUpdated', async (contractId, oldStatus, newStatus, justification, updatedBy) => {
-                logger.info(`Contract ${contractId} status updated: ${oldStatus} -> ${newStatus}`);
+                if (contract && contract.metadata && contract.metadata.signers) {
+                    const emailService = require('./email');
+                    for (const signer of contract.metadata.signers) {
+                        if (signer.email) {
+                            emailService.sendContractFinalizedNotification(
+                                signer.email,
+                                contract.title,
+                                contractId.toString()
+                            ).catch(err => logger.error(`[Email] Failed to send finalized notification to ${signer.email}:`, err));
+                        }
+                    }
+                }
+            }
 
-                const status = this.mapContractStatus(newStatus);
+            // ContractStatusUpdated
+            const statusEvents = await this.contractManager.queryFilter(
+                this.contractManager.filters.ContractStatusUpdated(),
+                fromBlock, toBlock
+            );
+            for (const event of statusEvents) {
+                const [contractId, , newStatus] = event.args;
+                logger.info(`Contract ${contractId} status updated to: ${newStatus}`);
+                
+                // First sync contract details to keep cache accurate
+                await this.syncContract(contractId.toString(), null);
 
-                await prisma.contractCache.updateMany({
-                    where: { contractId: Number(contractId) },
-                    data: {
-                        status,
-                        lastSync: new Date(),
-                    },
+                const contract = await prisma.contractCache.findUnique({
+                    where: { contractId: Number(contractId) }
                 });
-            });
 
-            logger.info('Blockchain event listener started');
-        } catch (error) {
-            logger.error('Error starting event listener:', error);
-            throw new Error('Failed to start event listener');
-        }
+                if (contract && contract.metadata && contract.metadata.signers) {
+                    const statusString = contract.status;
+                    const emailService = require('./email');
+                    for (const signer of contract.metadata.signers) {
+                        if (signer.email) {
+                            emailService.sendContractStatusNotification(
+                                signer.email,
+                                contract.title,
+                                contractId.toString(),
+                                statusString
+                            ).catch(err => logger.error(`[Email] Failed to send status notification to ${signer.email}:`, err));
+                        }
+                    }
+                }
+            }
+        };
+
+        const withTimeout = (promise, ms, label) => {
+            let timer;
+            const timeout = new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+            });
+            return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+        };
+
+        const pollEvents = async () => {
+            // Guard against overlapping runs: if the RPC provider is slow/unreachable
+            // (flaky DNS, rate-limited free-tier plan, etc.), a single pollEvents() call
+            // can take longer than the 15s interval. Without this guard, setInterval keeps
+            // firing regardless and stacks up more and more concurrent RPC calls, which can
+            // starve Node's libuv threadpool (used by DNS lookups and file I/O alike) and
+            // make the whole server — including unrelated HTTP requests — appear to hang.
+            if (this._pollingInFlight) return;
+            this._pollingInFlight = true;
+
+            try {
+                const currentBlock = await withTimeout(this.provider.getBlockNumber(), 20_000, 'getBlockNumber');
+                if (currentBlock <= this._lastScannedBlock) return;
+
+                let from = this._lastScannedBlock + 1;
+                const to = currentBlock;
+
+                // Process in chunks of MAX_BLOCK_CHUNK to respect free tier block range limits
+                while (from <= to) {
+                    const chunkTo = Math.min(from + MAX_BLOCK_CHUNK - 1, to);
+                    await withTimeout(processChunk(from, chunkTo), 20_000, 'processChunk');
+                    // Advance cursor after each successful chunk so progress is never lost
+                    this._lastScannedBlock = chunkTo;
+                    from = chunkTo + 1;
+                }
+            } catch (error) {
+                // Log but don't crash — next poll will retry from where we left off
+                logger.error('Blockchain event polling error:', error);
+            } finally {
+                this._pollingInFlight = false;
+            }
+        };
+
+        // Poll every 15 seconds — Polygon ~1 block/2s → ~7 blocks/poll, well within 9-block limit
+        this._pollingInterval = setInterval(pollEvents, 15_000);
     }
 
     mapContractStatus(blockchainStatus) {
@@ -163,6 +308,7 @@ class BlockchainSyncService {
     async getCachedContract(contractId) {
         return await prisma.contractCache.findUnique({
             where: { contractId },
+            include: { signatories: true },
         });
     }
 

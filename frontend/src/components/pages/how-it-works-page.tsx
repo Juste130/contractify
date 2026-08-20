@@ -11,7 +11,6 @@ import {
   Send,
   Zap,
   Shield,
-  Clock,
   Users,
   TrendingUp,
   Lock

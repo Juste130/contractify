@@ -79,11 +79,13 @@ describe("Système de Gestion de Contrats NFT", function () {
       // ✅ CRÉATION AVEC ETHERS.JS
       const tx = await contractManager.connect(creator).createContract(
         "QmTestHash123",
+        "sha256TestHash123",
         signersWithRoles,
         expiresAt,
         true, // allowTermination
         true, // allowDispute
         ethers.parseEther("1.0"),
+        10, // penaltyPercent
         "Création du contrat de développement"
       );
 
@@ -116,11 +118,13 @@ describe("Système de Gestion de Contrats NFT", function () {
       // Premier contrat
       await contractManager.connect(creator).createContract(
         "QmDuplicateHash",
+        "sha256DuplicateHash1",
         signersWithRoles,
         expiresAt,
         true,
         true,
         ethers.parseEther("1.0"),
+        10,
         "Premier contrat"
       );
 
@@ -128,11 +132,13 @@ describe("Système de Gestion de Contrats NFT", function () {
       await expect(
         contractManager.connect(creator).createContract(
           "QmDuplicateHash",
+          "sha256DuplicateHash2",
           signersWithRoles,
           expiresAt,
           true,
           true,
           ethers.parseEther("2.0"),
+          10,
           "Deuxième contrat"
         )
       ).to.be.revertedWith("IPFS hash already used");
@@ -155,11 +161,13 @@ describe("Système de Gestion de Contrats NFT", function () {
       await expect(
         contractManager.connect(creator).createContract(
           "QmTestHash",
+          "sha256TestHash",
           signersWithRoles,
           pastDate,
           true,
           true,
           ethers.parseEther("1.0"),
+          10,
           "Contrat avec date passée"
         )
       ).to.be.revertedWith("Invalid expiration time");
@@ -191,11 +199,13 @@ describe("Système de Gestion de Contrats NFT", function () {
 
       await contractManager.connect(creator).createContract(
         "QmSignatureTest",
+        "sha256SignatureTest",
         signersWithRoles,
         expiresAt,
         true,
         true,
         ethers.parseEther("1.0"),
+        10,
         "Test de signatures"
       );
     });
@@ -253,11 +263,13 @@ describe("Système de Gestion de Contrats NFT", function () {
 
       await contractManager.connect(creator).createContract(
         "QmPaymentTest",
+        "sha256PaymentTest",
         signersWithRoles,
         expiresAt,
         true,
         true,
         ethers.parseEther("2.0"),
+        10,
         "Test paiements"
       );
 
@@ -326,11 +338,13 @@ describe("Système de Gestion de Contrats NFT", function () {
 
       await contractManager.connect(creator).createContract(
         "QmDisputeTest",
+        "sha256DisputeTest",
         signersWithRoles,
         expiresAt,
         true, // allowTermination
         true, // allowDispute
         ethers.parseEther("1.0"),
+        10,
         "Test résiliation"
       );
 
@@ -373,11 +387,13 @@ describe("Système de Gestion de Contrats NFT", function () {
       // Créer un contrat sans résiliation autorisée
       await contractManager.connect(creator).createContract(
         "QmNoTermination",
+        "sha256NoTermination",
         [],
         expiresAt,
         false, // allowTermination = false
         true,
         ethers.parseEther("1.0"),
+        10,
         "Contrat sans résiliation"
       );
 
@@ -426,11 +442,13 @@ describe("Système de Gestion de Contrats NFT", function () {
       await expect(
         contractManager.connect(creator).createContract(
           "QmPausedTest",
+          "sha256PausedTest",
           signersWithRoles,
           expiresAt,
           true,
           true,
           ethers.parseEther("1.0"),
+          10,
           "Test pendant pause"
         )
       ).to.be.revertedWith("Contract is paused");
@@ -468,11 +486,13 @@ describe("Système de Gestion de Contrats NFT", function () {
 
       await contractManager.connect(creator).createContract(
         "QmJustificationTest",
+        "sha256JustificationTest",
         signersWithRoles,
         expiresAt,
         true,
         true,
         ethers.parseEther("1.0"),
+        10,
         "Test justifications"
       );
     });
@@ -488,6 +508,128 @@ describe("Système de Gestion de Contrats NFT", function () {
 
       const justifications = await contractManager.getContractJustifications(1);
       expect(justifications.length).to.equal(2); // 1 initiale + 1 ajoutée
+    });
+  });
+
+  describe("Escrow", function () {
+    let contractId: number;
+
+    beforeEach(async function () {
+      const signer1Address = await signer1.getAddress();
+
+      const signersWithRoles = [
+        {
+          signer: signer1Address,
+          role: 1,
+          customRole: "",
+          hasSignedContract: false,
+          signedAt: 0
+        }
+      ];
+
+      await contractManager.connect(creator).createContract(
+        "QmEscrowTest",
+        "sha256EscrowTest",
+        signersWithRoles,
+        expiresAt,
+        true, // allowTermination
+        true, // allowDispute
+        ethers.parseEther("1.0"),
+        10, // penaltyPercent
+        "Test escrow"
+      );
+
+      // Finalise le contrat (passe en Active)
+      await contractManager.connect(signer1).signContract(1);
+      contractId = 1;
+    });
+
+    it("Devrait permettre le dépôt d'escrow par un participant avec le bon montant", async function () {
+      await contractManager.connect(signer1).depositEscrow(contractId, {
+        value: ethers.parseEther("1.0"),
+      });
+
+      const contractDetails = await contractManager.getContractDetails(contractId);
+      expect(contractDetails[0].isEscrowDeposited).to.be.true;
+      expect(contractDetails[0].escrowPayer.toLowerCase()).to.equal((await signer1.getAddress()).toLowerCase());
+    });
+
+    it("Devrait échouer le dépôt d'escrow avec un mauvais montant", async function () {
+      await expect(
+        contractManager.connect(signer1).depositEscrow(contractId, {
+          value: ethers.parseEther("0.5"),
+        })
+      ).to.be.revertedWith("Incorrect escrow amount");
+    });
+
+    it("Devrait permettre à l'escrowPayer de libérer les fonds au créateur", async function () {
+      await contractManager.connect(signer1).depositEscrow(contractId, {
+        value: ethers.parseEther("1.0"),
+      });
+
+      const creatorBalanceBefore = await ethers.provider.getBalance(await creator.getAddress());
+
+      await contractManager.connect(signer1).releaseEscrow(contractId);
+
+      const creatorBalanceAfter = await ethers.provider.getBalance(await creator.getAddress());
+      expect(creatorBalanceAfter - creatorBalanceBefore).to.equal(ethers.parseEther("1.0"));
+
+      const contractDetails = await contractManager.getContractDetails(contractId);
+      expect(contractDetails[0].isEscrowDeposited).to.be.false;
+      expect(contractDetails[0].status).to.equal(3); // Completed
+    });
+
+    it("Devrait échouer si quelqu'un d'autre que l'escrowPayer tente de libérer les fonds", async function () {
+      await contractManager.connect(signer1).depositEscrow(contractId, {
+        value: ethers.parseEther("1.0"),
+      });
+
+      await expect(
+        contractManager.connect(creator).releaseEscrow(contractId)
+      ).to.be.revertedWith("Only the escrow payer can release funds");
+    });
+
+    it("Devrait appliquer la pénalité correctement sur un contrat en litige et clore le contrat", async function () {
+      await contractManager.connect(signer1).depositEscrow(contractId, {
+        value: ethers.parseEther("1.0"),
+      });
+
+      // Ouvrir un litige (participant)
+      await contractManager.connect(signer1).openDispute(
+        contractId,
+        1, // NonPayment
+        "Non paiement",
+        "QmDisputeProof",
+        "Litige pour non-paiement"
+      );
+
+      const creatorBalanceBefore = await ethers.provider.getBalance(await creator.getAddress());
+
+      await contractManager.connect(signer1).applyPenalty(contractId);
+
+      const creatorBalanceAfter = await ethers.provider.getBalance(await creator.getAddress());
+      // 90% du montant (100% - 10% de pénalité) revient au créateur
+      expect(creatorBalanceAfter - creatorBalanceBefore).to.equal(ethers.parseEther("0.9"));
+
+      const contractDetails = await contractManager.getContractDetails(contractId);
+      expect(contractDetails[0].isEscrowDeposited).to.be.false;
+      expect(contractDetails[0].status).to.equal(3); // Completed
+    });
+
+    it("Devrait empêcher la résiliation tant que l'escrow n'est pas soldé", async function () {
+      await contractManager.connect(signer1).depositEscrow(contractId, {
+        value: ethers.parseEther("1.0"),
+      });
+
+      await expect(
+        contractManager.connect(creator).terminateContract(
+          contractId,
+          1,
+          "Raison",
+          "Proof",
+          "Justification"
+        )
+      ).to.be.revertedWith("Release or penalize escrow before terminating");
     });
   });
 

@@ -12,32 +12,26 @@ const config = {
     // Database
     databaseUrl: process.env.DATABASE_URL,
 
-    // Redis
-    redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
 
     // Encryption
     masterEncryptionKey: process.env.MASTER_ENCRYPTION_KEY,
 
     // Blockchain
-    polygonRpcUrl: process.env.POLYGON_RPC_URL,
-    polygonTestnetRpcUrl: process.env.POLYGON_TESTNET_RPC_URL,
+    polygonRpcUrl: process.env.ALCHEMY_POLYGON_TESTNET_RPC_URL || process.env.POLYGON_RPC_URL,
+    polygonTestnetRpcUrl: process.env.ALCHEMY_POLYGON_TESTNET_RPC_URL || process.env.POLYGON_TESTNET_RPC_URL,
     contractManagerAddress: process.env.CONTRACT_MANAGER_ADDRESS,
     contractNftAddress: process.env.CONTRACT_NFT_ADDRESS,
     adminWalletAddress: process.env.ADMIN_WALLET_ADDRESS,
     funderPrivateKey: process.env.FUNDER_PRIVATE_KEY,
-    initialGasAmount: process.env.INITIAL_GAS_AMOUNT || '0.01',
+    // Note: INITIAL_GAS_AMOUNT no longer used - amounts are now dynamic per action
 
-    // OpenAI
-    openaiApiKey: process.env.OPENAI_API_KEY,
+    // Groq
+    groqApiKey: process.env.GROQ_API_KEY,
 
     // Pinata (IPFS)
     pinataJwt: process.env.PINATA_JWT,
     pinataGateway: process.env.PINATA_GATEWAY || 'https://gateway.pinata.cloud',
 
-    // Ramp Network
-    rampApiKey: process.env.RAMP_API_KEY,
-    rampWebhookSecret: process.env.RAMP_WEBHOOK_SECRET,
-    rampHostApiKey: process.env.RAMP_HOST_API_KEY,
 
     // Email
     smtp: {
@@ -57,12 +51,6 @@ const config = {
         refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
     },
 
-    // Google OAuth
-    google: {
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackUrl: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3001/api/auth/google/callback',
-    },
 
     // Rate Limiting
     rateLimit: {
@@ -70,6 +58,7 @@ const config = {
         maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
         aiMaxRequests: parseInt(process.env.RATE_LIMIT_AI_MAX_REQUESTS || '10', 10),
         walletMaxRequests: parseInt(process.env.RATE_LIMIT_WALLET_MAX_REQUESTS || '5', 10),
+        authMaxRequests: parseInt(process.env.RATE_LIMIT_AUTH_MAX_REQUESTS || '20', 10),
     },
 
     // Logging
@@ -83,16 +72,35 @@ const requiredEnvVars = [
     'MASTER_ENCRYPTION_KEY',
     'JWT_SECRET',
     'JWT_REFRESH_SECRET',
-    'OPENAI_API_KEY',
+    'GROQ_API_KEY',
     'PINATA_JWT',
     'POLYGON_RPC_URL',
     'CONTRACT_MANAGER_ADDRESS',
     'ADMIN_WALLET_ADDRESS',
 ];
 
-for (const envVar of requiredEnvVars) {
-    if (!process.env[envVar]) {
-        console.warn(`Warning: Missing environment variable: ${envVar}`);
+const missing = requiredEnvVars.filter((v) => !process.env[v]);
+
+if (missing.length > 0) {
+    const msg = `Missing environment variables: ${missing.join(', ')}`;
+    if (config.nodeEnv === 'production') {
+        // Fail fast in production to avoid running with insecure defaults
+        throw new Error(msg);
+    } else {
+        console.warn(`Warning: ${msg}`);
+    }
+}
+
+// Validate Pinata JWT format early to provide clearer errors for malformed tokens
+if (config.pinataJwt) {
+    const parts = config.pinataJwt.split('.');
+    if (parts.length !== 3) {
+        const msg = 'PINATA_JWT appears malformed: expected a JWT with three dot-separated segments';
+        if (config.nodeEnv === 'production') {
+            throw new Error(msg);
+        } else {
+            console.warn(`Warning: ${msg}`);
+        }
     }
 }
 

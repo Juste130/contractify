@@ -1,2 +1,217 @@
-# contractify
-Contractify est une plateforme de gestion des contracts entre deux ou plusieurs partie basé sur les NFTs et la Blockchain particulièrement sur polygon. La plateforme gère les contracts, de la creation, la signature des differentes parties au paiement ou plutôt le respect des clauses du contract.
+# ContracTify 🔐
+
+A **secure, blockchain-based contract management platform** combining smart contracts with AI-powered contract generation. Fully transparent, decentralized, and built with modern web3 technologies.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933)](https://nodejs.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-14%2B-000000)](https://nextjs.org/)
+[![Polygon](https://img.shields.io/badge/Polygon-8247E5)](https://polygon.technology/)
+
+## 🎯 Features
+
+### Core Features
+- **🔗 Blockchain-Based Contracts** - Smart contracts on Polygon with cryptographic signatures
+- **🤖 AI Contract Generation** - Automatically generate contracts using Groq (Llama 3.3 70B)
+- **📝 Contract Management** - Create, sign, and track contracts with full audit trail
+- **💎 NFT Proof** - Automatic NFT generation as proof of contract finalization
+- **👥 Multi-Signer Support** - Multiple parties can sign contracts sequentially
+- **📄 IPFS Storage** - Decentralized contract storage via Pinata/IPFS
+- **🔐 Wallet Management** - Built-in Privy integration with Smart Wallets (ERC-4337) and native gas sponsorship
+
+### Developer Experience
+- **TypeScript** - Full type safety across frontend and backend
+- **Gas Optimization** - Gasless transactions via Privy Policy Engine (ERC-4337)
+- **Rate Limiting** - Protected endpoints with request throttling
+- **Error Handling** - Comprehensive error handling and logging
+- **Docker Support** - Containerized development environment
+
+## 📋 Prerequisites
+
+- **Node.js** 18+ & npm/yarn
+- **PostgreSQL** 14+
+- **Redis** (optional, for caching)
+- **Alchemy API Key** (for RPC endpoints)
+- **Polygon Mumbai Testnet** account
+
+## 🚀 Quick Start
+
+### 1. Clone Repository
+
+```bash
+git clone https://github.com/yourusername/contractify.git
+cd contractify
+```
+
+### 2. Install Dependencies
+
+```bash
+# Backend
+cd backend
+npm install
+
+# Frontend  
+cd ../frontend
+npm install
+```
+
+### 3. Configure Environment
+
+#### Backend - `backend/.env`
+```env
+NODE_ENV=development
+PORT=5000
+DATABASE_URL=postgresql://user:password@localhost:5433/contractify
+MASTER_ENCRYPTION_KEY=your_encryption_key
+JWT_SECRET=your_jwt_secret
+JWT_REFRESH_SECRET=your_jwt_refresh_secret
+ALCHEMY_POLYGON_TESTNET_RPC_URL=your_alchemy_polygon_rpc_url
+CONTRACT_MANAGER_ADDRESS=0xyour_deployed_contract_manager_address
+ADMIN_WALLET_ADDRESS=0xyour_admin_wallet_address
+FUNDER_PRIVATE_KEY=0xyour_testnet_key # (Optional/Legacy for fallback EOA funding)
+GROQ_API_KEY=your_groq_api_key
+PINATA_JWT=your_pinata_jwt
+PRIVY_APP_ID=your_privy_app_id
+PRIVY_APP_SECRET=your_privy_app_secret
+```
+See `backend/config/index.js` for the full list of required variables — the server fails fast on boot in production if any are missing.
+
+#### Frontend - `frontend/.env.local`
+```env
+NEXT_PUBLIC_API_URL=http://localhost:5000
+NEXT_PUBLIC_PRIVY_APP_ID=your_privy_app_id
+```
+
+### 4. Database Setup
+
+```bash
+cd backend
+npx prisma migrate dev
+npx prisma generate
+```
+
+### 5. Start Development Servers
+
+```bash
+# Terminal 1: Backend
+cd backend
+npm run dev
+
+# Terminal 2: Frontend
+cd frontend
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000)
+
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Contribution guidelines & development workflow |
+
+
+## 🏗️ Project Structure
+
+```
+contractify/
+├── backend/
+│   ├── config/              # Configuration
+│   ├── controllers/         # Request handlers
+│   ├── middleware/          # Express middleware
+│   ├── models/              # Database models (Prisma)
+│   ├── routes/              # API routes
+│   ├── services/            # Business logic
+│   ├── utils/               # Utilities
+│   └── server.js            # Entry point
+├── frontend/
+│   ├── src/
+│   │   ├── app/            # Next.js app router
+│   │   ├── components/     # React components
+│   │   ├── contexts/       # Context providers
+│   │   ├── hooks/          # Custom hooks
+│   │   ├── lib/            # Utilities
+│   │   └── types/          # TypeScript types
+│   └── public/             # Static assets
+└── blockchain/             # Smart contracts (Hardhat)
+```
+
+## 🔗 API Endpoints
+
+Authentication is entirely handled by Privy — there is no email/password or Google OAuth flow in this app.
+
+### Authentication
+- `POST /api/auth/privy` - Authenticate with a Privy token (email verified server-side)
+- `POST /api/auth/refresh` - Refresh access token
+- `POST /api/auth/logout` - Logout user
+
+### Contracts
+- `POST /api/contracts/draft` - Save a contract draft
+- `GET /api/contracts/draft/:id` - Get draft details
+- `POST /api/contracts/draft/:id/deploy` - Mark a draft as deployed on-chain
+- `GET /api/contracts/cached` - List the user's contracts (synced from blockchain)
+- `POST /api/contracts/sync/:contractId` - Re-sync one contract from the blockchain
+- `POST /api/contracts/sync-all` - Re-sync all of the user's contracts
+- `GET /api/contracts/search` - Search contracts
+- `GET /api/contracts/:contractId` - Get contract details
+
+Signing a contract and depositing/releasing escrow happen as direct on-chain transactions from the frontend (via the connected Privy wallet), not through the backend API.
+
+See `backend/routes/` for the full list, including `ai.js`, `ipfs.js`, and `user.js`.
+
+## 🛡️ Security
+
+- **End-to-End Encryption** - Private keys encrypted with AES-256-GCM
+- **JWT Authentication** - Secure token-based auth
+- **Rate Limiting** - DDoS protection via request throttling
+- **CORS** - Restricted cross-origin access
+- **Helmet** - HTTP security headers
+- **Input Validation** - Express-validator for all inputs
+
+### Best Practices
+- Never commit `.env` files
+- Use environment variables for secrets
+- Rotate private keys regularly
+- Keep dependencies updated
+
+## 💰 Gas Optimization
+
+The platform uses **Privy Smart Wallets (ERC-4337)** and **Gas Sponsorship** to provide gasless transactions to users:
+
+```javascript
+// Gas sponsorship is configured natively on the Privy Dashboard (Policy Engine).
+// No need for custom backend fund routing for standard smart contract interactions!
+```
+
+See the [Privy Dashboard](https://dashboard.privy.io/) for configuring your Gas Policy. (The legacy `ensureFunded` documentation is preserved for fallback EOA wallets).
+
+## 🧪 Testing
+
+```bash
+# Smart contracts (real test suite)
+cd blockchain
+npx hardhat test
+
+# Backend - no test suite written yet (npm test passes vacuously, --passWithNoTests)
+cd backend
+npm test
+```
+
+The frontend has no test script configured yet.
+
+## 🤝 Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+
+## 📄 License
+
+This project is licensed under the **MIT License** - see [LICENSE](./LICENSE) file.
+
+## 🆘 Support
+
+- 📖 [Documentation](./backend/docs/)
+- 🐛 [Report a Bug](https://github.com/yourusername/contractify/issues)
+- 💬 [Discussions](https://github.com/yourusername/contractify/discussions)
+
+---
+
+**Made with ❤️ by the ContracTify Team**

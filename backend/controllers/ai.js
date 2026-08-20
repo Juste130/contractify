@@ -1,12 +1,12 @@
-const aiService = require('../services/ai').default;
-const logger = require('../utils/logger').default;
+const aiService = require('../services/ai');
+const logger = require('../utils/logger');
 
 /**
  * Generate contract
  */
 exports.generateContract = async (req, res, next) => {
     try {
-        const { templateType, partyAData, partyBData, additionalClauses } = req.body;
+        const { templateType, partyAData, partyBData, additionalClauses, context } = req.body;
 
         if (!templateType || !partyAData || !partyBData) {
             return res.status(400).json({
@@ -18,13 +18,36 @@ exports.generateContract = async (req, res, next) => {
             templateType,
             partyAData,
             partyBData,
-            additionalClauses
+            additionalClauses,
+            context
         );
 
         res.json({
             message: 'Contract generated successfully',
             contract: result.content,
             suggestions: result.suggestions,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Correct input
+ */
+exports.correctInput = async (req, res, next) => {
+    try {
+        const { text, context } = req.body;
+
+        if (!text) {
+            return res.status(400).json({ error: 'Text is required' });
+        }
+
+        const corrected = await aiService.correctInput(text, context);
+
+        res.json({
+            message: 'Input corrected successfully',
+            corrected,
         });
     } catch (error) {
         next(error);

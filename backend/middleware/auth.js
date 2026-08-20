@@ -18,7 +18,7 @@ const authenticate = (req, res, next) => {
             return res.status(401).json({ error: 'No token provided' });
         }
 
-        const payload = authService.default.verifyToken(token);
+        const payload = authService.verifyToken(token);
 
         req.user = payload;
         next();

@@ -28,8 +28,18 @@ const walletLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+// Auth endpoints rate limiter (strict — anti-bruteforce sur /api/auth/privy)
+const authLimiter = rateLimit({
+    windowMs: config.rateLimit.windowMs,
+    max: config.rateLimit.authMaxRequests,
+    message: 'Too many authentication requests, please try again later',
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 module.exports = {
     generalLimiter,
     aiLimiter,
     walletLimiter,
+    authLimiter,
 };

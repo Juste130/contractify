@@ -3,12 +3,21 @@ const router = express.Router();
 const multer = require('multer');
 const ipfsController = require('../controllers/ipfs');
 const { authenticate } = require('../middleware/auth');
+const { BadRequestError } = require('../utils/errors');
+
+const ALLOWED_MIME_TYPES = ['application/pdf'];
 
 // Configure multer for file upload
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
         fileSize: 10 * 1024 * 1024, // 10MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+            return cb(new BadRequestError('Type de fichier non autorisé. Seuls les PDF sont acceptés.'));
+        }
+        cb(null, true);
     },
 });
 

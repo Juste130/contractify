@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { AppSidebar } from "../layout/app-sidebar";
@@ -10,27 +10,40 @@ import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Switch } from "../ui/switch";
 import { Separator } from "../ui/separator";
 import { useAuthStore } from "@/hooks/useAuth";
+import { useNotifications } from "@/hooks/useNotifications";
 import { useWeb3 } from "@/contexts/web3-context";
+import { useLogout } from "@/hooks/useLogout";
 import { usersApi } from "@/lib/api/users";
 import {
   User,
   Brain,
   Lock,
   Bell,
-  CreditCard,
-  Info,
-  Camera,
   Shield,
   Wallet,
   Loader2,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  LogOut,
+  KeyRound,
 } from "lucide-react";
+
+function getChainName(id: number | null) {
+  switch (id) {
+    case 1: return "Ethereum";
+    case 137: return "Polygon";
+    case 80001: return "Mumbai Testnet";
+    case 80002: return "Polygon Amoy Testnet";
+    default: return "Réseau inconnu";
+  }
+}
 
 export function SettingsPage() {
   const [selectedSection, setSelectedSection] = useState("profile");
   const { user, checkAuth } = useAuthStore();
+  const { logout } = useLogout();
   const { account, balance, chainId, connect, disconnect, isConnecting, isConnected } = useWeb3();
+  const { notifySuccess, notifyError } = useNotifications();
   const [isUpdating, setIsUpdating] = useState(false);
   const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
 
@@ -52,8 +65,11 @@ export function SettingsPage() {
       await usersApi.updateProfile({ name });
       await checkAuth(); // Refresh user data
       setMessage({ text: "Profil mis à jour avec succès !", type: 'success' });
+      notifySuccess("Profil mis à jour", "Vos informations ont été enregistrées avec succès.");
     } catch (err: any) {
-      setMessage({ text: err.response?.data?.error || "Erreur lors de la mise à jour", type: 'error' });
+      const errMsg = err.response?.data?.error || "Erreur lors de la mise à jour";
+      setMessage({ text: errMsg, type: 'error' });
+      notifyError("Erreur de mise à jour", errMsg);
     } finally {
       setIsUpdating(false);
     }
@@ -110,15 +126,6 @@ export function SettingsPage() {
                         {user?.email?.[0].toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
-                    <div>
-                      <Button type="button" variant="outline">
-                        <Camera className="w-4 h-4 mr-2" />
-                        Changer la photo
-                      </Button>
-                      <p className="text-sm text-muted-foreground mt-2">
-                        JPG, PNG ou GIF. 5 MB max.
-                      </p>
-                    </div>
                   </div>
 
                   <div className="space-y-4">
@@ -170,7 +177,7 @@ export function SettingsPage() {
                           </div>
                           <div>
                             <p className="font-medium text-lg">Wallet Connecté</p>
-                            <p className="text-sm text-muted-foreground">Polygon Mumbai (Mock Mode Active)</p>
+                            <p className="text-sm text-muted-foreground">{getChainName(chainId)}</p>
                           </div>
                         </div>
                         <Button variant="outline" size="sm" onClick={disconnect} className="text-destructive hover:text-destructive">
@@ -287,33 +294,41 @@ export function SettingsPage() {
                 <h2 className="mb-6">Sécurité</h2>
 
                 <div className="space-y-6">
-                  <div>
-                    <h3 className="mb-4">Mot de passe</h3>
-                    <div className="space-y-3">
-                      <div className="space-y-2">
-                        <Label>Nouveau mot de passe</Label>
-                        <Input type="password" className="bg-input-background" placeholder="••••••••" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Confirmer le mot de passe</Label>
-                        <Input type="password" className="bg-input-background" placeholder="••••••••" />
-                      </div>
+                  <div className="flex items-start gap-4 p-4 bg-primary/5 border border-primary/20 rounded-lg">
+                    <KeyRound className="w-6 h-6 text-primary mt-1 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium">Authentification gérée par Privy</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Ce compte n'a pas de mot de passe : la connexion se fait via votre email
+                        et votre wallet, gérés de bout en bout par Privy. Il n'y a rien à
+                        configurer ici — la sécurité de votre compte dépend uniquement de
+                        l'accès à cet email et à ce wallet.
+                      </p>
                     </div>
-                    <Button variant="outline" className="mt-4">
-                      Changer le mot de passe
-                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Email du compte</Label>
+                    <Input defaultValue={user?.email} disabled className="bg-muted opacity-60" />
                   </div>
 
                   <Separator />
 
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
-                      <h4 className="mb-1">Authentification à deux facteurs</h4>
+                      <h4 className="mb-1">Déconnexion</h4>
                       <p className="text-sm text-muted-foreground">
-                        Sécurisez votre compte avec une vérification supplémentaire
+                        Met fin à votre session Contractify et déconnecte votre wallet Privy sur cet appareil.
                       </p>
                     </div>
-                    <Switch />
+                    <Button
+                      variant="outline"
+                      onClick={() => { void logout(); }}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Se déconnecter
+                    </Button>
                   </div>
                 </div>
               </Card>

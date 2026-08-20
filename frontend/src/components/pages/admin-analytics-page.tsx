@@ -1,12 +1,17 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import apiClient from "@/lib/api/client";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Card } from "@/components/ui/card";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { TrendingUp, Users, FileText, CheckCircle } from "lucide-react";
 
 export function AdminAnalyticsPage() {
-    // Mock data for charts
+    const [stats, setStats] = useState({ totalUsers: 0, totalContracts: 0, signedContracts: 0 });
+    const [loading, setLoading] = useState(true);
+
+    // Static chart data (no dedicated analytics endpoint yet)
     const userGrowthData = [
         { month: 'Jan', users: 10 },
         { month: 'Fév', users: 15 },
@@ -24,6 +29,39 @@ export function AdminAnalyticsPage() {
         { month: 'Mai', created: 18, signed: 15 },
         { month: 'Juin', created: 22, signed: 20 },
     ];
+
+    useEffect(() => {
+        const fetchStats = async () => {
+            try {
+                // "FINALIZED" n'est pas un statut valide (voir l'enum ContractStatus :
+                // DRAFT_WAITING_SIGNERS | READY_TO_DEPLOY | DRAFT | PENDING_SIGNATURES |
+                // ACTIVE | COMPLETED | CANCELLED | DISPUTED | TERMINATED | RESIGNED) — un
+                // contrat est considéré "signé" une fois toutes les signatures collectées,
+                // ce qui correspond aux statuts ACTIVE et COMPLETED. On utilise `total` de
+                // chaque requête filtrée par statut (comptage exact côté serveur) plutôt que
+                // de filtrer un tableau de contrats, qui serait tronqué par la pagination.
+                const [usersRes, contractsRes, activeRes, completedRes] = await Promise.all([
+                    apiClient.get('/api/users?limit=1'),
+                    apiClient.get('/api/contracts/admin/all?limit=1'),
+                    apiClient.get('/api/contracts/admin/all?limit=1&status=ACTIVE'),
+                    apiClient.get('/api/contracts/admin/all?limit=1&status=COMPLETED'),
+                ]);
+                const totalContracts = contractsRes.data.pagination?.total || 0;
+                const signedContracts =
+                    (activeRes.data.pagination?.total || 0) + (completedRes.data.pagination?.total || 0);
+                setStats({
+                    totalUsers: usersRes.data.pagination?.total || 0,
+                    totalContracts,
+                    signedContracts,
+                });
+            } catch (error) {
+                console.error('Error fetching analytics:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchStats();
+    }, []);
 
     return (
         <div className="flex min-h-screen bg-muted">
@@ -46,10 +84,10 @@ export function AdminAnalyticsPage() {
                             </div>
                             <div>
                                 <p className="text-sm text-muted-foreground">Utilisateurs totaux</p>
-                                <p className="text-2xl font-bold">50</p>
+                                <p className="text-2xl font-bold">{loading ? '…' : stats.totalUsers}</p>
                                 <p className="text-xs text-[#4CAF50] flex items-center gap-1">
                                     <TrendingUp className="w-3 h-3" />
-                                    +15% ce mois
+                                    En direct
                                 </p>
                             </div>
                         </div>
@@ -62,10 +100,10 @@ export function AdminAnalyticsPage() {
                             </div>
                             <div>
                                 <p className="text-sm text-muted-foreground">Contrats créés</p>
-                                <p className="text-2xl font-bold">22</p>
+                                <p className="text-2xl font-bold">{loading ? '…' : stats.totalContracts}</p>
                                 <p className="text-xs text-[#4CAF50] flex items-center gap-1">
                                     <TrendingUp className="w-3 h-3" />
-                                    +22% ce mois
+                                    En direct
                                 </p>
                             </div>
                         </div>
@@ -78,10 +116,14 @@ export function AdminAnalyticsPage() {
                             </div>
                             <div>
                                 <p className="text-sm text-muted-foreground">Taux de signature</p>
-                                <p className="text-2xl font-bold">91%</p>
+                                <p className="text-2xl font-bold">
+                                    {loading ? '…' : stats.totalContracts > 0
+                                        ? `${Math.round((stats.signedContracts / stats.totalContracts) * 100)}%`
+                                        : 'N/A'}
+                                </p>
                                 <p className="text-xs text-[#4CAF50] flex items-center gap-1">
                                     <TrendingUp className="w-3 h-3" />
-                                    +5% ce mois
+                                    En direct
                                 </p>
                             </div>
                         </div>

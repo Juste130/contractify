@@ -1,5 +1,7 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import apiClient from "@/lib/api/client";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,36 +16,28 @@ import {
 import { FileText, CheckCircle, Clock, AlertCircle } from "lucide-react";
 
 export function AdminContractsPage() {
-    // Mock data - TODO: Replace with real API call
-    const contracts = [
-        {
-            id: 1,
-            title: "CDI - Jean Dupont",
-            type: "CDI",
-            user: "Jean Dupont",
-            status: "signed",
-            createdDate: "15/12/2024",
-            signedDate: "16/12/2024",
-        },
-        {
-            id: 2,
-            title: "Freelance - Sophie Martin",
-            type: "Freelance",
-            user: "Sophie Martin",
-            status: "pending",
-            createdDate: "14/12/2024",
-            signedDate: null,
-        },
-        {
-            id: 3,
-            title: "NDA - Pierre Dubois",
-            type: "NDA",
-            user: "Pierre Dubois",
-            status: "signed",
-            createdDate: "10/12/2024",
-            signedDate: "11/12/2024",
-        },
-    ];
+    const [contracts, setContracts] = useState<any[]>([]);
+
+    useEffect(() => {
+        const fetchContracts = async () => {
+            try {
+                const response = await apiClient.get('/api/contracts/admin/all');
+                const mappedContracts = response.data.contracts.map((c: any) => ({
+                    id: c.contractId || c.id,
+                    title: c.title || (c.metadata?.title) || "Sans titre",
+                    type: c.metadata?.type || "Standard",
+                    user: c.user?.email || "Inconnu",
+                    status: c.status?.toLowerCase() === 'finalized' ? 'signed' : c.status?.toLowerCase() || 'pending',
+                    createdDate: new Date(c.createdAt).toLocaleDateString('fr-FR'),
+                    signedDate: c.status === 'FINALIZED' ? new Date(c.lastSync).toLocaleDateString('fr-FR') : null,
+                }));
+                setContracts(mappedContracts);
+            } catch (error) {
+                console.error("Error fetching contracts:", error);
+            }
+        };
+        fetchContracts();
+    }, []);
 
     const getStatusBadge = (status: string) => {
         switch (status) {

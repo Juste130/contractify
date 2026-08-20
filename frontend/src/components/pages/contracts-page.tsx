@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -7,7 +7,8 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Card } from "../ui/card";
 import { StatusBadge } from "../ui/status-badge";
-import { Avatar, AvatarFallback } from "../ui/avatar";
+
+import { Spinner } from "../ui/spinner";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { contractsApi } from "@/lib/api/contracts";
@@ -33,7 +34,6 @@ import {
   Download,
   Archive,
   Trash2,
-  Loader2,
   AlertCircle
 } from "lucide-react";
 
@@ -125,9 +125,8 @@ export function ContractsPage() {
 
         {/* Contracts Table */}
         {isLoading ? (
-          <div className="py-20 flex flex-col items-center justify-center bg-card rounded-lg border">
-            <Loader2 className="w-10 h-10 animate-spin text-[#FFC107] mb-4" />
-            <p className="text-muted-foreground">Récupération de vos contrats...</p>
+          <div className="py-32 flex flex-col items-center justify-center bg-card rounded-lg border">
+            <Spinner size="lg" label="Récupération de vos contrats..." />
           </div>
         ) : error ? (
           <Card className="p-12 text-center text-destructive">
@@ -153,7 +152,7 @@ export function ContractsPage() {
                   <TableRow
                     key={contract.id}
                     className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => router.push(`/contracts/${contract.contractId}`)}
+                    onClick={() => router.push(`/contracts/${contract.contractId ?? contract.id}`)}
                   >
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -181,7 +180,7 @@ export function ContractsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => router.push(`/contracts/${contract.contractId}`)}>
+                          <DropdownMenuItem onClick={() => router.push(`/contracts/${contract.contractId ?? contract.id}`)}>
                             <FileText className="w-4 h-4 mr-2" />
                             Détails
                           </DropdownMenuItem>
@@ -234,4 +233,3 @@ export function ContractsPage() {
     </div>
   );
 }
-

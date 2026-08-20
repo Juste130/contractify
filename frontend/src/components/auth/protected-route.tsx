@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, ReactNode } from 'react';
+import { useEffect, useRef, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/hooks/useAuth';
-import { Loader2 } from 'lucide-react';
+import { Spinner } from '../ui/spinner';
+
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/how-it-works', '/reset-password'];
+
+function isPublicPath(pathname: string) {
+    return PUBLIC_PATHS.includes(pathname);
+}
 
 interface ProtectedRouteProps {
     children: ReactNode;
@@ -14,37 +20,43 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
     const { user, isAuthenticated, isLoading, checkAuth } = useAuthStore();
     const router = useRouter();
     const pathname = usePathname();
+    const hasChecked = useRef(false);
 
+    // Vérifie TOUJOURS la session une fois par chargement d'app sur une route
+    // protégée — peu importe ce que dit l'état persisté (localStorage). Ce dernier
+    // n'est qu'un indice d'affichage optimiste, jamais une preuve de session valide.
+    // (Le retrait de "!isAuthenticated" de cette condition est LE correctif qui
+    // empêche la boucle login <-> dashboard : sans lui, un flag "isAuthenticated:true"
+    // périmé en localStorage empêchait toute revérification côté serveur.)
     useEffect(() => {
-        // Vérifier l'auth au chargement si on n'est pas déjà authentifié
-        if (!isAuthenticated) {
+        if (!hasChecked.current && !isPublicPath(pathname)) {
+            hasChecked.current = true;
             checkAuth();
         }
-    }, [isAuthenticated, checkAuth]);
+    }, [checkAuth, pathname]);
 
+    // Redirect logic
     useEffect(() => {
-        // Si fini de charger et pas authentifié, rediriger vers login
-        if (!isLoading && !isAuthenticated && !['/login', '/signup', '/'].includes(pathname)) {
-            router.push(`/login?callbackUrl=${encodeURIComponent(pathname)}`);
+        if (!isLoading && !isAuthenticated && !isPublicPath(pathname)) {
+            router.replace(`/login?callbackUrl=${encodeURIComponent(pathname)}`);
         }
-
-        // Si admin requis et utilisateur n'est pas admin
         if (isAuthenticated && requireAdmin && user?.role !== 'ADMIN') {
-            router.push('/dashboard');
+            router.replace('/dashboard');
         }
     }, [isAuthenticated, isLoading, user, requireAdmin, router, pathname]);
 
-    if (isLoading) {
+    // Only block render (show spinner) on protected routes while loading
+    if (isLoading && !isPublicPath(pathname)) {
         return (
-            <div className="min-h-screen flex flex-col items-center justify-center bg-background">
-                <Loader2 className="h-10 w-10 animate-spin text-primary mb-4" />
-                <p className="text-muted-foreground animate-pulse">Chargement de votre session...</p>
+            <div className="min-h-screen flex items-center justify-center bg-background">
+                <Spinner size="xl" label="Chargement de votre session..." />
             </div>
         );
     }
 
-    if (!isAuthenticated && !['/login', '/signup', '/'].includes(pathname)) {
-        return null; // Évite les flashs de contenu protégé
+    // Don't flash protected content before redirect
+    if (!isAuthenticated && !isPublicPath(pathname)) {
+        return null;
     }
 
     return <>{children}</>;

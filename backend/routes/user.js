@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const userController = require('../controllers/user.controller');
+const userController = require('../controllers/user');
 const { authenticate, requireAdmin } = require('../middleware/auth');
+const { walletLimiter } = require('../middleware/rate-limit');
 
 /**
  * @route   GET /api/users/me
@@ -22,7 +23,7 @@ router.put('/me', authenticate, userController.updateProfile);
  * @desc    Get user wallet
  * @access  Private
  */
-router.get('/wallet', authenticate, userController.getWallet);
+router.get('/wallet', authenticate, walletLimiter, userController.getWallet);
 
 /**
  * @route   GET /api/users

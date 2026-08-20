@@ -4,32 +4,52 @@ import {
   LayoutDashboard,
   FileText,
   LayoutTemplate,
-  Users,
   Settings,
   ChevronRight,
   ChevronLeft,
   BarChart3,
   UserCog,
-  Shield
+  Shield,
+  LogOut,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { Button } from "../ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSidebar } from "@/contexts/sidebar-context";
+import { useAuthStore } from "@/hooks/useAuth";
+import { useLogout } from "@/hooks/useLogout";
 import { cn } from "../ui/utils";
+
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: "Administrateur",
+  USER: "Utilisateur",
+  VIEWER: "Observateur",
+};
 
 export function AppSidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
+  const { user } = useAuthStore();
+  const { logout } = useLogout();
+
+  const userInitial = user?.email?.[0]?.toUpperCase() ?? "U";
+  const userLabel = user?.profileData?.name || user?.email || "Mon compte";
+  const roleLabel = user?.role ? (ROLE_LABELS[user.role] ?? user.role) : "";
 
   // Menu items pour utilisateurs normaux
   const userMenuItems = [
     { id: "dashboard", label: "Tableau de bord", icon: LayoutDashboard, href: "/dashboard" },
     { id: "contracts", label: "Mes contrats", icon: FileText, href: "/contracts" },
     { id: "templates", label: "Modèles", icon: LayoutTemplate, href: "/templates" },
-    { id: "team", label: "Équipe", icon: Users, href: "/team" },
     { id: "settings", label: "Paramètres", icon: Settings, href: "/settings" },
   ];
 
@@ -91,8 +111,28 @@ export function AppSidebar() {
         isCollapsed ? "w-20" : "w-64"
       )}
     >
+      {/* Edge toggle handle — sits right on the sidebar's border */}
+      <TooltipProvider delayDuration={300}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-label={isCollapsed ? "Développer la barre latérale" : "Réduire la barre latérale"}
+              className="rounded-full border border-border bg-card shadow-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-[#FFC107] transition-colors"
+              style={{ position: "absolute", top: "50%", right: "-12px", transform: "translateY(-50%)", zIndex: 20, width: "24px", height: "24px" }}
+            >
+              {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <p>{isCollapsed ? "Développer" : "Réduire"}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
       {/* Logo */}
-      <div className="p-6 border-b border-border flex items-center justify-between">
+      <div className="p-6 flex items-center justify-between">
         {!isCollapsed ? (
           <Link href="/">
             <h2 className="text-[#FFC107]">Contractify</h2>
@@ -104,6 +144,13 @@ export function AppSidebar() {
             </div>
           </Link>
         )}
+      </div>
+
+      {/* Separator between the brand and the menu, framed by "<" and ">" */}
+      <div className="px-4 pb-4 flex items-center gap-2 text-border">
+        <ChevronLeft className="w-3 h-3 shrink-0 opacity-50" />
+        <div className="flex-1 h-px bg-border" />
+        <ChevronRight className="w-3 h-3 shrink-0 opacity-50" />
       </div>
 
       {/* Navigation */}
@@ -123,57 +170,67 @@ export function AppSidebar() {
         </div>
       </nav>
 
-      {/* Toggle Button */}
-      <div className="p-4 border-t border-border">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={toggleSidebar}
-          className={cn(
-            "w-full flex items-center gap-2",
-            isCollapsed && "justify-center px-2"
-          )}
-        >
-          {isCollapsed ? (
-            <ChevronRight className="w-4 h-4" />
-          ) : (
-            <>
-              <ChevronLeft className="w-4 h-4" />
-              <span className="text-sm">Réduire</span>
-            </>
-          )}
-        </Button>
-      </div>
-
       {/* User */}
       <div className="p-4 border-t border-border">
-        {isCollapsed ? (
-          <TooltipProvider delayDuration={0}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center justify-center cursor-pointer">
-                  <Avatar className="w-8 h-8">
-                    <AvatarFallback className="bg-[#FFC107] text-[#212121]">JD</AvatarFallback>
-                  </Avatar>
+        <DropdownMenu>
+          {isCollapsed ? (
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Menu du compte"
+                      className="w-full flex items-center justify-center cursor-pointer"
+                    >
+                      <Avatar className="w-8 h-8">
+                        <AvatarFallback className="bg-[#FFC107] text-[#212121]">{userInitial}</AvatarFallback>
+                      </Avatar>
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>{userLabel}</p>
+                  <p className="text-xs text-muted-foreground">{roleLabel}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Menu du compte"
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-muted cursor-pointer transition-colors text-left"
+              >
+                <Avatar className="w-8 h-8">
+                  <AvatarFallback className="bg-[#FFC107] text-[#212121]">{userInitial}</AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate">{userLabel}</p>
+                  <p className="text-xs text-muted-foreground truncate">{roleLabel}</p>
                 </div>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>Jean Dupont</p>
-                <p className="text-xs text-muted-foreground">Admin</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        ) : (
-          <div className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-muted cursor-pointer transition-colors">
-            <Avatar className="w-8 h-8">
-              <AvatarFallback className="bg-[#FFC107] text-[#212121]">JD</AvatarFallback>
-            </Avatar>
-            <div className="flex-1">
-              <p className="text-sm">Jean Dupont</p>
-              <p className="text-xs text-muted-foreground">Admin</p>
-            </div>
-          </div>
-        )}
+              </button>
+            </DropdownMenuTrigger>
+          )}
+          <DropdownMenuContent align="end" side="right" className="w-56">
+            <DropdownMenuLabel className="truncate">{user?.email ?? "Mon compte"}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild className="cursor-pointer">
+              <Link href="/settings" className="flex items-center gap-2 w-full">
+                <Settings className="w-4 h-4" />
+                Paramètres
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => { void logout(); }}
+              className="cursor-pointer text-destructive focus:text-destructive"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Se déconnecter
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </aside>
   );

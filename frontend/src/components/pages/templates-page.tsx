@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { TemplateSelector } from "@/components/contract/templateSelector";
 
 export function TemplatesPage() {
   const router = useRouter();
@@ -26,62 +27,41 @@ export function TemplatesPage() {
       id: 1,
       name: "CDI",
       icon: Briefcase,
-      description: "Contrat de travail à durée indéterminée conforme au code du travail français",
-      uses: 45
+      description: "Contrat de travail à durée indéterminée conforme au droit du travail (OHADA / Bénin)",
     },
     {
       id: 2,
       name: "Freelance",
       icon: Users,
       description: "Contrat de prestation de services pour travailleurs indépendants",
-      uses: 38
     },
     {
       id: 3,
       name: "Location",
       icon: Home,
       description: "Bail de location immobilière résidentielle ou commerciale",
-      uses: 32
     },
     {
       id: 4,
       name: "NDA",
       icon: FileSignature,
       description: "Accord de confidentialité pour protéger vos informations sensibles",
-      uses: 28
     },
     {
       id: 5,
       name: "Commercial",
       icon: Briefcase,
       description: "Contrat commercial B2B pour relations d'affaires",
-      uses: 25
     },
     {
       id: 6,
       name: "CDD",
       icon: Briefcase,
       description: "Contrat de travail à durée déterminée",
-      uses: 22
     },
   ];
 
-  const customTemplates = [
-    {
-      id: 1,
-      name: "Contrat SaaS personnalisé",
-      description: "Modèle créé pour les abonnements SaaS",
-      createdDate: "10/12/2024",
-      uses: 8
-    },
-    {
-      id: 2,
-      name: "Partenariat startup",
-      description: "Accord de partenariat adapté aux startups",
-      createdDate: "05/12/2024",
-      uses: 5
-    },
-  ];
+  const customTemplates: { id: number; name: string; description: string; createdDate: string; uses: number }[] = [];
 
   return (
     <div className="flex min-h-screen bg-muted">
@@ -90,7 +70,7 @@ export function TemplatesPage() {
 
       <main className="flex-1 transition-all duration-300" style={{ marginLeft: 'var(--sidebar-width, 256px)', padding: '2rem' }}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="mb-2">Modèles de contrats</h1>
             <p className="text-muted-foreground">
@@ -123,38 +103,10 @@ export function TemplatesPage() {
             <AiBadge />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {aiTemplates.map((template) => {
-              const Icon = template.icon;
-              return (
-                <Card key={template.id} className="p-6 hover:shadow-lg transition-shadow">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-[#FFC107]/10 flex items-center justify-center">
-                      <Icon className="w-6 h-6 text-[#FFC107]" />
-                    </div>
-                    <AiBadge />
-                  </div>
-
-                  <h3 className="mb-2">{template.name}</h3>
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
-                    {template.description}
-                  </p>
-
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-muted-foreground">
-                      {template.uses} utilisations
-                    </p>
-                    <Button
-                      className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300]"
-                      onClick={() => router.push('/create-contract')}
-                    >
-                      Utiliser
-                    </Button>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
+          <TemplateSelector
+            templates={aiTemplates.map(t => ({ ...t, isAi: true }))}
+            onSelect={() => router.push('/create-contract')}
+          />
         </div>
 
         {/* Custom Templates */}
@@ -165,7 +117,7 @@ export function TemplatesPage() {
             <div className="space-y-4">
               {customTemplates.map((template) => (
                 <Card key={template.id} className="p-6">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex-1">
                       <h3 className="mb-2">{template.name}</h3>
                       <p className="text-sm text-muted-foreground mb-2">
@@ -178,7 +130,7 @@ export function TemplatesPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Button variant="outline" size="sm">
                         <Pencil className="w-4 h-4 mr-2" />
                         Modifier
@@ -189,7 +141,7 @@ export function TemplatesPage() {
                       >
                         Utiliser
                       </Button>
-                      <Button variant="ghost" size="sm">
+                      <Button variant="ghost" size="sm" aria-label="Supprimer le modèle">
                         <Trash2 className="w-4 h-4 text-destructive" />
                       </Button>
                     </div>
