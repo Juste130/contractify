@@ -11,7 +11,7 @@ A **secure, blockchain-based contract management platform** combining smart cont
 
 ### Core Features
 - **🔗 Blockchain-Based Contracts** - Smart contracts on Polygon with cryptographic signatures
-- **🤖 AI Contract Generation** - Automatically generate contracts using Google Gemini
+- **🤖 AI Contract Generation** - Automatically generate contracts using Groq (Llama 3.3 70B)
 - **📝 Contract Management** - Create, sign, and track contracts with full audit trail
 - **💎 NFT Proof** - Automatic NFT generation as proof of contract finalization
 - **👥 Multi-Signer Support** - Multiple parties can sign contracts sequentially
@@ -61,13 +61,19 @@ npm install
 NODE_ENV=development
 PORT=5000
 DATABASE_URL=postgresql://user:password@localhost:5433/contractify
-ALCHEMY_API_KEY=your_alchemy_key
 MASTER_ENCRYPTION_KEY=your_encryption_key
 JWT_SECRET=your_jwt_secret
+JWT_REFRESH_SECRET=your_jwt_refresh_secret
+ALCHEMY_POLYGON_TESTNET_RPC_URL=your_alchemy_polygon_rpc_url
+CONTRACT_MANAGER_ADDRESS=0xyour_deployed_contract_manager_address
+ADMIN_WALLET_ADDRESS=0xyour_admin_wallet_address
 FUNDER_PRIVATE_KEY=0xyour_testnet_key # (Optional/Legacy for fallback EOA funding)
-GEMINI_API_KEY=your_gemini_key
+GROQ_API_KEY=your_groq_api_key
 PINATA_JWT=your_pinata_jwt
+PRIVY_APP_ID=your_privy_app_id
+PRIVY_APP_SECRET=your_privy_app_secret
 ```
+See `backend/config/index.js` for the full list of required variables — the server fails fast on boot in production if any are missing.
 
 #### Frontend - `frontend/.env.local`
 ```env
@@ -102,8 +108,6 @@ Open [http://localhost:3000](http://localhost:3000)
 | Document | Description |
 |----------|-------------|
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Contribution guidelines & development workflow |
-| [backend/docs/](./backend/docs/) | Backend API & integration guides |
-| [backend/README.md](./backend/README.md) | Backend-specific documentation |
 
 
 ## 🏗️ Project Structure
@@ -133,23 +137,26 @@ contractify/
 
 ## 🔗 API Endpoints
 
+Authentication is entirely handled by Privy — there is no email/password or Google OAuth flow in this app.
+
 ### Authentication
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - Login user
-- `POST /api/auth/privy` - Privy authentication
-- `POST /api/auth/google` - Google OAuth
+- `POST /api/auth/privy` - Authenticate with a Privy token (email verified server-side)
+- `POST /api/auth/refresh` - Refresh access token
+- `POST /api/auth/logout` - Logout user
 
 ### Contracts
-- `GET /api/contracts` - List user contracts
-- `POST /api/contracts/create` - Create contract
-- `POST /api/contracts/sign` - Sign contract
-- `GET /api/contracts/:id` - Get contract details
+- `POST /api/contracts/draft` - Save a contract draft
+- `GET /api/contracts/draft/:id` - Get draft details
+- `POST /api/contracts/draft/:id/deploy` - Mark a draft as deployed on-chain
+- `GET /api/contracts/cached` - List the user's contracts (synced from blockchain)
+- `POST /api/contracts/sync/:contractId` - Re-sync one contract from the blockchain
+- `POST /api/contracts/sync-all` - Re-sync all of the user's contracts
+- `GET /api/contracts/search` - Search contracts
+- `GET /api/contracts/:contractId` - Get contract details
 
-### Funding
-- `GET /api/fund/status` - Check wallet status
-- `POST /api/fund/request` - Request funding
+Signing a contract and depositing/releasing escrow happen as direct on-chain transactions from the frontend (via the connected Privy wallet), not through the backend API.
 
-See [backend/docs/](./backend/docs/) for complete API reference.
+See `backend/routes/` for the full list, including `ai.js`, `ipfs.js`, and `user.js`.
 
 ## 🛡️ Security
 
@@ -164,7 +171,6 @@ See [backend/docs/](./backend/docs/) for complete API reference.
 - Never commit `.env` files
 - Use environment variables for secrets
 - Rotate private keys regularly
-- Enable 2FA in production
 - Keep dependencies updated
 
 ## 💰 Gas Optimization
@@ -181,9 +187,16 @@ See the [Privy Dashboard](https://dashboard.privy.io/) for configuring your Gas 
 ## 🧪 Testing
 
 ```bash
+# Smart contracts (real test suite)
+cd blockchain
+npx hardhat test
+
+# Backend - no test suite written yet (npm test passes vacuously, --passWithNoTests)
+cd backend
 npm test
-npm run test:coverage
 ```
+
+The frontend has no test script configured yet.
 
 ## 🤝 Contributing
 

@@ -20,6 +20,16 @@ export interface Contract {
     metadata: any;
     lastSync: string;
     createdAt: string;
+    signatories?: ContractSignatory[];
+}
+
+export interface ContractSignatory {
+    id: string;
+    email: string;
+    name: string | null;
+    role: number;
+    walletAddress: string | null;
+    isRegistered: boolean;
 }
 
 export const contractsApi = {
@@ -130,6 +140,34 @@ export const contractsApi = {
     async getContractDetails(contractId: number): Promise<{ contract: Contract }> {
         try {
             const response = await apiClient.get(`/api/contracts/${contractId}`);
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
+    /**
+     * Get accurate per-status contract counts for the current user (not limited to one page)
+     */
+    async getContractsSummary(): Promise<{
+        total: number;
+        byStatus: Record<string, number>;
+        withIpfs: number;
+    }> {
+        try {
+            const response = await apiClient.get('/api/contracts/summary');
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
+    /**
+     * Resend an invitation/signature request email to a signatory who hasn't signed yet
+     */
+    async resendSignatureRequest(id: string, signatoryId: string): Promise<{ message: string }> {
+        try {
+            const response = await apiClient.post(`/api/contracts/${id}/resend-signature`, { signatoryId });
             return response.data;
         } catch (error) {
             throw new Error(handleApiError(error));

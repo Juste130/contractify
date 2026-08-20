@@ -9,6 +9,7 @@ import { contractsApi, type Contract } from "@/lib/api/contracts"
 import { ipfsApi } from "@/lib/api/ipfs"
 import { useWeb3 } from "@/contexts/web3-context"
 import { useContract } from "@/hooks/useContract"
+import { useAuthStore } from "@/hooks/useAuth"
 import {
   FileText,
   Users,
@@ -19,13 +20,19 @@ import {
   Clock,
   AlertCircle,
   Loader2,
-  Send
+  Send,
+  Mail,
+  Copy,
+  Check,
+  ArrowLeft,
+  UserX
 } from "lucide-react"
 import { KycSignatureModal } from "@/components/contract/kyc-signature-modal"
 import { SignaturePanel } from "@/components/contract/signaturePanel"
 import { NFTViewer } from "@/components/nft/NFTViewer"
 import { AiBadge } from "../ui/ai-badge"
 import { ContractMarkdownRenderer } from "@/components/contract/contract-markdown-renderer"
+import { cn } from "@/components/ui/utils"
 
 interface ContractDetailsPageProps {
   id: string
@@ -38,8 +45,36 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
   const [error, setError] = useState<string | null>(null)
   const [showKycModal, setShowKycModal] = useState(false)
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
+  const [resendingId, setResendingId] = useState<string | null>(null)
+  const [resendFeedback, setResendFeedback] = useState<{ id: string; type: "success" | "error"; text: string } | null>(null)
+  const [copiedField, setCopiedField] = useState<string | null>(null)
   const { account, isConnected } = useWeb3()
   const { signContract, createContract, loading: isSigning } = useContract()
+  const { user } = useAuthStore()
+
+  const copyToClipboard = async (field: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopiedField(field)
+      setTimeout(() => setCopiedField(null), 2000)
+    } catch (err) {
+      console.error("Impossible de copier :", err)
+    }
+  }
+
+  const handleResendEmail = async (signatoryId: string) => {
+    setResendingId(signatoryId)
+    setResendFeedback(null)
+    try {
+      await contractsApi.resendSignatureRequest(id, signatoryId)
+      setResendFeedback({ id: signatoryId, type: "success", text: "Email de relance envoyé." })
+    } catch (err: any) {
+      setResendFeedback({ id: signatoryId, type: "error", text: err.message || "Échec de l'envoi." })
+    } finally {
+      setResendingId(null)
+      setTimeout(() => setResendFeedback(null), 4000)
+    }
+  }
 
   const handleDownloadPDF = async () => {
     if (!contract) return;
@@ -190,6 +225,56 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
   const signers = contract.metadata?.signers || []
   const currentUserSigner = signers.find((s: any) => s.address.toLowerCase() === account?.toLowerCase())
   const canSign = currentUserSigner && !currentUserSigner.hasSigned && contract.status === 'PENDING_SIGNATURES'
+  const isCreator = !!user?.id && user.id === contract.userId
+
+  // Unified signer list: merges platform signatories (email, registration state)
+  // with on-chain signature state, so we can show who signed / who's still pending
+  // and offer a "resend" action for anyone who hasn't signed yet.
+  const dbSignatories = (contract as any).signatories || []
+  type SignerRow = {
+    key: string
+    signatoryId: string | null
+    name: string
+    email?: string
+    walletAddress?: string | null
+    role: number
+    hasSigned: boolean
+    signedAt?: number | null
+    isRegistered: boolean
+    canResend: boolean
+  }
+
+  const signerRows: SignerRow[] = dbSignatories.length > 0
+    ? dbSignatories.map((s: any) => {
+        const onChain = signers.find((o: any) => s.walletAddress && o.address?.toLowerCase() === s.walletAddress.toLowerCase())
+        const hasSigned = !!onChain?.hasSigned
+        return {
+          key: s.id,
+          signatoryId: s.id,
+          name: s.name || s.email,
+          email: s.email,
+          walletAddress: s.walletAddress,
+          role: s.role,
+          isRegistered: s.isRegistered,
+          hasSigned,
+          signedAt: onChain?.signedAt,
+          canResend: !hasSigned,
+        }
+      })
+    : signers.map((s: any, idx: number) => ({
+        key: `chain-${idx}`,
+        signatoryId: null,
+        name: s.address,
+        walletAddress: s.address,
+        role: s.role,
+        isRegistered: true,
+        hasSigned: !!s.hasSigned,
+        signedAt: s.signedAt,
+        canResend: false,
+      }))
+
+  const signedCount = signerRows.filter(s => s.hasSigned).length
+  const roleLabel = (role: number) => role === 0 ? 'Créateur' : role === 2 ? 'Témoin' : 'Signataire'
 
   return (
     <div className="flex min-h-screen bg-muted">
@@ -204,26 +289,40 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
         )}
 
         <div className="max-w-6xl mx-auto">
+          <button
+            onClick={() => window.history.back()}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Retour
+          </button>
+
           {/* Header Actions */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <h1 className="text-3xl font-bold">{contract.title}</h1>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-3 mb-2">
+                <h1 className="text-3xl font-bold truncate max-w-full">{contract.title}</h1>
                 {getStatusBadge(contract.status)}
               </div>
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <Clock className="w-4 h-4" />
                   Créé le {new Date(contract.createdAt).toLocaleDateString()}
                 </span>
                 <span className="flex items-center gap-1">
                   <FileText className="w-4 h-4" />
-                  ID Blockchain: #{contract.contractId}
+                  {contract.contractId ? `ID Blockchain #${contract.contractId}` : "Brouillon (non déployé)"}
                 </span>
+                {signerRows.length > 0 && (
+                  <span className="flex items-center gap-1">
+                    <Users className="w-4 h-4" />
+                    {signedCount}/{signerRows.length} signature{signerRows.length > 1 ? "s" : ""}
+                  </span>
+                )}
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -250,7 +349,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                   Signer le contrat
                 </Button>
               )}
-              {contract.status === 'READY_TO_DEPLOY' && contract.userId === account /* assuming creator */ && (
+              {contract.status === 'READY_TO_DEPLOY' && isCreator && (
                  <Button
                  className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300] gap-2 px-6 font-bold"
                  onClick={handleDeployDraft}
@@ -296,7 +395,10 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                   <div className="bg-gray-100 p-6 min-h-[900px]">
                     <div className="max-w-[800px] mx-auto bg-white shadow-xl rounded-sm border border-gray-200">
                       {/* Watermark header */}
-                      <div className="px-16 pt-10 pb-4 border-b border-gray-100 flex items-center justify-between">
+                      <div
+                        className="border-b border-gray-100 flex items-center justify-between"
+                        style={{ paddingLeft: 64, paddingRight: 64, paddingTop: 40, paddingBottom: 16 }}
+                      >
                         <div className="flex items-center gap-2">
                           <Shield className="w-4 h-4 text-purple-400" />
                           <span className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">ContracTify</span>
@@ -307,12 +409,15 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                       </div>
 
                       {/* Contract body with markdown rendering */}
-                      <div className="px-16 py-10 min-h-[700px]">
+                      <div style={{ paddingLeft: 64, paddingRight: 64, paddingTop: 40, paddingBottom: 40, minHeight: 700 }}>
                         <ContractMarkdownRenderer content={contract.metadata?.content || ""} />
                       </div>
 
                       {/* Footer */}
-                      <div className="px-16 pb-8 pt-4 border-t border-gray-100">
+                      <div
+                        className="border-t border-gray-100"
+                        style={{ paddingLeft: 64, paddingRight: 64, paddingTop: 16, paddingBottom: 32 }}
+                      >
                         <p className="text-[9px] text-gray-400 text-center">
                           Document généré et certifié par ContracTify • Ancré sur Polygon Blockchain
                           {contract.ipfsHash && ` • IPFS: ${contract.ipfsHash.slice(0, 16)}...`}
@@ -325,7 +430,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
             </div>
 
             {/* Sidebar: Metadata & Signers */}
-            <div className="space-y-6">
+            <div className="space-y-6 lg:sticky lg:top-8 lg:self-start lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto lg:pr-1">
               {(canSign || currentUserSigner?.hasSigned) && (
                 <SignaturePanel
                   hasSigned={!!currentUserSigner?.hasSigned}
@@ -335,50 +440,103 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
               )}
 
               <Card className="p-6">
-                <h3 className="font-bold flex items-center gap-2 mb-6">
-                  <Users className="w-5 h-5 text-primary" />
-                  Signataires
-                </h3>
-                <div className="space-y-4">
-                  {(contract as any).signatories ? (
-                    // Mode Draft
-                    (contract as any).signatories.map((signer: any, idx: number) => (
-                      <div key={idx} className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${signer.isRegistered ? 'bg-green-500/20 text-green-500' : 'bg-orange-500/20 text-orange-500'}`}>
-                          {signer.isRegistered ? <CheckCircle2 className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold truncate">{signer.name || signer.email}</p>
-                          <p className="text-[10px] text-muted-foreground uppercase">
-                            {signer.role === 1 ? 'Co-Signataire' : signer.role === 2 ? 'Témoin' : 'Représentant'}
-                          </p>
-                          <p className={`text-[10px] mt-1 flex items-center gap-1 ${signer.isRegistered ? 'text-green-500' : 'text-orange-500'}`}>
-                            {signer.isRegistered ? 'Inscrit (Wallet prêt)' : 'En attente d\'inscription'}
-                          </p>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    // Mode Blockchain
-                    signers.map((signer: any, idx: number) => (
-                      <div key={idx} className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${signer.hasSigned ? 'bg-green-500/20 text-green-500' : 'bg-yellow-500/20 text-yellow-500'}`}>
-                          {signer.hasSigned ? <CheckCircle2 className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold truncate">{signer.address}</p>
-                          <p className="text-[10px] text-muted-foreground uppercase">{signer.role === 0 ? 'Créateur' : 'Signataire'}</p>
-                          {signer.hasSigned && (
-                            <p className="text-[10px] text-green-500 mt-1 flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" />
-                              Signé le {new Date(signer.signedAt * 1000).toLocaleDateString()}
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="font-bold flex items-center gap-2">
+                    <Users className="w-5 h-5 text-primary" />
+                    Signataires
+                  </h3>
+                  {signerRows.length > 0 && (
+                    <Badge variant="secondary" className="text-[10px] font-mono">
+                      {signedCount}/{signerRows.length}
+                    </Badge>
+                  )}
+                </div>
+
+                {signerRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Aucun signataire pour ce contrat.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {signerRows.map((signer) => {
+                      const statusLabel = signer.hasSigned
+                        ? "Signé"
+                        : signer.isRegistered
+                          ? "En attente de signature"
+                          : "En attente d'inscription"
+                      const statusColor = signer.hasSigned
+                        ? "text-green-600"
+                        : signer.isRegistered
+                          ? "text-yellow-600"
+                          : "text-orange-500"
+                      const StatusIcon = signer.hasSigned ? CheckCircle2 : signer.isRegistered ? Clock : UserX
+                      const feedback = resendFeedback?.id === signer.signatoryId ? resendFeedback : null
+
+                      return (
+                        <div key={signer.key} className="rounded-lg border bg-muted/30 p-3">
+                          <div className="flex items-start gap-3">
+                            <div
+                              className={cn(
+                                "w-9 h-9 rounded-full flex items-center justify-center shrink-0",
+                                signer.hasSigned
+                                  ? "bg-green-500/20 text-green-600"
+                                  : signer.isRegistered
+                                    ? "bg-yellow-500/20 text-yellow-600"
+                                    : "bg-orange-500/20 text-orange-500"
+                              )}
+                            >
+                              <StatusIcon className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold truncate" title={signer.name}>{signer.name}</p>
+                              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                                {roleLabel(signer.role)}
+                              </p>
+                              <p className={cn("text-[11px] mt-1 flex items-center gap-1 font-medium", statusColor)}>
+                                <StatusIcon className="w-3 h-3 shrink-0" />
+                                {signer.hasSigned && signer.signedAt
+                                  ? `Signé le ${new Date(signer.signedAt * 1000).toLocaleDateString()}`
+                                  : statusLabel}
+                              </p>
+                            </div>
+                          </div>
+
+                          {isCreator && signer.canResend && signer.signatoryId && (
+                            <div className="mt-2.5 pt-2.5 border-t border-border/60" style={{ minWidth: 0 }}>
+                              <span
+                                className="text-[10px] text-muted-foreground block mb-2"
+                                style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                                title={signer.email}
+                              >
+                                {signer.email}
+                              </span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 w-full text-[11px] gap-1.5"
+                                disabled={resendingId === signer.signatoryId}
+                                onClick={() => handleResendEmail(signer.signatoryId!)}
+                              >
+                                {resendingId === signer.signatoryId ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Mail className="w-3 h-3" />
+                                )}
+                                Renvoyer l'email
+                              </Button>
+                            </div>
+                          )}
+                          {feedback && (
+                            <p className={cn(
+                              "text-[10px] mt-1.5",
+                              feedback.type === "success" ? "text-green-600" : "text-destructive"
+                            )}>
+                              {feedback.text}
                             </p>
                           )}
                         </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+                      )
+                    })}
+                  </div>
+                )}
               </Card>
 
               <Card className="p-6">
@@ -387,17 +545,41 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                   Détails Blockchain
                 </h3>
                 <div className="space-y-4 text-sm">
-                  <div className="flex justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">Statut</span>
                     <span className="font-medium text-xs font-mono">{contract.status}</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">Type</span>
                     <span className="font-medium">Contrat NFT</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">IPFS Hash</span>
-                    <span className="font-medium text-[10px] font-mono truncate max-w-[120px]">{contract.ipfsHash || 'N/A'}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <span className="text-muted-foreground block mb-1.5">IPFS Hash</span>
+                    {contract.ipfsHash ? (
+                      <div className="flex items-center gap-1.5 bg-muted/50 rounded-md px-2.5 py-1.5 border border-border/60" style={{ minWidth: 0 }}>
+                        <span
+                          className="font-mono text-[11px]"
+                          style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, flex: "1 1 auto" }}
+                          title={contract.ipfsHash}
+                        >
+                          {contract.ipfsHash}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard('ipfsHash', contract.ipfsHash)}
+                          className="shrink-0 p-1 rounded hover:bg-muted-foreground/10 transition-colors text-muted-foreground hover:text-foreground"
+                          aria-label="Copier le hash IPFS"
+                        >
+                          {copiedField === 'ipfsHash' ? (
+                            <Check className="w-3.5 h-3.5 text-green-600" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">N/A</span>
+                    )}
                   </div>
                   <div className="pt-4 border-t">
                     <p className="text-[10px] text-muted-foreground mb-4">
@@ -408,7 +590,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                         tokenId={contract.metadata?.nftTokenId || String(contract.contractId || 1)}
                         contractId={String(contract.contractId || contract.id)}
                         title={contract.title}
-                        effectiveDate={contract.createdAt}
+                        effectiveDate={contract.metadata?.effectiveDate ? new Date(contract.metadata.effectiveDate * 1000).toISOString() : undefined}
                         ipfsUrl={contract.ipfsHash ? ipfsApi.getPublicUrl(contract.ipfsHash) : undefined}
                       />
                       <Button variant="outline" className="w-full text-xs gap-2" asChild>

@@ -8,13 +8,18 @@ import { StatCard } from "../ui/stat-card";
 import { StatusBadge } from "../ui/status-badge";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Spinner } from "../ui/spinner";
-import { FileText, Clock, CheckCircle2, AlertCircle, TrendingUp, Plus } from "lucide-react";
+import { FileText, Clock, CheckCircle2, AlertCircle, TrendingUp, Plus, Wallet } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Link from "next/link";
 import { useAuthStore } from "@/hooks/useAuth";
 import { contractsApi } from "@/lib/api/contracts";
 import { formatDistanceToNow } from 'date-fns/formatDistanceToNow';
 import { fr } from 'date-fns/locale';
+
+// Statuts qui nécessitent encore une action de l'utilisateur (inscription des
+// signataires, déploiement, ou signature) — cohérent avec le badge "En attente"
+// affiché ailleurs dans l'app (ex. liste des contrats).
+const NEEDS_ACTION_STATUSES = ['DRAFT_WAITING_SIGNERS', 'READY_TO_DEPLOY', 'PENDING_SIGNATURES'];
 
 export function DashboardPage() {
   const { user } = useAuthStore();
@@ -26,10 +31,19 @@ export function DashboardPage() {
 
   const contracts = contractsData?.contracts || [];
 
-  // Calcul du résumé des stats
-  const pendingCount = contracts.filter(c => c.status === 'PENDING_SIGNATURES').length;
-  const activeCount = contracts.filter(c => c.status === 'ACTIVE').length;
-  const totalCount = contracts.length;
+  // Comptes exacts (indépendants de la pagination de la liste ci-dessus, qui
+  // ne charge que les 10 contrats les plus récents et sous-compterait les
+  // stats au-delà de ce seuil).
+  const { data: summary } = useQuery({
+    queryKey: ['contracts', 'summary'],
+    queryFn: () => contractsApi.getContractsSummary(),
+  });
+
+  const byStatus = summary?.byStatus || {};
+  const pendingCount = NEEDS_ACTION_STATUSES.reduce((sum, status) => sum + (byStatus[status] || 0), 0);
+  const activeCount = byStatus['ACTIVE'] || 0;
+  const completedCount = byStatus['COMPLETED'] || 0;
+  const totalCount = summary?.total || 0;
 
   const stats = [
     {
@@ -48,14 +62,14 @@ export function DashboardPage() {
     },
     {
       title: "Documents IPFS",
-      value: contracts.filter(c => c.ipfsHash).length,
+      value: summary?.withIpfs || 0,
       icon: FileText,
       iconColor: "#2196F3",
       trend: { value: "Sécurisés", isPositive: true }
     },
     {
       title: "Engagement",
-      value: totalCount > 0 ? `${Math.round((activeCount / totalCount) * 100)}%` : "0%",
+      value: totalCount > 0 ? `${Math.round(((activeCount + completedCount) / totalCount) * 100)}%` : "0%",
       icon: TrendingUp,
       iconColor: "#9C27B0",
       trend: { value: "Taux d'achèvement", isPositive: true }
@@ -70,14 +84,16 @@ export function DashboardPage() {
     user: c.title.substring(0, 2).toUpperCase()
   }));
 
-  const chartData = [
-    { month: 'Jan', contrats: 12 },
-    { month: 'Fév', contrats: 19 },
-    { month: 'Mar', contrats: 15 },
-    { month: 'Avr', contrats: 25 },
-    { month: 'Mai', contrats: 22 },
-    { month: 'Jun', contrats: totalCount },
-  ];
+  const MONTH_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+  const now = new Date();
+  const chartData = Array.from({ length: 6 }).map((_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+    const count = contracts.filter(c => {
+      const created = new Date(c.createdAt);
+      return created.getFullYear() === d.getFullYear() && created.getMonth() === d.getMonth();
+    }).length;
+    return { month: MONTH_LABELS[d.getMonth()], contrats: count };
+  });
 
   return (
     <div className="flex min-h-screen bg-muted">
@@ -177,7 +193,7 @@ export function DashboardPage() {
                       variant="outline"
                       className="w-full justify-start"
                     >
-                      <Plus className="w-4 h-4 mr-2" />
+                      <Wallet className="w-4 h-4 mr-2" />
                       Configurer mon wallet
                     </Button>
                   </Link>
@@ -188,10 +204,10 @@ export function DashboardPage() {
             {/* Contracts Needing Action */}
             <Card className="p-6 mb-8">
               <h3 className="mb-6">Contrats nécessitant une action</h3>
-              {contracts.filter(c => c.status === 'PENDING_SIGNATURES').length > 0 ? (
+              {contracts.filter(c => NEEDS_ACTION_STATUSES.includes(c.status)).length > 0 ? (
                 <div className="space-y-3">
                   {contracts
-                    .filter(c => c.status === 'PENDING_SIGNATURES')
+                    .filter(c => NEEDS_ACTION_STATUSES.includes(c.status))
                     .slice(0, 3)
                     .map((contract) => (
                       <Link href={`/contracts/${contract.contractId ?? contract.id}`} key={contract.id}>

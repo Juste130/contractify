@@ -244,9 +244,26 @@ class BlockchainSyncService {
             }
         };
 
+        const withTimeout = (promise, ms, label) => {
+            let timer;
+            const timeout = new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+            });
+            return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+        };
+
         const pollEvents = async () => {
+            // Guard against overlapping runs: if the RPC provider is slow/unreachable
+            // (flaky DNS, rate-limited free-tier plan, etc.), a single pollEvents() call
+            // can take longer than the 15s interval. Without this guard, setInterval keeps
+            // firing regardless and stacks up more and more concurrent RPC calls, which can
+            // starve Node's libuv threadpool (used by DNS lookups and file I/O alike) and
+            // make the whole server — including unrelated HTTP requests — appear to hang.
+            if (this._pollingInFlight) return;
+            this._pollingInFlight = true;
+
             try {
-                const currentBlock = await this.provider.getBlockNumber();
+                const currentBlock = await withTimeout(this.provider.getBlockNumber(), 20_000, 'getBlockNumber');
                 if (currentBlock <= this._lastScannedBlock) return;
 
                 let from = this._lastScannedBlock + 1;
@@ -255,7 +272,7 @@ class BlockchainSyncService {
                 // Process in chunks of MAX_BLOCK_CHUNK to respect free tier block range limits
                 while (from <= to) {
                     const chunkTo = Math.min(from + MAX_BLOCK_CHUNK - 1, to);
-                    await processChunk(from, chunkTo);
+                    await withTimeout(processChunk(from, chunkTo), 20_000, 'processChunk');
                     // Advance cursor after each successful chunk so progress is never lost
                     this._lastScannedBlock = chunkTo;
                     from = chunkTo + 1;
@@ -263,6 +280,8 @@ class BlockchainSyncService {
             } catch (error) {
                 // Log but don't crash — next poll will retry from where we left off
                 logger.error('Blockchain event polling error:', error);
+            } finally {
+                this._pollingInFlight = false;
             }
         };
 
@@ -288,6 +307,7 @@ class BlockchainSyncService {
     async getCachedContract(contractId) {
         return await prisma.contractCache.findUnique({
             where: { contractId },
+            include: { signatories: true },
         });
     }
 

@@ -33,13 +33,22 @@ export function AdminAnalyticsPage() {
     useEffect(() => {
         const fetchStats = async () => {
             try {
-                const [usersRes, contractsRes] = await Promise.all([
+                // "FINALIZED" n'est pas un statut valide (voir l'enum ContractStatus :
+                // DRAFT_WAITING_SIGNERS | READY_TO_DEPLOY | DRAFT | PENDING_SIGNATURES |
+                // ACTIVE | COMPLETED | CANCELLED | DISPUTED | TERMINATED | RESIGNED) — un
+                // contrat est considéré "signé" une fois toutes les signatures collectées,
+                // ce qui correspond aux statuts ACTIVE et COMPLETED. On utilise `total` de
+                // chaque requête filtrée par statut (comptage exact côté serveur) plutôt que
+                // de filtrer un tableau de contrats, qui serait tronqué par la pagination.
+                const [usersRes, contractsRes, activeRes, completedRes] = await Promise.all([
                     apiClient.get('/api/users?limit=1'),
                     apiClient.get('/api/contracts/admin/all?limit=1'),
+                    apiClient.get('/api/contracts/admin/all?limit=1&status=ACTIVE'),
+                    apiClient.get('/api/contracts/admin/all?limit=1&status=COMPLETED'),
                 ]);
                 const totalContracts = contractsRes.data.pagination?.total || 0;
-                const allContracts = contractsRes.data.contracts || [];
-                const signedContracts = allContracts.filter((c: any) => c.status === 'FINALIZED').length;
+                const signedContracts =
+                    (activeRes.data.pagination?.total || 0) + (completedRes.data.pagination?.total || 0);
                 setStats({
                     totalUsers: usersRes.data.pagination?.total || 0,
                     totalContracts,

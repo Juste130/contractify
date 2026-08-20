@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   FileText,
   LayoutTemplate,
-  Users,
   Settings,
   ChevronRight,
   ChevronLeft,
@@ -14,7 +13,6 @@ import {
   LogOut,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "../ui/avatar";
-import { Button } from "../ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import {
   DropdownMenu,
@@ -52,7 +50,6 @@ export function AppSidebar() {
     { id: "dashboard", label: "Tableau de bord", icon: LayoutDashboard, href: "/dashboard" },
     { id: "contracts", label: "Mes contrats", icon: FileText, href: "/contracts" },
     { id: "templates", label: "Modèles", icon: LayoutTemplate, href: "/templates" },
-    { id: "team", label: "Équipe", icon: Users, href: "/team" },
     { id: "settings", label: "Paramètres", icon: Settings, href: "/settings" },
   ];
 
@@ -114,8 +111,28 @@ export function AppSidebar() {
         isCollapsed ? "w-20" : "w-64"
       )}
     >
+      {/* Edge toggle handle — sits right on the sidebar's border */}
+      <TooltipProvider delayDuration={300}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-label={isCollapsed ? "Développer la barre latérale" : "Réduire la barre latérale"}
+              className="rounded-full border border-border bg-card shadow-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-[#FFC107] transition-colors"
+              style={{ position: "absolute", top: "50%", right: "-12px", transform: "translateY(-50%)", zIndex: 20, width: "24px", height: "24px" }}
+            >
+              {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <p>{isCollapsed ? "Développer" : "Réduire"}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
       {/* Logo */}
-      <div className="p-6 border-b border-border flex items-center justify-between">
+      <div className="p-6 flex items-center justify-between">
         {!isCollapsed ? (
           <Link href="/">
             <h2 className="text-[#FFC107]">Contractify</h2>
@@ -127,6 +144,13 @@ export function AppSidebar() {
             </div>
           </Link>
         )}
+      </div>
+
+      {/* Separator between the brand and the menu, framed by "<" and ">" */}
+      <div className="px-4 pb-4 flex items-center gap-2 text-border">
+        <ChevronLeft className="w-3 h-3 shrink-0 opacity-50" />
+        <div className="flex-1 h-px bg-border" />
+        <ChevronRight className="w-3 h-3 shrink-0 opacity-50" />
       </div>
 
       {/* Navigation */}
@@ -145,29 +169,6 @@ export function AppSidebar() {
           {adminMenuItems.map(renderMenuItem)}
         </div>
       </nav>
-
-      {/* Toggle Button */}
-      <div className="p-4 border-t border-border">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={toggleSidebar}
-          aria-label={isCollapsed ? "Développer la barre latérale" : "Réduire la barre latérale"}
-          className={cn(
-            "w-full flex items-center gap-2",
-            isCollapsed && "justify-center px-2"
-          )}
-        >
-          {isCollapsed ? (
-            <ChevronRight className="w-4 h-4" />
-          ) : (
-            <>
-              <ChevronLeft className="w-4 h-4" />
-              <span className="text-sm">Réduire</span>
-            </>
-          )}
-        </Button>
-      </div>
 
       {/* User */}
       <div className="p-4 border-t border-border">

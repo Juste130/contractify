@@ -27,62 +27,41 @@ export function TemplatesPage() {
       id: 1,
       name: "CDI",
       icon: Briefcase,
-      description: "Contrat de travail à durée indéterminée conforme au code du travail français",
-      uses: 45
+      description: "Contrat de travail à durée indéterminée conforme au droit du travail (OHADA / Bénin)",
     },
     {
       id: 2,
       name: "Freelance",
       icon: Users,
       description: "Contrat de prestation de services pour travailleurs indépendants",
-      uses: 38
     },
     {
       id: 3,
       name: "Location",
       icon: Home,
       description: "Bail de location immobilière résidentielle ou commerciale",
-      uses: 32
     },
     {
       id: 4,
       name: "NDA",
       icon: FileSignature,
       description: "Accord de confidentialité pour protéger vos informations sensibles",
-      uses: 28
     },
     {
       id: 5,
       name: "Commercial",
       icon: Briefcase,
       description: "Contrat commercial B2B pour relations d'affaires",
-      uses: 25
     },
     {
       id: 6,
       name: "CDD",
       icon: Briefcase,
       description: "Contrat de travail à durée déterminée",
-      uses: 22
     },
   ];
 
-  const customTemplates = [
-    {
-      id: 1,
-      name: "Contrat SaaS personnalisé",
-      description: "Modèle créé pour les abonnements SaaS",
-      createdDate: "10/12/2024",
-      uses: 8
-    },
-    {
-      id: 2,
-      name: "Partenariat startup",
-      description: "Accord de partenariat adapté aux startups",
-      createdDate: "05/12/2024",
-      uses: 5
-    },
-  ];
+  const customTemplates: { id: number; name: string; description: string; createdDate: string; uses: number }[] = [];
 
   return (
     <div className="flex min-h-screen bg-muted">

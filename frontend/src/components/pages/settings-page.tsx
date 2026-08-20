@@ -19,7 +19,6 @@ import {
   Brain,
   Lock,
   Bell,
-  Camera,
   Shield,
   Wallet,
   Loader2,
@@ -28,6 +27,16 @@ import {
   LogOut,
   KeyRound,
 } from "lucide-react";
+
+function getChainName(id: number | null) {
+  switch (id) {
+    case 1: return "Ethereum";
+    case 137: return "Polygon";
+    case 80001: return "Mumbai Testnet";
+    case 80002: return "Polygon Amoy Testnet";
+    default: return "Réseau inconnu";
+  }
+}
 
 export function SettingsPage() {
   const [selectedSection, setSelectedSection] = useState("profile");
@@ -117,15 +126,6 @@ export function SettingsPage() {
                         {user?.email?.[0].toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
-                    <div>
-                      <Button type="button" variant="outline">
-                        <Camera className="w-4 h-4 mr-2" />
-                        Changer la photo
-                      </Button>
-                      <p className="text-sm text-muted-foreground mt-2">
-                        JPG, PNG ou GIF. 5 MB max.
-                      </p>
-                    </div>
                   </div>
 
                   <div className="space-y-4">
@@ -177,7 +177,7 @@ export function SettingsPage() {
                           </div>
                           <div>
                             <p className="font-medium text-lg">Wallet Connecté</p>
-                            <p className="text-sm text-muted-foreground">Polygon Mumbai (Mock Mode Active)</p>
+                            <p className="text-sm text-muted-foreground">{getChainName(chainId)}</p>
                           </div>
                         </div>
                         <Button variant="outline" size="sm" onClick={disconnect} className="text-destructive hover:text-destructive">

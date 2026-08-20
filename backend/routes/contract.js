@@ -25,11 +25,25 @@ router.get('/draft/:id', authenticate, contractController.getDraftDetails);
 router.post('/draft/:id/deploy', authenticate, contractController.markDraftDeployed);
 
 /**
+ * @route   POST /api/contracts/:id/resend-signature
+ * @desc    Resend an invitation/signature request email to a signatory who hasn't signed yet
+ * @access  Private
+ */
+router.post('/:id/resend-signature', authenticate, contractController.resendSignatureRequest);
+
+/**
  * @route   GET /api/contracts/cached
  * @desc    Get cached contracts for current user
  * @access  Private
  */
 router.get('/cached', authenticate, contractController.getCachedContracts);
+
+/**
+ * @route   GET /api/contracts/summary
+ * @desc    Get accurate per-status contract counts for the current user (not limited to one page)
+ * @access  Private
+ */
+router.get('/summary', authenticate, contractController.getContractsSummary);
 
 /**
  * @route   POST /api/contracts/sync/:contractId

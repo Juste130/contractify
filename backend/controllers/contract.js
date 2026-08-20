@@ -151,6 +151,98 @@ exports.markDraftDeployed = async (req, res, next) => {
 };
 
 /**
+ * Resend an invitation/signature request email to a signatory who has not signed yet
+ */
+exports.resendSignatureRequest = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { signatoryId } = req.body;
+        const userId = req.user.userId;
+
+        if (!signatoryId) {
+            return res.status(400).json({ error: 'signatoryId requis' });
+        }
+
+        const contract = isNaN(Number(id))
+            ? await prisma.contractCache.findUnique({ where: { id }, include: { signatories: true } })
+            : await prisma.contractCache.findUnique({ where: { contractId: parseInt(id) }, include: { signatories: true } });
+
+        if (!contract) return res.status(404).json({ error: 'Contrat introuvable' });
+        if (contract.userId !== userId && req.user.role !== 'ADMIN') {
+            return res.status(403).json({ error: 'Non autorisé' });
+        }
+
+        const signatory = contract.signatories.find(s => s.id === signatoryId);
+        if (!signatory) return res.status(404).json({ error: 'Signataire introuvable' });
+
+        let hasSigned = false;
+        if (contract.contractId && contract.metadata?.signers && signatory.walletAddress) {
+            const onChainSigner = contract.metadata.signers.find(
+                s => s.address?.toLowerCase() === signatory.walletAddress.toLowerCase()
+            );
+            hasSigned = !!onChainSigner?.hasSigned;
+        }
+
+        if (hasSigned) {
+            return res.status(400).json({ error: 'Ce signataire a déjà signé le contrat' });
+        }
+
+        if (!signatory.isRegistered) {
+            await emailService.sendDraftInvitationEmail(
+                signatory.email,
+                signatory.name || signatory.email,
+                contract.title,
+                contract.id
+            );
+        } else {
+            await emailService.sendSignatureRequest(
+                signatory.email,
+                contract.title,
+                contract.contractId || contract.id,
+                signatory.name || signatory.email
+            );
+        }
+
+        logger.info(`[Email] Signature reminder resent to ${signatory.email} for contract ${contract.id}`);
+        res.json({ message: 'Email de relance envoyé avec succès' });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Get accurate contract counts for the current user, grouped by status,
+ * plus how many have an IPFS document attached. Unlike /cached, this is
+ * never limited to a single page, so dashboard stats reflect the true totals.
+ */
+exports.getContractsSummary = async (req, res, next) => {
+    try {
+        const userId = req.user.userId;
+
+        const [statusGroups, total, withIpfs] = await Promise.all([
+            prisma.contractCache.groupBy({
+                by: ['status'],
+                where: { userId },
+                _count: { _all: true },
+            }),
+            prisma.contractCache.count({ where: { userId } }),
+            prisma.contractCache.count({
+                where: { userId, AND: [{ ipfsHash: { not: null } }, { ipfsHash: { not: '' } }] },
+            }),
+        ]);
+
+        const byStatus = statusGroups.reduce((acc, row) => {
+            acc[row.status] = row._count._all;
+            return acc;
+        }, {});
+
+        res.json({ total, byStatus, withIpfs });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
  * Get cached contracts
  */
 exports.getCachedContracts = async (req, res, next) => {
