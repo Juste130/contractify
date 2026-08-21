@@ -56,6 +56,13 @@ npm install
 
 ### 3. Configure Environment
 
+Copy the example files and fill in real values — never commit the results:
+
+```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
+```
+
 #### Backend - `backend/.env`
 ```env
 NODE_ENV=development
@@ -73,13 +80,14 @@ PINATA_JWT=your_pinata_jwt
 PRIVY_APP_ID=your_privy_app_id
 PRIVY_APP_SECRET=your_privy_app_secret
 ```
-See `backend/config/index.js` for the full list of required variables — the server fails fast on boot in production if any are missing.
+See `backend/.env.example` for the full list of variables (or `backend/config/index.js` for how they're validated) — the server fails fast on boot in production if any required one is missing.
 
 #### Frontend - `frontend/.env.local`
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:5000
 NEXT_PUBLIC_PRIVY_APP_ID=your_privy_app_id
 ```
+See `frontend/.env.example` for the full list. Note that anything prefixed `NEXT_PUBLIC_` is bundled into client-side JS and publicly visible — never put a secret behind that prefix.
 
 ### 4. Database Setup
 
@@ -134,6 +142,33 @@ contractify/
 │   └── public/             # Static assets
 └── blockchain/             # Smart contracts (Hardhat)
 ```
+
+## 🚀 Deployment
+
+The frontend and backend are two separate deployments — this is a monorepo, not a single deployable unit.
+
+### Frontend — Vercel
+
+- **Root Directory:** `frontend` (must be set explicitly in Project Settings → General, since there's no root-level `package.json`)
+- **Framework:** Next.js (auto-detected once Root Directory is correct)
+- **Environment variables:** set in Project Settings → Environment Variables, scoped per environment (Production/Preview/Development) — see `frontend/.env.example` for the list
+- Deploys automatically on every push to `main` via Vercel's native GitHub integration; PRs get their own Preview deployment
+
+### Backend — Render (+ Supabase + Upstash)
+
+Chosen as a genuinely free stack (no credit card required, unlike Railway/Oracle Cloud):
+
+- **Render** hosts the API as a Web Service built from the existing `Dockerfile` (Root Directory: `backend`). Render terminates HTTPS automatically on its own `*.onrender.com` subdomain — no separate reverse proxy or certificate setup needed. Deploys automatically on every push to `main` via Render's GitHub integration.
+  - ⚠️ Free-tier services spin down after 15 minutes of inactivity — the first request after a pause takes 30-50s to wake up. Fine for now; upgrade to a paid instance type if that latency becomes a problem for real users.
+- **Supabase** provides the managed Postgres instance. Project Settings → Database → Connection string: use the **pooled (Transaction mode, port 6543)** string as `DATABASE_URL` and the **direct (Session mode, port 5432)** string as `DIRECT_URL` — Prisma needs both (pooled for the app, direct for running migrations).
+- **Upstash** provides managed Redis — set its connection string as `REDIS_URL` in Render.
+- The `postgres`/`redis` services in `backend/docker-compose.yml` remain for **local dev only**; production data lives in Supabase/Upstash, not in Render's container.
+- **Environment variables:** set in Render's Environment tab — see `backend/.env.example` for the full list. Generate fresh production values for `FUNDER_PRIVATE_KEY`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, and `MASTER_ENCRYPTION_KEY`; never reuse local/dev values.
+- Once deployed, point the frontend's `NEXT_PUBLIC_API_URL` at the Render URL, and the backend's `FRONTEND_URL`/`API_BASE_URL` back at the Vercel domain (CORS).
+
+### CI/CD
+
+`.github/workflows/ci.yml` runs `npm ci` + lint + build (and tests, once written) for both `backend/` and `frontend/` on every push/PR to `main` and `justedev`. It's a **quality gate only** — it does not deploy anything. Actual deployment is triggered independently by Vercel's and Render's own GitHub integrations on push to `main`. To make CI failures actually block bad deploys, enable a branch protection rule on `main` requiring the `build-and-test` check to pass before merge.
 
 ## 🔗 API Endpoints
 
