@@ -611,7 +611,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                     <div className="w-1 self-stretch bg-primary/20 rounded shrink-0"></div>
                     <div>
                       <p className="text-[11px] font-bold">Contrat généré par IA</p>
-                      <p className="text-[10px] text-muted-foreground mt-1">Modèle Llama 3.3 (70B) via Groq — optimisé pour la rédaction juridique.</p>
+                      <p className="text-[10px] text-muted-foreground mt-1">Modèle GPT-OSS 120B via Groq — optimisé pour la rédaction juridique.</p>
                     </div>
                   </div>
                   <div className="flex gap-3 items-start">

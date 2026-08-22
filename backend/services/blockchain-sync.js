@@ -290,6 +290,66 @@ class BlockchainSyncService {
         this._pollingInterval = setInterval(pollEvents, 15_000);
     }
 
+    /**
+     * Verifies that a transaction hash reported by the client actually corresponds to a
+     * successful on-chain `createContract` call, before the backend trusts it enough to
+     * flip a draft's status. Without this, a buggy or malicious client could report an
+     * arbitrary contractId/txHash pair and create a phantom contract that never syncs.
+     * Returns the verified contractId (as reported by the ContractCreated event itself,
+     * not by the client) and syncs the real on-chain data into the cache.
+     */
+    async verifyDeploymentTx(transactionHash, expectedCreatorUserId) {
+        if (!this.contractManager) {
+            throw new Error('Blockchain sync unavailable: no valid contract manager configured');
+        }
+        if (!transactionHash || !/^0x[a-fA-F0-9]{64}$/.test(transactionHash)) {
+            throw new Error('Invalid transaction hash');
+        }
+
+        const receipt = await this.provider.getTransactionReceipt(transactionHash);
+        if (!receipt) {
+            throw new Error('Transaction not found or not yet mined');
+        }
+        if (receipt.status !== 1) {
+            throw new Error('Transaction failed on-chain');
+        }
+        if (receipt.to?.toLowerCase() !== config.contractManagerAddress?.toLowerCase()) {
+            throw new Error('Transaction was not sent to the Contract Manager');
+        }
+
+        const event = receipt.logs
+            .map((log) => {
+                try { return this.contractManager.interface.parseLog(log); }
+                catch { return null; }
+            })
+            .find((e) => e && e.name === 'ContractCreated');
+
+        if (!event) {
+            throw new Error('No ContractCreated event found in this transaction');
+        }
+
+        const contractId = event.args.contractId.toString();
+        const creatorAddress = event.args.creator;
+
+        if (expectedCreatorUserId) {
+            const creatorWallet = await prisma.userWallet.findFirst({
+                where: { publicAddress: { equals: creatorAddress, mode: 'insensitive' } },
+            });
+            if (!creatorWallet || creatorWallet.userId !== expectedCreatorUserId) {
+                throw new Error('On-chain creator does not match the authenticated user');
+            }
+        }
+
+        // Note: intentionally does NOT call syncContract() here. syncContract() upserts by
+        // contractId, and at this point the draft row (found by its UUID, not by contractId)
+        // still has contractId=null — an upsert here would create a *second*, duplicate cache
+        // row instead of updating the draft, and the caller's subsequent update to the draft's
+        // contractId would then collide with it (contractId is @unique). Callers must first
+        // persist contractId onto the existing draft row, then call syncContract() themselves.
+
+        return { contractId: parseInt(contractId, 10), creatorAddress };
+    }
+
     mapContractStatus(blockchainStatus) {
         const statusMap = {
             0: ContractStatus.DRAFT,

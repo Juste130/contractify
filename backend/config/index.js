@@ -27,6 +27,7 @@ const config = {
 
     // Groq
     groqApiKey: process.env.GROQ_API_KEY,
+    groqModel: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
 
     // Pinata (IPFS)
     pinataJwt: process.env.PINATA_JWT,

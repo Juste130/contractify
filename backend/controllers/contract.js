@@ -3,6 +3,31 @@ const prisma = require('../models/prisma');
 const logger = require('../utils/logger');
 const emailService = require('../services/email');
 
+const MAX_SIGNATORIES = 20;
+
+/**
+ * A user can access a contract (draft or deployed) if they created it, if they are one of
+ * its signatories (matched by email, since a draft signatory may not have a wallet yet — or
+ * by wallet address, since that's what a deployed contract's on-chain signer list uses), or
+ * if they are an admin. Centralized here so drafts and deployed contracts apply the exact
+ * same rule instead of two independently-drifting checks.
+ */
+async function hasContractAccess(contract, user, signatories) {
+    if (contract.userId === user.userId || user.role === 'ADMIN') return true;
+
+    const sigs = signatories || contract.signatories || [];
+    if (sigs.some(s => s.email && s.email === user.email)) return true;
+
+    const wallet = await prisma.userWallet.findUnique({ where: { userId: user.userId } });
+    if (wallet) {
+        const addr = wallet.publicAddress.toLowerCase();
+        if (sigs.some(s => s.walletAddress && s.walletAddress.toLowerCase() === addr)) return true;
+        if (contract.metadata?.signers?.some(s => s.address?.toLowerCase() === addr)) return true;
+    }
+
+    return false;
+}
+
 /**
  * Save a new contract draft (Option 1 workflow)
  */
@@ -10,6 +35,31 @@ exports.saveDraft = async (req, res, next) => {
     try {
         const userId = req.user.userId;
         const { title, metadata, signatories, ipfsHash } = req.body;
+
+        if (!title || !title.trim()) {
+            return res.status(400).json({ error: 'Title is required' });
+        }
+        if (!Array.isArray(signatories) || signatories.length === 0) {
+            return res.status(400).json({ error: 'At least one signatory is required' });
+        }
+        if (signatories.length > MAX_SIGNATORIES) {
+            return res.status(400).json({ error: `Too many signatories (max ${MAX_SIGNATORIES})` });
+        }
+        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        const seenEmails = new Set();
+        for (const s of signatories) {
+            if (!s.email || !emailPattern.test(s.email)) {
+                return res.status(400).json({ error: `Invalid signatory email: ${s.email || '(empty)'}` });
+            }
+            const normalized = s.email.toLowerCase();
+            if (seenEmails.has(normalized)) {
+                return res.status(400).json({ error: `Duplicate signatory email: ${s.email}` });
+            }
+            seenEmails.add(normalized);
+            if (!Number.isInteger(s.role) || s.role < 0 || s.role > 3) {
+                return res.status(400).json({ error: `Invalid signatory role for ${s.email}` });
+            }
+        }
 
         // Automatically resolve signatories that are already registered on the platform
         const processedSignatories = await Promise.all(signatories.map(async s => {
@@ -30,39 +80,35 @@ exports.saveDraft = async (req, res, next) => {
             };
         }));
 
-        // Create the draft in ContractCache
-        const contract = await prisma.contractCache.create({
-            data: {
-                userId,
-                title,
-                ipfsHash: ipfsHash || null,
-                status: 'DRAFT_WAITING_SIGNERS',
-                metadata,
-                lastSync: new Date(),
-                signatories: {
-                    create: processedSignatories.map(s => ({
-                        email: s.email,
-                        name: s.name,
-                        role: s.role,
-                        walletAddress: s.walletAddress,
-                        isRegistered: s.isRegistered
-                    }))
+        // Create the draft and, if every signatory is already registered, flip it straight to
+        // READY_TO_DEPLOY in the same transaction — avoids a window where a crash between the
+        // two calls would leave the draft stuck in DRAFT_WAITING_SIGNERS despite being ready.
+        const allRegistered = processedSignatories.every(s => s.isRegistered);
+        const contract = await prisma.$transaction(async (tx) => {
+            const created = await tx.contractCache.create({
+                data: {
+                    userId,
+                    title,
+                    ipfsHash: ipfsHash || null,
+                    status: allRegistered ? 'READY_TO_DEPLOY' : 'DRAFT_WAITING_SIGNERS',
+                    metadata,
+                    lastSync: new Date(),
+                    signatories: {
+                        create: processedSignatories.map(s => ({
+                            email: s.email,
+                            name: s.name,
+                            role: s.role,
+                            walletAddress: s.walletAddress,
+                            isRegistered: s.isRegistered
+                        }))
+                    }
+                },
+                include: {
+                    signatories: true
                 }
-            },
-            include: {
-                signatories: true
-            }
-        });
-
-        // Check if all signatories already have wallets (unlikely if they use emails but just in case)
-        const allRegistered = contract.signatories.every(s => s.isRegistered);
-        if (allRegistered) {
-            await prisma.contractCache.update({
-                where: { id: contract.id },
-                data: { status: 'READY_TO_DEPLOY' }
             });
-            contract.status = 'READY_TO_DEPLOY';
-        }
+            return created;
+        });
 
         // Send invitation emails to each signatory (non-blocking)
         const notRegisteredSignatories = contract.signatories.filter(s => !s.isRegistered);
@@ -99,7 +145,6 @@ exports.saveDraft = async (req, res, next) => {
 exports.getDraftDetails = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const userId = req.user.userId;
 
         const contract = await prisma.contractCache.findUnique({
             where: { id },
@@ -107,9 +152,7 @@ exports.getDraftDetails = async (req, res, next) => {
         });
 
         if (!contract) return res.status(404).json({ error: 'Draft not found' });
-        // Allowing the creator or any signatory to view it
-        const isSignatory = contract.signatories.some(s => s.email === req.user.email);
-        if (contract.userId !== userId && !isSignatory && req.user.role !== 'ADMIN') {
+        if (!(await hasContractAccess(contract, req.user))) {
             return res.status(403).json({ error: 'Unauthorized' });
         }
 
@@ -120,22 +163,39 @@ exports.getDraftDetails = async (req, res, next) => {
 };
 
 /**
- * Mark draft as deployed (called after successful on-chain transaction)
+ * Mark draft as deployed (called after a client-reported on-chain transaction). The
+ * contractId/transactionHash are only a claim from the client at this point — they are
+ * verified on-chain (tx succeeded, sent to our Contract Manager, ContractCreated event
+ * present, creator resolves to this user) before we trust them, otherwise a buggy or
+ * malicious client could flip a draft to PENDING_SIGNATURES for a contract that was
+ * never actually created.
  */
 exports.markDraftDeployed = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { contractId, transactionHash } = req.body; // on-chain ID
+        const { transactionHash } = req.body;
         const userId = req.user.userId;
+
+        if (!transactionHash) {
+            return res.status(400).json({ error: 'transactionHash is required' });
+        }
 
         const contract = await prisma.contractCache.findUnique({ where: { id } });
         if (!contract) return res.status(404).json({ error: 'Draft not found' });
         if (contract.userId !== userId) return res.status(403).json({ error: 'Unauthorized' });
 
+        let verified;
+        try {
+            verified = await blockchainSyncService.verifyDeploymentTx(transactionHash, userId);
+        } catch (verifyError) {
+            logger.error(`Deployment verification failed for draft ${id}:`, verifyError);
+            return res.status(400).json({ error: `Could not verify on-chain deployment: ${verifyError.message}` });
+        }
+
         const updatedContract = await prisma.contractCache.update({
             where: { id },
             data: {
-                contractId: parseInt(contractId),
+                contractId: verified.contractId,
                 status: 'PENDING_SIGNATURES',
                 metadata: {
                     ...contract.metadata,
@@ -143,6 +203,10 @@ exports.markDraftDeployed = async (req, res, next) => {
                 }
             }
         });
+
+        // Now that the draft row owns this contractId, pull the authoritative on-chain
+        // details (signers, escrow, dates...) into it.
+        await blockchainSyncService.syncContract(verified.contractId.toString(), userId);
 
         res.json({ message: 'Contract marked as deployed', contract: updatedContract });
     } catch (error) {
@@ -356,8 +420,6 @@ exports.searchContracts = async (req, res, next) => {
 exports.getContractDetails = async (req, res, next) => {
     try {
         const { contractId } = req.params;
-        const userId = req.user.userId;
-        const userRole = req.user.role;
 
         const contract = await blockchainSyncService.getCachedContract(parseInt(contractId));
 
@@ -365,20 +427,7 @@ exports.getContractDetails = async (req, res, next) => {
             return res.status(404).json({ error: 'Contract not found' });
         }
 
-        let isSignatory = false;
-        
-        // Find user's wallet address to check if they are a signer
-        const userWallet = await prisma.userWallet.findUnique({
-            where: { userId }
-        });
-        
-        if (userWallet && contract.metadata && contract.metadata.signers) {
-            isSignatory = contract.metadata.signers.some(
-                s => s.address.toLowerCase() === userWallet.publicAddress.toLowerCase()
-            );
-        }
-
-        if (contract.userId !== userId && !isSignatory && userRole !== 'ADMIN') {
+        if (!(await hasContractAccess(contract, req.user))) {
             return res.status(403).json({ error: 'Unauthorized to view this contract' });
         }
 
