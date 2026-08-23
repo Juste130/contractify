@@ -58,9 +58,11 @@ export const contractsApi = {
     },
 
     /**
-     * Mark draft as deployed on chain
+     * Mark draft as deployed on chain. The backend independently verifies the transaction
+     * hash on-chain and resolves the real contractId itself — it does not trust a
+     * client-supplied contractId, so none is sent here.
      */
-    async markDraftDeployed(id: string, data: { contractId: number; transactionHash: string }): Promise<{ contract: Contract }> {
+    async markDraftDeployed(id: string, data: { transactionHash: string }): Promise<{ contract: Contract }> {
         try {
             const response = await apiClient.post(`/api/contracts/draft/${id}/deploy`, data);
             return response.data;

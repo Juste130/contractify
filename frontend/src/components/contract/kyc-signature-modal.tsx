@@ -20,6 +20,7 @@ import {
   Loader2,
   CheckCircle2,
 } from "lucide-react"
+import { E_SIGNATURE_LEGAL_BASIS, DEFAULT_E_SIGNATURE_LEGAL_BASIS } from "@/lib/contract-templates"
 
 interface KycSignatureModalProps {
   open: boolean
@@ -30,6 +31,9 @@ interface KycSignatureModalProps {
   originalHash?: string
   signerName?: string
   signerEmail?: string
+  /** Country of execution, used to cite the right country's e-signature law instead of
+   *  a fixed EU/eIDAS reference that doesn't apply outside the EU/EEA. */
+  country?: string
 }
 
 async function computeSHA256(text: string): Promise<string> {
@@ -82,6 +86,7 @@ export function KycSignatureModal({
   originalHash,
   signerName,
   signerEmail,
+  country,
 }: KycSignatureModalProps) {
   const [currentStep, setCurrentStep] = useState(0)
   const [agreed, setAgreed] = useState(false)
@@ -270,8 +275,8 @@ export function KycSignatureModal({
                   />
                   <label htmlFor="kyc-agree" className="text-xs cursor-pointer leading-relaxed">
                     Je confirme avoir lu et compris le contrat dans son intégralité. Je
-                    consens à apposer ma signature électronique ayant valeur légale, en
-                    accord avec la réglementation eIDAS.
+                    consens à apposer ma signature électronique ayant valeur légale, au sens
+                    de {(country && E_SIGNATURE_LEGAL_BASIS[country]) || DEFAULT_E_SIGNATURE_LEGAL_BASIS}.
                   </label>
                 </div>
               )}

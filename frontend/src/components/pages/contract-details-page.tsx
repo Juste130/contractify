@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { ethers } from "ethers"
+import { signatoryRoleLabel } from "@/lib/contract-roles"
 import { AppSidebar } from "../layout/app-sidebar"
 import { Button } from "../ui/button"
 import { Card } from "../ui/card"
@@ -48,6 +50,10 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
   const [resendingId, setResendingId] = useState<string | null>(null)
   const [resendFeedback, setResendFeedback] = useState<{ id: string; type: "success" | "error"; text: string } | null>(null)
   const [copiedField, setCopiedField] = useState<string | null>(null)
+  const [escrowAmount, setEscrowAmount] = useState("0")
+  const [escrowDeadline, setEscrowDeadline] = useState("")
+  const [penaltyPercent, setPenaltyPercent] = useState("0")
+  const [escrowInitialized, setEscrowInitialized] = useState(false)
   const { account, isConnected } = useWeb3()
   const { signContract, createContract, loading: isSigning } = useContract()
   const { user } = useAuthStore()
@@ -131,6 +137,19 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
     fetchDetails()
   }, [id])
 
+  // Default the escrow confirmation form from what was declared at creation time (if any),
+  // but only once — the creator can still adjust it before the irreversible deployment.
+  useEffect(() => {
+    if (!contract || escrowInitialized) return
+    const escrow = contract.metadata?.escrow
+    if (escrow) {
+      setEscrowAmount(escrow.amount && escrow.amount !== "0" ? String(escrow.amount) : "0")
+      setEscrowDeadline(escrow.deadline || "")
+      setPenaltyPercent(escrow.penaltyPercent ? String(escrow.penaltyPercent) : "0")
+    }
+    setEscrowInitialized(true)
+  }, [contract, escrowInitialized])
+
   const handleSign = async () => {
     try {
       await signContract(id)
@@ -146,7 +165,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
       setLoading(true);
       const metadata = contract.metadata;
       const signatories = (contract as any).signatories || [];
-      
+
       const signersWithRoles = signatories.map((s: any) => ({
          signer: s.walletAddress,
          role: s.role,
@@ -155,8 +174,14 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
          signedAt: 0,
       }));
 
-      const expiresAt = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
-      
+      const expiresAt = escrowDeadline
+        ? Math.floor(new Date(escrowDeadline).getTime() / 1000)
+        : Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
+      const escrowAmountWei = escrowAmount && Number(escrowAmount) > 0
+        ? ethers.parseEther(escrowAmount).toString()
+        : "0";
+      const penalty = Math.min(100, Math.max(0, parseInt(penaltyPercent || "0", 10) || 0));
+
       const tx = await createContract(
         contract.ipfsHash,
         metadata.sha256Hash,
@@ -164,14 +189,16 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
         expiresAt,
         metadata.options?.allowTermination || true,
         metadata.options?.allowDispute || true,
-        "0",
-        0,
+        escrowAmountWei,
+        penalty,
         "Contrat déployé depuis un brouillon ContracTify"
       );
-      
-      // Update DB
-      await contractsApi.markDraftDeployed(contract.id, { contractId: tx.id, transactionHash: tx.transactionHash || "" });
-      window.location.href = `/contract-details/${tx.id}`;
+
+      // The backend independently verifies this transaction on-chain (receipt, event,
+      // creator match) rather than trusting tx.id/tx.transactionHash blindly — it returns
+      // the contractId it verified, which is what we navigate to, not the client's own read.
+      const deployResult = await contractsApi.markDraftDeployed(contract.id, { transactionHash: tx.transactionHash || "" });
+      window.location.href = `/contract-details/${deployResult.contract.contractId}`;
     } catch(err: any) {
       setError("Erreur lors du déploiement : " + (err.message || "Erreur inconnue"));
       setLoading(false);
@@ -274,7 +301,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
       }))
 
   const signedCount = signerRows.filter(s => s.hasSigned).length
-  const roleLabel = (role: number) => role === 0 ? 'Créateur' : role === 2 ? 'Témoin' : 'Signataire'
+  const roleLabel = signatoryRoleLabel
 
   return (
     <div className="flex min-h-screen bg-muted">
@@ -361,6 +388,38 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
               )}
             </div>
           </div>
+
+          {contract.status === 'READY_TO_DEPLOY' && isCreator && (
+            <Card className="p-6 mb-8 border-[#FFC107]/30 bg-[#FFC107]/5">
+              <h3 className="font-bold flex items-center gap-2 mb-1">
+                <Shield className="w-5 h-5 text-[#FFC107]" />
+                Confirmer les paramètres avant déploiement
+              </h3>
+              <p className="text-xs text-muted-foreground mb-4">
+                Ce montant sera verrouillé en POL (jeton natif Polygon) directement depuis votre wallet lors du déploiement — vérifiez-le avant de continuer, cette action est irréversible une fois la transaction confirmée sur la blockchain.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Montant à verrouiller (POL)</label>
+                  <input type="number" min="0" step="0.0001" value={escrowAmount}
+                    onChange={(e) => setEscrowAmount(e.target.value)}
+                    className="w-full p-2 rounded-lg border border-border bg-input-background text-sm" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Date limite (deadline)</label>
+                  <input type="date" value={escrowDeadline}
+                    onChange={(e) => setEscrowDeadline(e.target.value)}
+                    className="w-full p-2 rounded-lg border border-border bg-input-background text-sm" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Pénalité de retard (%)</label>
+                  <input type="number" min="0" max="100" value={penaltyPercent}
+                    onChange={(e) => setPenaltyPercent(e.target.value)}
+                    className="w-full p-2 rounded-lg border border-border bg-input-background text-sm" />
+                </div>
+              </div>
+            </Card>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Main Content: Document Preview */}
@@ -639,6 +698,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
           originalHash={contract.metadata?.sha256Hash || ""}
           signerName={contract.metadata?.signers?.find((s: any) => s.address?.toLowerCase() === account?.toLowerCase())?.name || account || "Signataire"}
           signerEmail={contract.metadata?.signers?.find((s: any) => s.address?.toLowerCase() === account?.toLowerCase())?.email}
+          country={contract.metadata?.country}
         />
       )}
     </div>

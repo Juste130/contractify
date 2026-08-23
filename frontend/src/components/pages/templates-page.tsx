@@ -13,53 +13,35 @@ import {
   Plus,
   Search,
   Pencil,
-  Trash2
+  Trash2,
+  LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TemplateSelector } from "@/components/contract/templateSelector";
+import { CONTRACT_TEMPLATES } from "@/lib/contract-templates";
+
+// Purely cosmetic — the actual list of supported contract types (fields, prompt content)
+// lives in @/lib/contract-templates and is shared with the creation wizard.
+const TEMPLATE_ICONS: Record<string, LucideIcon> = {
+  cdi: Briefcase,
+  cdd: Briefcase,
+  freelance: Users,
+  location: Home,
+  nda: FileSignature,
+  commercial: Briefcase,
+  custom: FileSignature,
+};
 
 export function TemplatesPage() {
   const router = useRouter();
 
-  const aiTemplates = [
-    {
-      id: 1,
-      name: "CDI",
-      icon: Briefcase,
-      description: "Contrat de travail à durée indéterminée conforme au droit du travail (OHADA / Bénin)",
-    },
-    {
-      id: 2,
-      name: "Freelance",
-      icon: Users,
-      description: "Contrat de prestation de services pour travailleurs indépendants",
-    },
-    {
-      id: 3,
-      name: "Location",
-      icon: Home,
-      description: "Bail de location immobilière résidentielle ou commerciale",
-    },
-    {
-      id: 4,
-      name: "NDA",
-      icon: FileSignature,
-      description: "Accord de confidentialité pour protéger vos informations sensibles",
-    },
-    {
-      id: 5,
-      name: "Commercial",
-      icon: Briefcase,
-      description: "Contrat commercial B2B pour relations d'affaires",
-    },
-    {
-      id: 6,
-      name: "CDD",
-      icon: Briefcase,
-      description: "Contrat de travail à durée déterminée",
-    },
-  ];
+  const aiTemplates = CONTRACT_TEMPLATES.filter((t) => t.id !== "custom").map((t) => ({
+    id: t.id,
+    name: t.name,
+    icon: TEMPLATE_ICONS[t.id] ?? FileSignature,
+    description: t.description,
+  }));
 
   const customTemplates: { id: number; name: string; description: string; createdDate: string; uses: number }[] = [];
 
@@ -105,7 +87,7 @@ export function TemplatesPage() {
 
           <TemplateSelector
             templates={aiTemplates.map(t => ({ ...t, isAi: true }))}
-            onSelect={() => router.push('/create-contract')}
+            onSelect={(tpl) => router.push(`/create-contract?template=${tpl.id}`)}
           />
         </div>
 

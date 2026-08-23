@@ -272,18 +272,14 @@ export function SettingsPage() {
 
                   <div className="space-y-2">
                     <Label>Modèle IA</Label>
-                    <select className="w-full p-2 rounded-lg border border-border bg-input-background">
-                      <option>GPT-4o (Recommandé)</option>
-                      <option>Claude 3.5 Sonnet</option>
-                      <option>Llama 3 (Local)</option>
-                    </select>
+                    <div className="w-full p-2.5 rounded-lg border border-border bg-muted/50 text-sm flex items-center justify-between">
+                      <span className="font-medium">GPT-OSS 120B (via Groq)</span>
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Configuré par l'administrateur</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Le choix du modèle par utilisateur n'est pas encore disponible — tous les contrats sont générés avec ce modèle pour le moment.
+                    </p>
                   </div>
-                </div>
-
-                <div className="flex justify-end mt-6">
-                  <Button className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300]">
-                    Enregistrer les préférences
-                  </Button>
                 </div>
               </Card>
             )}

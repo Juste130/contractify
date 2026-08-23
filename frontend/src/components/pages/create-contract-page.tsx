@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AppSidebar } from "../layout/app-sidebar";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -40,6 +40,14 @@ import {
 import { Checkbox } from "../ui/checkbox";
 import { useRouter } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import {
+  CONTRACT_TEMPLATES,
+  CLAUSE_LIBRARY,
+  getContractTemplate,
+  E_SIGNATURE_LEGAL_BASIS,
+  DEFAULT_E_SIGNATURE_LEGAL_BASIS,
+} from "@/lib/contract-templates";
+import { SIGNATORY_ROLE_LABELS } from "@/lib/contract-roles";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -67,15 +75,38 @@ function isValidEthAddress(addr: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(addr);
 }
 
-const ROLE_LABELS: Record<number, string> = {
-  1: "Co-Signataire",
-  2: "Témoin",
-  3: "Représentant légal",
-};
+const ROLE_LABELS = SIGNATORY_ROLE_LABELS;
+
+const DRAFT_STORAGE_KEY = "contractify:create-contract-draft";
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export function CreateContractPage() {
+// Purely cosmetic — the actual fields/prompt content per contract type live in
+// @/lib/contract-templates and are shared with the template gallery.
+const TEMPLATE_ICONS: Record<string, typeof FileText> = {
+  cdi: Briefcase,
+  cdd: Briefcase,
+  freelance: Users,
+  location: Home,
+  nda: FileSignature,
+  commercial: Briefcase,
+  custom: FileText,
+};
+
+interface DraftSnapshot {
+  selectedTemplate: string;
+  formData: any;
+  contractText: string;
+  signatories: Signatory[];
+  currentStep: number;
+}
+
+interface CreateContractPageProps {
+  /** Contract type id preselected from the template gallery (/templates -> ?template=cdi). */
+  template?: string;
+}
+
+export function CreateContractPage({ template }: CreateContractPageProps = {}) {
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -83,6 +114,10 @@ export function CreateContractPage() {
   const [isValidating, setIsValidating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [generationFailed, setGenerationFailed] = useState(false);
+  const [hasValidated, setHasValidated] = useState(false);
+  const [acknowledgeIssues, setAcknowledgeIssues] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [aiValidationResult, setAiValidationResult] = useState<{ issues: string[]; suggestions: string[] } | null>(null);
   const [consentChecked, setConsentChecked] = useState(false);
@@ -93,8 +128,8 @@ export function CreateContractPage() {
   // ─── Form State ─────────────────────────────────────────────────────────────
 
   const [formData, setFormData] = useState({
-    partyA: { type: "company", name: "", email: "", address: "", phone: "", rccm: "", ifu: "" },
-    partyB: { type: "individual", name: "", email: "", address: "", phone: "", rccm: "", ifu: "" },
+    partyA: { type: "company", name: "", email: "", address: "", phone: "", rccm: "", ifu: "", legalRepName: "", legalRepTitle: "" },
+    partyB: { type: "individual", name: "", email: "", address: "", phone: "", rccm: "", ifu: "", legalRepName: "", legalRepTitle: "" },
     details: {
       duration: "",
       amount: "",
@@ -103,6 +138,9 @@ export function CreateContractPage() {
       description: "",
       country: "Bénin",
       city: "Cotonou",
+      escrowAmount: "",
+      escrowDeadline: "",
+      penaltyPercent: "",
     },
     options: {
       confidentiality: false,
@@ -123,15 +161,60 @@ export function CreateContractPage() {
     role: 1,
   });
 
+  // Preselect the template chosen from the gallery (/templates -> ?template=cdi), and
+  // restore a locally-saved draft if the user left mid-way through a previous session.
+  useEffect(() => {
+    if (template && (template === "pdf_upload" || getContractTemplate(template))) {
+      setSelectedTemplate(template);
+      return; // A deliberate gallery choice takes priority over a stale local draft.
+    }
+
+    try {
+      const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (!raw) return;
+      const snapshot: DraftSnapshot = JSON.parse(raw);
+      if (!snapshot.selectedTemplate) return;
+      setSelectedTemplate(snapshot.selectedTemplate);
+      setFormData((prev) => ({ ...prev, ...snapshot.formData }));
+      setContractText(snapshot.contractText || "");
+      setSignatories(snapshot.signatories || []);
+      setCurrentStep(snapshot.currentStep || 1);
+      setDraftRestored(true);
+    } catch {
+      // Corrupted or unreadable snapshot — ignore, start fresh.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template]);
+
+  // Best-effort autosave: losing a contract someone spent time filling in (and possibly
+  // already paid an AI generation call for) just because a tab got closed is a bad time to
+  // find out there was no draft persistence between steps.
+  useEffect(() => {
+    if (!selectedTemplate) return;
+    const snapshot: DraftSnapshot = { selectedTemplate, formData, contractText, signatories, currentStep };
+    try {
+      window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(snapshot));
+    } catch {
+      // localStorage unavailable (private mode, quota) — autosave is a convenience, not critical.
+    }
+  }, [selectedTemplate, formData, contractText, signatories, currentStep]);
+
+  function clearSavedDraft() {
+    try { window.localStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
+  }
+
+  const activeTemplate = getContractTemplate(selectedTemplate);
+
   // ─── UI Templates ───────────────────────────────────────────────────────────
 
   const contractTemplatesUI = [
     { id: "pdf_upload", name: "Importer PDF", icon: FileSignature, description: "Uploader un contrat existant" },
-    { id: "cdi", name: "CDI", icon: Briefcase, description: "Contrat à durée indéterminée" },
-    { id: "freelance", name: "Freelance", icon: Users, description: "Contrat de prestation de services" },
-    { id: "location", name: "Location", icon: Home, description: "Bail de location immobilière" },
-    { id: "nda", name: "NDA", icon: FileSignature, description: "Accord de confidentialité" },
-    { id: "commercial", name: "Commercial", icon: Briefcase, description: "Contrat commercial" },
+    ...CONTRACT_TEMPLATES.filter((t) => t.id !== "custom").map((t) => ({
+      id: t.id,
+      name: t.name,
+      icon: TEMPLATE_ICONS[t.id] ?? FileText,
+      description: t.description,
+    })),
     { id: "custom", name: "Personnalisé", icon: FileText, description: "Créer un contrat sur mesure" },
   ];
 
@@ -155,12 +238,37 @@ export function CreateContractPage() {
     const errors: ValidationErrors = {};
     if (!formData.partyA.name.trim()) errors["partyA.name"] = "Le nom de la Partie A est requis.";
     if (!formData.partyA.email.trim()) errors["partyA.email"] = "L'email de la Partie A est requis.";
-    if (formData.partyA.type === "company" && !formData.partyA.rccm?.trim()) errors["partyA.rccm"] = "Le RCCM est requis pour une entreprise.";
+    if (formData.partyA.type === "company") {
+      if (!formData.partyA.rccm?.trim()) errors["partyA.rccm"] = "Le RCCM est requis pour une entreprise.";
+      if (!formData.partyA.legalRepName?.trim()) errors["partyA.legalRepName"] = "Le représentant légal est requis pour une entreprise.";
+    }
     if (!formData.partyB.name.trim()) errors["partyB.name"] = "Le nom de la Partie B est requis.";
     if (!formData.partyB.email.trim()) errors["partyB.email"] = "L'email de la Partie B est requis.";
+    if (formData.partyB.type === "company") {
+      if (!formData.partyB.rccm?.trim()) errors["partyB.rccm"] = "Le RCCM est requis pour une entreprise.";
+      if (!formData.partyB.legalRepName?.trim()) errors["partyB.legalRepName"] = "Le représentant légal est requis pour une entreprise.";
+    }
     if (!formData.details.description.trim()) errors["details.description"] = "La description / objet du contrat est requis.";
+    if (!formData.details.city.trim()) errors["details.city"] = "La ville de signature / exécution est requise.";
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
+  }
+
+  function validateStep3(): boolean {
+    if (selectedTemplate === "pdf_upload") return true;
+    if (!contractText.trim()) {
+      setError("Le contrat est vide. Générez ou saisissez du contenu avant de continuer.");
+      return false;
+    }
+    if (!hasValidated) {
+      setError("Veuillez lancer la vérification de conformité avant de continuer.");
+      return false;
+    }
+    if (aiValidationResult && aiValidationResult.issues.length > 0 && !acknowledgeIssues) {
+      setError("Des points de conformité ont été relevés : cochez la case ci-contre pour continuer malgré tout, ou corrigez le contrat.");
+      return false;
+    }
+    return true;
   }
 
   function validateStep4(): boolean {
@@ -176,6 +284,7 @@ export function CreateContractPage() {
   const handleGenerateWithAI = async () => {
     if (!validateStep2()) return;
     setError(null);
+    setGenerationFailed(false);
 
     if (selectedTemplate === "pdf_upload") {
       setCurrentStep(4);
@@ -184,21 +293,32 @@ export function CreateContractPage() {
 
     setIsGenerating(true);
     setCurrentStep(3);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    setHasValidated(false);
+    setAcknowledgeIssues(false);
+    setAiValidationResult(null);
 
     try {
+      const readableClauses = Object.entries(formData.options)
+        .filter(([key, val]) => val && (activeTemplate?.clauseOptions.includes(key as any) ?? true))
+        .map(([key]) => CLAUSE_LIBRARY[key as keyof typeof CLAUSE_LIBRARY]?.promptText || key);
+
+      const partyALine = formData.partyA.type === 'company'
+        ? `Société, RCCM: ${formData.partyA.rccm}, IFU: ${formData.partyA.ifu}, représentée par ${formData.partyA.legalRepName || 'un représentant légal'}${formData.partyA.legalRepTitle ? `, en qualité de ${formData.partyA.legalRepTitle}` : ''}`
+        : 'Particulier/Freelance';
+      const partyBLine = formData.partyB.type === 'company'
+        ? `Société, RCCM: ${formData.partyB.rccm}, IFU: ${formData.partyB.ifu}, représentée par ${formData.partyB.legalRepName || 'un représentant légal'}${formData.partyB.legalRepTitle ? `, en qualité de ${formData.partyB.legalRepTitle}` : ''}`
+        : 'Particulier/Freelance';
+
       const response = await aiApi.generateContract({
-        templateType: contractTemplatesUI.find(t => t.id === selectedTemplate)?.name || selectedTemplate,
+        templateType: selectedTemplate,
         partyAData: formData.partyA,
         partyBData: formData.partyB,
-        additionalClauses: Object.entries(formData.options)
-          .filter(([_, val]) => val)
-          .map(([key]) => key),
-        context: `Tu es un expert juridique. Rédige un contrat professionnel, structuré et équilibré.
+        additionalClauses: readableClauses,
+        context: `Tu es un expert juridique. Rédige un contrat de type "${activeTemplate?.name || selectedTemplate}" professionnel, structuré et équilibré.
         Objet du contrat: ${formData.details.description}. Durée: ${formData.details.duration}. Rémunération: ${formData.details.amount}. Date: ${formData.details.startDate}.
         Lieu d'exécution: ${formData.details.city}, ${formData.details.country}.
-        Partie A: ${formData.partyA.type === 'company' ? `Société, RCCM: ${formData.partyA.rccm}, IFU: ${formData.partyA.ifu}` : 'Particulier/Freelance'}.
-        Partie B: ${formData.partyB.type === 'company' ? `Société, RCCM: ${formData.partyB.rccm}, IFU: ${formData.partyB.ifu}` : 'Particulier/Freelance'}.
+        Partie A (${activeTemplate?.partyALabel || 'Partie A'}): ${partyALine}.
+        Partie B (${activeTemplate?.partyBLabel || 'Partie B'}): ${partyBLine}.
         Important : Le contrat doit impérativement inclure une clause stipulant que le droit applicable est le droit du/de la ${formData.details.country} et que le tribunal compétent est celui de la ville de ${formData.details.city}.`
       });
       setContractText(response.contract);
@@ -211,6 +331,7 @@ export function CreateContractPage() {
       setSignatories(initial);
     } catch (err: any) {
       setError("Échec de la génération du contrat. Veuillez réessayer.");
+      setGenerationFailed(true);
       console.error(err);
     } finally {
       setIsGenerating(false);
@@ -223,6 +344,7 @@ export function CreateContractPage() {
     try {
       const response = await aiApi.improveClause({ clause: contractText, context: "Simplifier le langage juridique pour le rendre compréhensible par un non-juriste, sans en changer le sens légal." });
       setContractText(response.improved);
+      setHasValidated(false); // Content changed — the previous compliance check no longer covers it.
     } catch {
       setError("Impossible de simplifier le contrat. Réessayez.");
     } finally {
@@ -234,9 +356,11 @@ export function CreateContractPage() {
     if (!contractText) return;
     setIsValidating(true);
     setAiValidationResult(null);
+    setAcknowledgeIssues(false);
     try {
       const response = await aiApi.validateContract(contractText);
       setAiValidationResult({ issues: response.issues, suggestions: response.suggestions });
+      setHasValidated(true);
     } catch {
       setError("Impossible de vérifier la conformité. Réessayez.");
     } finally {
@@ -264,6 +388,10 @@ export function CreateContractPage() {
 
   const handleFinalSubmit = async () => {
     if (!validateStep4()) return;
+    if (selectedTemplate !== "pdf_upload" && !contractText.trim()) {
+      setError("Le contrat est vide. Retournez à l'étape précédente pour le générer ou le rédiger avant de continuer.");
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -272,7 +400,7 @@ export function CreateContractPage() {
       let ipfsHash = "";
       let sha256Hash = "";
       let content = "";
-      
+
       if (selectedTemplate === "pdf_upload" && uploadedFile) {
         // Upload the PDF directly to IPFS
         const uploadResult = await ipfsApi.uploadDocument(uploadedFile);
@@ -311,10 +439,16 @@ export function CreateContractPage() {
           country: formData.details.country,
           city: formData.details.city,
           options: formData.options,
+          escrow: {
+            amount: formData.details.escrowAmount || "0",
+            deadline: formData.details.escrowDeadline || null,
+            penaltyPercent: formData.details.penaltyPercent || "0",
+          },
         },
         signatories: signatories
       });
 
+      clearSavedDraft();
       router.push(`/contract-details?id=${draftResult.contract.id}&created=true`);
     } catch (err: any) {
       setError(err.message || "Erreur lors de la sauvegarde du brouillon.");
@@ -355,7 +489,9 @@ export function CreateContractPage() {
         {/* Progress Steps */}
         <div className="mb-8">
           <div className="flex items-center justify-center gap-4 max-w-4xl mx-auto">
-            {steps.map((step, index) => (
+            {/* The "PDF importé" path never visits step 3 (Aperçu & Édition) — hide that node
+                rather than showing a step that will never light up as active. */}
+            {steps.filter((s) => !(selectedTemplate === "pdf_upload" && s.number === 3)).map((step, index, arr) => (
               <div key={step.number} className="flex items-center">
                 <div className="flex flex-col items-center">
                   <div
@@ -373,13 +509,26 @@ export function CreateContractPage() {
                     {step.title}
                   </p>
                 </div>
-                {index < steps.length - 1 && (
+                {index < arr.length - 1 && (
                   <div className={`w-24 h-0.5 mx-2 mb-6 transition-colors ${currentStep > step.number ? "bg-green-500" : "bg-muted"}`} />
                 )}
               </div>
             ))}
           </div>
         </div>
+
+        {draftRestored && (
+          <div className="max-w-4xl mx-auto mb-6 p-3 bg-primary/5 border border-primary/20 rounded-lg flex items-center justify-between gap-3 text-sm">
+            <span className="text-muted-foreground">Un brouillon précédent a été restauré.</span>
+            <button
+              type="button"
+              className="text-primary font-medium hover:underline shrink-0"
+              onClick={() => { clearSavedDraft(); window.location.reload(); }}
+            >
+              Effacer et recommencer
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="max-w-4xl mx-auto mb-6 p-4 bg-destructive/10 text-destructive border border-destructive/20 rounded-lg flex items-center gap-3">
@@ -512,7 +661,7 @@ export function CreateContractPage() {
                     <div className="flex items-center justify-between">
                       <h3 className="font-bold text-lg flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-[#FFC107] text-[#212121] flex items-center justify-center text-sm font-black">A</div>
-                        Partie A (Employeur / Client)
+                        Partie A{activeTemplate ? ` (${activeTemplate.partyALabel})` : ""}
                       </h3>
                     </div>
                     
@@ -574,6 +723,23 @@ export function CreateContractPage() {
                               onChange={(e) => updateFormData("partyA", "ifu", e.target.value)}
                             />
                           </FieldGroup>
+                          <FieldGroup label="Représentant légal (nom) *" error={validationErrors["partyA.legalRepName"]}>
+                            <Input
+                              placeholder="Jean Dupont"
+                              className="bg-background"
+                              value={formData.partyA.legalRepName || ""}
+                              onChange={(e) => updateFormData("partyA", "legalRepName", e.target.value)}
+                            />
+                            <p className="text-[11px] text-muted-foreground mt-1">Personne physique habilitée à engager la société.</p>
+                          </FieldGroup>
+                          <FieldGroup label="Qualité du représentant">
+                            <Input
+                              placeholder="Gérant, Directeur Général..."
+                              className="bg-background"
+                              value={formData.partyA.legalRepTitle || ""}
+                              onChange={(e) => updateFormData("partyA", "legalRepTitle", e.target.value)}
+                            />
+                          </FieldGroup>
                         </>
                       )}
 
@@ -603,7 +769,7 @@ export function CreateContractPage() {
                   <div className="space-y-6">
                     <h3 className="font-bold text-lg flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-[#4CAF50] text-white flex items-center justify-center text-sm font-black">B</div>
-                      Partie B (Salarié / Prestataire)
+                      Partie B{activeTemplate ? ` (${activeTemplate.partyBLabel})` : ""}
                     </h3>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -663,6 +829,23 @@ export function CreateContractPage() {
                               onChange={(e) => updateFormData("partyB", "ifu", e.target.value)}
                             />
                           </FieldGroup>
+                          <FieldGroup label="Représentant légal (nom) *" error={validationErrors["partyB.legalRepName"]}>
+                            <Input
+                              placeholder="Sophie Martin"
+                              className="bg-background"
+                              value={formData.partyB.legalRepName || ""}
+                              onChange={(e) => updateFormData("partyB", "legalRepName", e.target.value)}
+                            />
+                            <p className="text-[11px] text-muted-foreground mt-1">Personne physique habilitée à engager la société.</p>
+                          </FieldGroup>
+                          <FieldGroup label="Qualité du représentant">
+                            <Input
+                              placeholder="Gérante, Directrice Générale..."
+                              className="bg-background"
+                              value={formData.partyB.legalRepTitle || ""}
+                              onChange={(e) => updateFormData("partyB", "legalRepTitle", e.target.value)}
+                            />
+                          </FieldGroup>
                         </>
                       )}
                     </div>
@@ -720,10 +903,40 @@ export function CreateContractPage() {
                         </Select>
                       </FieldGroup>
                       
-                      <FieldGroup label="Ville de signature / exécution">
+                      <FieldGroup label="Ville de signature / exécution *" error={validationErrors["details.city"]}>
                         <Input className="bg-background" placeholder="Ex: Cotonou"
                           value={formData.details.city}
                           onChange={(e) => updateFormData("details", "city", e.target.value)} />
+                      </FieldGroup>
+                    </div>
+                  </div>
+                </Card>
+
+                {/* Escrow (dépôt sous séquestre on-chain) */}
+                <Card className="p-6 bg-muted/30 border-0 shadow-none mb-6">
+                  <div className="space-y-4">
+                    <h3 className="font-bold text-lg flex items-center gap-3">
+                      <Shield className="w-6 h-6 text-[#FFC107]" />
+                      Dépôt sous séquestre (escrow) — optionnel
+                    </h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Ce montant sera verrouillé en POL (jeton natif Polygon) au moment du déploiement sur la blockchain — il est indépendant du montant contractuel écrit ci-dessus, qui peut être dans une autre devise (ex. FCFA). Aucune conversion automatique n'est effectuée : indiquez directement le montant en POL à verrouiller. Vous pourrez le reconfirmer ou l'ajuster juste avant le déploiement.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                      <FieldGroup label="Montant à verrouiller (POL)">
+                        <Input type="number" min="0" step="0.0001" placeholder="0.00" className="bg-background"
+                          value={formData.details.escrowAmount}
+                          onChange={(e) => updateFormData("details", "escrowAmount", e.target.value)} />
+                      </FieldGroup>
+                      <FieldGroup label="Date limite (deadline)">
+                        <Input type="date" className="bg-background"
+                          value={formData.details.escrowDeadline}
+                          onChange={(e) => updateFormData("details", "escrowDeadline", e.target.value)} />
+                      </FieldGroup>
+                      <FieldGroup label="Pénalité de retard (%)">
+                        <Input type="number" min="0" max="100" placeholder="0" className="bg-background"
+                          value={formData.details.penaltyPercent}
+                          onChange={(e) => updateFormData("details", "penaltyPercent", e.target.value)} />
                       </FieldGroup>
                     </div>
                   </div>
@@ -733,43 +946,47 @@ export function CreateContractPage() {
                 <Card className="p-6 bg-muted/30 border-0 shadow-none">
                   <div className="space-y-6">
                     <h3 className="font-bold text-lg">Options additionnelles</h3>
-                    
+                    <p className="text-xs text-muted-foreground -mt-4">Options pertinentes pour un contrat de type {activeTemplate?.name || selectedTemplate}.</p>
+
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {[
-                        { key: "confidentiality", label: "Clause de confidentialité" },
-                        { key: "nonCompete", label: "Clause de non-concurrence" },
-                        { key: "probation", label: "Période d'essai" },
-                      ].map(({ key, label }) => (
-                        <div key={key}
-                          className="flex items-center gap-3 p-4 border rounded-xl bg-background cursor-pointer hover:border-[#9C27B0]/50 transition-colors"
-                          onClick={() => updateFormData("options", key, !(formData.options as any)[key])}>
-                          <Checkbox id={key} checked={(formData.options as any)[key]}
-                            onCheckedChange={(val) => updateFormData("options", key, val)} />
-                          <Label htmlFor={key} className="cursor-pointer text-sm font-medium">{label}</Label>
-                        </div>
-                      ))}
+                      {(activeTemplate?.clauseOptions || []).filter((key) => key !== "allowTermination" && key !== "allowDispute").map((key) => {
+                        const clause = CLAUSE_LIBRARY[key];
+                        return (
+                          <div key={key}
+                            className="flex items-center gap-3 p-4 border rounded-xl bg-background cursor-pointer hover:border-[#9C27B0]/50 transition-colors"
+                            onClick={() => updateFormData("options", key, !(formData.options as any)[key])}>
+                            <Checkbox id={key} checked={(formData.options as any)[key]}
+                              onCheckedChange={(val) => updateFormData("options", key, val)} />
+                            <Label htmlFor={key} className="cursor-pointer text-sm font-medium">{clause.label}</Label>
+                          </div>
+                        );
+                      })}
                     </div>
-                    
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                      <div className="flex items-start gap-3 p-4 border rounded-xl bg-background cursor-pointer hover:border-[#9C27B0]/50 transition-colors"
-                        onClick={() => updateFormData("options", "allowTermination", !formData.options.allowTermination)}>
-                        <Checkbox id="termination" checked={formData.options.allowTermination} className="mt-1"
-                          onCheckedChange={(val) => updateFormData("options", "allowTermination", val)} />
-                        <div>
-                          <Label htmlFor="termination" className="cursor-pointer text-sm font-bold block mb-1">Autoriser la résiliation</Label>
-                          <p className="text-xs text-muted-foreground leading-relaxed">Une des parties peut mettre fin au contrat sous certaines conditions.</p>
+                      {activeTemplate?.clauseOptions.includes("allowTermination") && (
+                        <div className="flex items-start gap-3 p-4 border rounded-xl bg-background cursor-pointer hover:border-[#9C27B0]/50 transition-colors"
+                          onClick={() => updateFormData("options", "allowTermination", !formData.options.allowTermination)}>
+                          <Checkbox id="termination" checked={formData.options.allowTermination} className="mt-1"
+                            onCheckedChange={(val) => updateFormData("options", "allowTermination", val)} />
+                          <div>
+                            <Label htmlFor="termination" className="cursor-pointer text-sm font-bold block mb-1">{CLAUSE_LIBRARY.allowTermination.label}</Label>
+                            <p className="text-xs text-muted-foreground leading-relaxed">{CLAUSE_LIBRARY.allowTermination.helpText}</p>
+                          </div>
                         </div>
-                      </div>
-                      
-                      <div className="flex items-start gap-3 p-4 border rounded-xl bg-background cursor-pointer hover:border-[#9C27B0]/50 transition-colors"
-                        onClick={() => updateFormData("options", "allowDispute", !formData.options.allowDispute)}>
-                        <Checkbox id="dispute" checked={formData.options.allowDispute} className="mt-1"
-                          onCheckedChange={(val) => updateFormData("options", "allowDispute", val)} />
-                        <div>
-                          <Label htmlFor="dispute" className="cursor-pointer text-sm font-bold block mb-1">Résolution de litiges on-chain</Label>
-                          <p className="text-xs text-muted-foreground leading-relaxed">Permet d'ouvrir un litige transparent via la blockchain si nécessaire.</p>
+                      )}
+
+                      {activeTemplate?.clauseOptions.includes("allowDispute") && (
+                        <div className="flex items-start gap-3 p-4 border rounded-xl bg-background cursor-pointer hover:border-[#9C27B0]/50 transition-colors"
+                          onClick={() => updateFormData("options", "allowDispute", !formData.options.allowDispute)}>
+                          <Checkbox id="dispute" checked={formData.options.allowDispute} className="mt-1"
+                            onCheckedChange={(val) => updateFormData("options", "allowDispute", val)} />
+                          <div>
+                            <Label htmlFor="dispute" className="cursor-pointer text-sm font-bold block mb-1">{CLAUSE_LIBRARY.allowDispute.label}</Label>
+                            <p className="text-xs text-muted-foreground leading-relaxed">{CLAUSE_LIBRARY.allowDispute.helpText}</p>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                     </div>
                   </Card>
@@ -811,6 +1028,15 @@ export function CreateContractPage() {
                     </div>
                   </div>
                 </Card>
+              ) : generationFailed && !contractText ? (
+                <Card className="p-16 text-center border-destructive/30 bg-destructive/5">
+                  <AlertCircle className="w-10 h-10 text-destructive mx-auto mb-4" />
+                  <h2 className="mb-2 font-bold text-xl">La génération du contrat a échoué</h2>
+                  <p className="text-muted-foreground mb-6">Vous pouvez réessayer immédiatement, sans revenir à l'étape précédente.</p>
+                  <Button className="bg-[#9C27B0] text-white hover:bg-[#7B1FA2]" onClick={handleGenerateWithAI}>
+                    <Brain className="w-4 h-4 mr-2" /> Réessayer la génération
+                  </Button>
+                </Card>
               ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   {/* Preview */}
@@ -826,7 +1052,7 @@ export function CreateContractPage() {
                     <div className="bg-white text-gray-800 p-10 rounded-lg min-h-[600px] shadow-inner border font-serif text-sm leading-relaxed overflow-y-auto max-h-[700px]">
                       <Textarea
                         value={contractText}
-                        onChange={(e) => setContractText(e.target.value)}
+                        onChange={(e) => { setContractText(e.target.value); setHasValidated(false); }}
                         className="w-full h-full min-h-[600px] border-none focus-visible:ring-0 p-0 resize-none font-serif text-base"
                       />
                     </div>
@@ -844,7 +1070,7 @@ export function CreateContractPage() {
                         <ChevronLeft className="w-5 h-5 mr-2" />
                         Précédent
                       </Button>
-                      <Button className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300] px-8 font-bold" onClick={() => setCurrentStep(4)}>
+                      <Button className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300] px-8 font-bold" onClick={() => { setError(null); if (validateStep3()) setCurrentStep(4); }}>
                         Suivant
                         <ChevronRight className="w-5 h-5 ml-2" />
                       </Button>
@@ -906,6 +1132,26 @@ export function CreateContractPage() {
                             </ul>
                           </div>
                         )}
+                        {aiValidationResult.issues.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-[#2196F3]/20 flex items-start gap-2 cursor-pointer" onClick={() => setAcknowledgeIssues(!acknowledgeIssues)}>
+                            <Checkbox checked={acknowledgeIssues} onCheckedChange={(v) => setAcknowledgeIssues(!!v)} className="mt-0.5" />
+                            <p className="text-[10px] text-muted-foreground leading-relaxed">
+                              Je reconnais les points de conformité relevés ci-dessus et je souhaite tout de même continuer.
+                            </p>
+                          </div>
+                        )}
+                        {aiValidationResult.issues.length === 0 && (
+                          <p className="text-[10px] text-[#4CAF50] font-medium flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Aucun point bloquant relevé.</p>
+                        )}
+                      </Card>
+                    )}
+
+                    {!hasValidated && !isValidating && (
+                      <Card className="p-4 border border-[#FFC107]/30 bg-[#FFC107]/5">
+                        <p className="text-[11px] text-muted-foreground leading-relaxed flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 text-[#FFC107] shrink-0 mt-0.5" />
+                          Une vérification de conformité est requise avant de passer à l'étape des signataires.
+                        </p>
                       </Card>
                     )}
 
@@ -971,9 +1217,9 @@ export function CreateContractPage() {
                     <Select value={String(newSignatory.role)} onValueChange={(v) => setNewSignatory((p) => ({ ...p, role: Number(v) }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="1">Co-Signataire</SelectItem>
-                        <SelectItem value="2">Témoin</SelectItem>
-                        <SelectItem value="3">Représentant légal</SelectItem>
+                        <SelectItem value="1">{ROLE_LABELS[1]}</SelectItem>
+                        <SelectItem value="2">{ROLE_LABELS[2]}</SelectItem>
+                        <SelectItem value="3">{ROLE_LABELS[3]}</SelectItem>
                       </SelectContent>
                     </Select>
                   </FieldGroup>
@@ -1019,7 +1265,7 @@ export function CreateContractPage() {
                 <div className="flex items-start gap-3 cursor-pointer" onClick={() => { setConsentChecked(!consentChecked); if (validationErrors["consent"]) setValidationErrors((e) => { const { consent: _, ...r } = e; return r; }); }}>
                   <Checkbox id="consent" checked={consentChecked} onCheckedChange={(v) => { setConsentChecked(!!v); }} />
                   <Label htmlFor="consent" className="cursor-pointer text-sm leading-relaxed">
-                    Je certifie avoir <strong>lu et approuvé</strong> le contrat dans son intégralité. Je confirme que les informations saisies sont exactes et je consens à la signature électronique sur blockchain. Ce consentement constitue une preuve légale au sens de l'article 1366 du Code civil français.
+                    Je certifie avoir <strong>lu et approuvé</strong> le contrat dans son intégralité. Je confirme que les informations saisies sont exactes et je consens à la signature électronique sur blockchain. Ce consentement constitue une preuve légale au sens de {E_SIGNATURE_LEGAL_BASIS[formData.details.country] || DEFAULT_E_SIGNATURE_LEGAL_BASIS}.
                   </Label>
                 </div>
                 {validationErrors["consent"] && (

@@ -295,8 +295,8 @@ class BlockchainSyncService {
      * successful on-chain `createContract` call, before the backend trusts it enough to
      * flip a draft's status. Without this, a buggy or malicious client could report an
      * arbitrary contractId/txHash pair and create a phantom contract that never syncs.
-     * Returns the verified contractId (as reported by the ContractCreated event itself,
-     * not by the client) and syncs the real on-chain data into the cache.
+     * Returns the verified contractId, as reported by the ContractCreated event itself,
+     * not by the client. Does not sync the cache itself — see the note below.
      */
     async verifyDeploymentTx(transactionHash, expectedCreatorUserId) {
         if (!this.contractManager) {
