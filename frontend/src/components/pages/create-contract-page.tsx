@@ -250,6 +250,9 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
     }
     if (!formData.details.description.trim()) errors["details.description"] = "La description / objet du contrat est requis.";
     if (!formData.details.city.trim()) errors["details.city"] = "La ville de signature / exécution est requise.";
+    if (Number(formData.details.escrowAmount) > 0 && !formData.details.escrowDeadline) {
+      errors["details.escrowDeadline"] = "Une échéance est requise si un séquestre est demandé.";
+    }
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
   }
@@ -912,26 +915,27 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                   </div>
                 </Card>
 
-                {/* Escrow (dépôt sous séquestre on-chain) */}
+                {/* Séquestre (escrow) — argent réel, pas de blockchain */}
                 <Card className="p-6 bg-muted/30 border-0 shadow-none mb-6">
                   <div className="space-y-4">
                     <h3 className="font-bold text-lg flex items-center gap-3">
                       <Shield className="w-6 h-6 text-[#FFC107]" />
-                      Dépôt sous séquestre (escrow) — optionnel
+                      Séquestre — optionnel
                     </h3>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Ce montant sera verrouillé en POL (jeton natif Polygon) au moment du déploiement sur la blockchain — il est indépendant du montant contractuel écrit ci-dessus, qui peut être dans une autre devise (ex. FCFA). Aucune conversion automatique n'est effectuée : indiquez directement le montant en POL à verrouiller. Vous pourrez le reconfirmer ou l'ajuster juste avant le déploiement.
+                      Si vous l'indiquez, ce montant en FCFA sera à déposer par vous (le créateur) via paiement en ligne — carte ou mobile money, aucun wallet crypto requis. Le paiement en ligne n'est pas encore activé sur la plateforme : vous pouvez déclarer ces conditions dès maintenant, le dépôt réel viendra plus tard. Une fois déposés, les fonds sont libérés automatiquement à l'échéance (les deux parties sont prévenues 72h, 48h et 24h avant), sauf si vous signalez un problème avant cette date. Laissez à 0 si ce contrat n'a pas besoin de séquestre.
                     </p>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                      <FieldGroup label="Montant à verrouiller (POL)">
-                        <Input type="number" min="0" step="0.0001" placeholder="0.00" className="bg-background"
+                      <FieldGroup label="Montant du séquestre (FCFA)" error={validationErrors["details.escrowAmount"]}>
+                        <Input type="number" min="0" step="1" placeholder="0" className="bg-background"
                           value={formData.details.escrowAmount}
                           onChange={(e) => updateFormData("details", "escrowAmount", e.target.value)} />
                       </FieldGroup>
-                      <FieldGroup label="Date limite (deadline)">
+                      <FieldGroup label="Échéance du séquestre" error={validationErrors["details.escrowDeadline"]}>
                         <Input type="date" className="bg-background"
                           value={formData.details.escrowDeadline}
                           onChange={(e) => updateFormData("details", "escrowDeadline", e.target.value)} />
+                        <p className="text-[11px] text-muted-foreground mt-1">Date à laquelle la prestation doit être terminée — déclenche la fenêtre de validation avant libération.</p>
                       </FieldGroup>
                       <FieldGroup label="Pénalité de retard (%)">
                         <Input type="number" min="0" max="100" placeholder="0" className="bg-background"

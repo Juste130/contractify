@@ -76,7 +76,7 @@ class EmailService {
             </a>
           </div>
           <p style="color: #555; font-size: 12px; text-align: center; border-top: 1px solid #222; padding-top: 20px; margin: 0;">
-            Votre signature aura valeur légale, conforme à la réglementation eIDAS.<br>
+            Votre signature aura valeur légale, conformément à la loi applicable à ce contrat.<br>
             Si vous n'attendiez pas cet email, vous pouvez l'ignorer.
           </p>
         </div>
@@ -147,6 +147,24 @@ class EmailService {
       <p>Cordialement,<br>L'équipe Contractify</p>
     `;
     await this.sendEmail(to, subject, html);
+  }
+
+  async sendGenericNotification(to, title, message, contractCacheId) {
+    const safeTitle = this.escapeHtml(title || '');
+    const safeMessage = this.escapeHtml(message || '');
+    const html = `
+      <h1>${safeTitle}</h1>
+      <p>${safeMessage}</p>
+      ${contractCacheId ? `
+      <p>
+        <a href="${config.frontendUrl}/contract-details?id=${contractCacheId}"
+           style="background-color: #FFC107; color: #212121; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">
+          Voir le contrat
+        </a>
+      </p>` : ''}
+      <p>Cordialement,<br>L'équipe Contractify</p>
+    `;
+    await this.sendEmail(to, safeTitle, html);
   }
 
   stripHtml(html) {

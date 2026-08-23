@@ -27,6 +27,7 @@ import { usePathname } from "next/navigation";
 import { useSidebar } from "@/contexts/sidebar-context";
 import { useAuthStore } from "@/hooks/useAuth";
 import { useLogout } from "@/hooks/useLogout";
+import { NotificationBell } from "./notification-bell";
 import { cn } from "../ui/utils";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -170,8 +171,13 @@ export function AppSidebar() {
         </div>
       </nav>
 
+      {/* Notifications */}
+      <div className="px-4 pt-2 border-t border-border">
+        <NotificationBell collapsed={isCollapsed} />
+      </div>
+
       {/* User */}
-      <div className="p-4 border-t border-border">
+      <div className="p-4">
         <DropdownMenu>
           {isCollapsed ? (
             <TooltipProvider delayDuration={0}>

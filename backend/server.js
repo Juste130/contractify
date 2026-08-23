@@ -8,6 +8,7 @@ const logger = require('./utils/logger');
 const { errorHandler } = require('./middleware/error-handler');
 const { generalLimiter } = require('./middleware/rate-limit');
 const blockchainSyncService = require('./services/blockchain-sync');
+const escrowScheduler = require('./services/escrow-scheduler');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -15,6 +16,8 @@ const userRoutes = require('./routes/user');
 const aiRoutes = require('./routes/ai');
 const ipfsRoutes = require('./routes/ipfs');
 const contractRoutes = require('./routes/contract');
+const escrowRoutes = require('./routes/escrow');
+const notificationRoutes = require('./routes/notifications');
 
 const app = express();
 
@@ -55,6 +58,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/ipfs', ipfsRoutes);
 app.use('/api/contracts', contractRoutes);
+app.use('/api/contracts', escrowRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // NOTE: le job horaire de réconciliation des wallets a été retiré — avec Privy, le
 // wallet est fourni par le client dès l'authentification, il n'y a plus de scénario
@@ -83,6 +88,8 @@ app.listen(PORT, async () => {
     } catch (error) {
         logger.error('Failed to start blockchain event listener:', error);
     }
+
+    escrowScheduler.start();
 });
 
 module.exports = app;

@@ -2,6 +2,7 @@ const blockchainSyncService = require('../services/blockchain-sync');
 const prisma = require('../models/prisma');
 const logger = require('../utils/logger');
 const emailService = require('../services/email');
+const escrowService = require('../services/escrow');
 
 const MAX_SIGNATORIES = 20;
 
@@ -109,6 +110,16 @@ exports.saveDraft = async (req, res, next) => {
             });
             return created;
         });
+
+        // Declare escrow terms if the creator asked for one. This only records intent —
+        // no money moves until a payment provider is wired (see services/escrow.js).
+        if (metadata?.escrow?.amount) {
+            try {
+                await escrowService.declareTerms(contract.id, metadata.escrow);
+            } catch (err) {
+                logger.error(`Failed to declare escrow terms for contract ${contract.id}:`, err);
+            }
+        }
 
         // Send invitation emails to each signatory (non-blocking)
         const notRegisteredSignatories = contract.signatories.filter(s => !s.isRegistered);
@@ -436,6 +447,8 @@ exports.getContractDetails = async (req, res, next) => {
         next(error);
     }
 };
+
+exports.hasContractAccess = hasContractAccess;
 
 /**
  * Get all contracts (admin only)

@@ -20,36 +20,37 @@ enum UserRole {
 }
 
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  passwordHash  String?   @map("password_hash")
-  googleId      String?   @unique @map("google_id")
-  privyId       String?   @unique @map("privy_id")
-  role          UserRole  @default(USER)
-  isActive      Boolean   @default(true) @map("is_active")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  profileData   Json?     @map("profile_data")
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String?  @map("password_hash")
+  googleId     String?  @unique @map("google_id")
+  privyId      String?  @unique @map("privy_id")
+  role         UserRole @default(USER)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  profileData  Json?    @map("profile_data")
 
-  wallet        UserWallet?
-  contracts     ContractCache[]
+  wallet    UserWallet?
+  contracts ContractCache[]
 
   refreshTokens RefreshToken[]
+  notifications Notification[]
 
   @@map("users")
 }
 
 model UserWallet {
-  id                    String   @id @default(uuid())
-  userId                String   @unique @map("user_id")
-  publicAddress         String   @unique @map("public_address") @db.VarChar(42)
-  encryptedPrivateKey   String?  @map("encrypted_private_key") @db.Text
-  encryptionIv          String?  @map("encryption_iv") @db.VarChar(32)
-  encryptionAuthTag     String?  @map("encryption_auth_tag") @db.VarChar(32)
-  encryptionSalt        String?  @map("encryption_salt") @db.VarChar(32)
-  isAdminWallet         Boolean  @default(false) @map("is_admin_wallet")
-  createdAt             DateTime @default(now()) @map("created_at")
-  fundedAt              DateTime? @map("funded_at")
+  id                  String    @id @default(uuid())
+  userId              String    @unique @map("user_id")
+  publicAddress       String    @unique @map("public_address") @db.VarChar(42)
+  encryptedPrivateKey String?   @map("encrypted_private_key") @db.Text
+  encryptionIv        String?   @map("encryption_iv") @db.VarChar(32)
+  encryptionAuthTag   String?   @map("encryption_auth_tag") @db.VarChar(32)
+  encryptionSalt      String?   @map("encryption_salt") @db.VarChar(32)
+  isAdminWallet       Boolean   @default(false) @map("is_admin_wallet")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  fundedAt            DateTime? @map("funded_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -72,18 +73,19 @@ enum ContractStatus {
 }
 
 model ContractCache {
-  id          String         @id @default(uuid())
-  contractId  Int?           @unique @map("contract_id") // Optional for drafts
-  userId      String         @map("user_id")
-  title       String
-  ipfsHash    String?        @map("ipfs_hash") // Optional until IPFS upload
-  status      ContractStatus
-  metadata    Json
-  lastSync    DateTime       @map("last_sync")
-  createdAt   DateTime       @default(now()) @map("created_at")
+  id         String         @id @default(uuid())
+  contractId Int?           @unique @map("contract_id") // Optional for drafts
+  userId     String         @map("user_id")
+  title      String
+  ipfsHash   String?        @map("ipfs_hash") // Optional until IPFS upload
+  status     ContractStatus
+  metadata   Json
+  lastSync   DateTime       @map("last_sync")
+  createdAt  DateTime       @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   signatories ContractSignatory[]
+  escrow      ContractEscrow?
 
   @@index([userId])
   @@index([status])
@@ -91,13 +93,13 @@ model ContractCache {
 }
 
 model ContractSignatory {
-  id              String         @id @default(uuid())
-  contractCacheId String         @map("contract_cache_id")
+  id              String  @id @default(uuid())
+  contractCacheId String  @map("contract_cache_id")
   email           String
   name            String?
-  role            Int            @default(1)
-  walletAddress   String?        @map("wallet_address")
-  isRegistered    Boolean        @default(false) @map("is_registered")
+  role            Int     @default(1)
+  walletAddress   String? @map("wallet_address")
+  isRegistered    Boolean @default(false) @map("is_registered")
 
   contract ContractCache @relation(fields: [contractCacheId], references: [id], onDelete: Cascade)
 
@@ -106,16 +108,90 @@ model ContractSignatory {
   @@map("contract_signatories")
 }
 
+// ==================== ESCROW (fiat, off-chain) ====================
+//
+// Escrow is deliberately NOT handled on-chain: the target audience isn't expected to
+// manage crypto wallets, and a fiat amount held over weeks would otherwise drift in
+// value against a volatile token. Money movement itself waits on a real payment
+// aggregator (see backend/services/payments) — until PAYMENTS_ENABLED=true, escrow
+// stays in PENDING_DEPOSIT and no funds are ever actually collected.
+//
+// The deadline is honored exactly: both parties get reminded at T-72h, T-48h and T-24h,
+// and — unless the creator has blocked it — the escrow releases automatically right at
+// the deadline. This state machine runs independently of the payment provider and can be
+// exercised as soon as deposits are real.
+
+enum EscrowStatus {
+  PENDING_DEPOSIT // Declared at contract creation, not yet paid by the creator.
+  DEPOSITED // Funds collected by the payment provider (not active until wired).
+  RELEASED // Funds released to the counterparty — by creator action or automatically at the deadline.
+  DISPUTED // Creator blocked the release before the deadline — held pending manual resolution.
+  REFUNDED // Dispute resolved in the creator's favor (manual, for now).
+}
+
+model ContractEscrow {
+  id               String       @id @default(uuid())
+  contractCacheId  String       @unique @map("contract_cache_id")
+  amount           Decimal      @db.Decimal(14, 2)
+  currency         String       @default("XOF")
+  penaltyPercent   Int          @default(0) @map("penalty_percent")
+  deadline         DateTime
+  status           EscrowStatus @default(PENDING_DEPOSIT)
+  payerUserId      String?      @map("payer_user_id")
+  provider         String?
+  providerRef      String?      @map("provider_ref")
+  depositedAt      DateTime?    @map("deposited_at")
+  reminder72SentAt DateTime?    @map("reminder_72_sent_at")
+  reminder48SentAt DateTime?    @map("reminder_48_sent_at")
+  reminder24SentAt DateTime?    @map("reminder_24_sent_at")
+  releasedAt       DateTime?    @map("released_at")
+  disputedAt       DateTime?    @map("disputed_at")
+  disputeReason    String?      @map("dispute_reason") @db.Text
+  refundedAt       DateTime?    @map("refunded_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  contract ContractCache @relation(fields: [contractCacheId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("contract_escrows")
+}
+
+// ==================== NOTIFICATIONS ====================
+
+enum NotificationType {
+  ESCROW_REMINDER
+  ESCROW_RELEASED
+  ESCROW_DISPUTED
+  GENERIC
+}
+
+model Notification {
+  id              String           @id @default(uuid())
+  userId          String           @map("user_id")
+  type            NotificationType @default(GENERIC)
+  title           String
+  message         String
+  contractCacheId String?          @map("contract_cache_id")
+  read            Boolean          @default(false)
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@map("notifications")
+}
+
 // ==================== IPFS DOCUMENTS ====================
 
 model IpfsDocument {
-  id        String   @id @default(uuid())
-  cid       String   @unique
-  fileName  String   @map("file_name")
-  fileSize  Int      @map("file_size")
-  mimeType  String?  @map("mime_type")
-  uploadedBy String? @map("uploaded_by")
-  createdAt DateTime @default(now()) @map("created_at")
+  id         String   @id @default(uuid())
+  cid        String   @unique
+  fileName   String   @map("file_name")
+  fileSize   Int      @map("file_size")
+  mimeType   String?  @map("mime_type")
+  uploadedBy String?  @map("uploaded_by")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   @@map("ipfs_documents")
 }

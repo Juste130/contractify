@@ -1,13 +1,13 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ethers } from "ethers"
 import { signatoryRoleLabel } from "@/lib/contract-roles"
 import { AppSidebar } from "../layout/app-sidebar"
 import { Button } from "../ui/button"
 import { Card } from "../ui/card"
 import { Badge } from "../ui/badge"
 import { contractsApi, type Contract } from "@/lib/api/contracts"
+import { escrowApi, type Escrow } from "@/lib/api/escrow"
 import { ipfsApi } from "@/lib/api/ipfs"
 import { useWeb3 } from "@/contexts/web3-context"
 import { useContract } from "@/hooks/useContract"
@@ -50,10 +50,11 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
   const [resendingId, setResendingId] = useState<string | null>(null)
   const [resendFeedback, setResendFeedback] = useState<{ id: string; type: "success" | "error"; text: string } | null>(null)
   const [copiedField, setCopiedField] = useState<string | null>(null)
-  const [escrowAmount, setEscrowAmount] = useState("0")
-  const [escrowDeadline, setEscrowDeadline] = useState("")
-  const [penaltyPercent, setPenaltyPercent] = useState("0")
-  const [escrowInitialized, setEscrowInitialized] = useState(false)
+  const [escrow, setEscrow] = useState<Escrow | null>(null)
+  const [escrowActionLoading, setEscrowActionLoading] = useState(false)
+  const [escrowActionError, setEscrowActionError] = useState<string | null>(null)
+  const [blockReason, setBlockReason] = useState("")
+  const [showBlockForm, setShowBlockForm] = useState(false)
   const { account, isConnected } = useWeb3()
   const { signContract, createContract, loading: isSigning } = useContract()
   const { user } = useAuthStore()
@@ -137,18 +138,20 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
     fetchDetails()
   }, [id])
 
-  // Default the escrow confirmation form from what was declared at creation time (if any),
-  // but only once — the creator can still adjust it before the irreversible deployment.
-  useEffect(() => {
-    if (!contract || escrowInitialized) return
-    const escrow = contract.metadata?.escrow
-    if (escrow) {
-      setEscrowAmount(escrow.amount && escrow.amount !== "0" ? String(escrow.amount) : "0")
-      setEscrowDeadline(escrow.deadline || "")
-      setPenaltyPercent(escrow.penaltyPercent ? String(escrow.penaltyPercent) : "0")
+  const fetchEscrow = async () => {
+    try {
+      const response = await escrowApi.getEscrow(id)
+      setEscrow(response.escrow)
+    } catch {
+      // No escrow declared for this contract, or not accessible yet (e.g. still a numeric
+      // on-chain id before the draft/escrow lookup applies) — not an error worth surfacing.
     }
-    setEscrowInitialized(true)
-  }, [contract, escrowInitialized])
+  }
+
+  useEffect(() => {
+    if (contract) fetchEscrow()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contract?.id])
 
   const handleSign = async () => {
     try {
@@ -174,13 +177,9 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
          signedAt: 0,
       }));
 
-      const expiresAt = escrowDeadline
-        ? Math.floor(new Date(escrowDeadline).getTime() / 1000)
-        : Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
-      const escrowAmountWei = escrowAmount && Number(escrowAmount) > 0
-        ? ethers.parseEther(escrowAmount).toString()
-        : "0";
-      const penalty = Math.min(100, Math.max(0, parseInt(penaltyPercent || "0", 10) || 0));
+      // Escrow is handled entirely off-chain (see the "Séquestre" card below) — it is
+      // deliberately never passed to the smart contract, so these stay at zero here.
+      const expiresAt = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
 
       const tx = await createContract(
         contract.ipfsHash,
@@ -189,8 +188,8 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
         expiresAt,
         metadata.options?.allowTermination || true,
         metadata.options?.allowDispute || true,
-        escrowAmountWei,
-        penalty,
+        "0",
+        0,
         "Contrat déployé depuis un brouillon ContracTify"
       );
 
@@ -202,6 +201,49 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
     } catch(err: any) {
       setError("Erreur lors du déploiement : " + (err.message || "Erreur inconnue"));
       setLoading(false);
+    }
+  }
+
+  const handleDepositEscrow = async () => {
+    setEscrowActionLoading(true)
+    setEscrowActionError(null)
+    try {
+      await escrowApi.requestDeposit(id)
+      await fetchEscrow()
+    } catch (err: any) {
+      // Expected today: the backend returns a clear "not available yet" message while no
+      // payment provider is wired — surface it as-is rather than a generic error.
+      setEscrowActionError(err.message || "Le dépôt n'a pas pu être initié.")
+    } finally {
+      setEscrowActionLoading(false)
+    }
+  }
+
+  const handleReleaseEscrow = async () => {
+    setEscrowActionLoading(true)
+    setEscrowActionError(null)
+    try {
+      await escrowApi.releaseNow(id)
+      await fetchEscrow()
+    } catch (err: any) {
+      setEscrowActionError(err.message || "La libération a échoué.")
+    } finally {
+      setEscrowActionLoading(false)
+    }
+  }
+
+  const handleBlockEscrow = async () => {
+    setEscrowActionLoading(true)
+    setEscrowActionError(null)
+    try {
+      await escrowApi.blockRelease(id, blockReason)
+      setShowBlockForm(false)
+      setBlockReason("")
+      await fetchEscrow()
+    } catch (err: any) {
+      setEscrowActionError(err.message || "Le blocage a échoué.")
+    } finally {
+      setEscrowActionLoading(false)
     }
   }
 
@@ -389,35 +431,88 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
             </div>
           </div>
 
-          {contract.status === 'READY_TO_DEPLOY' && isCreator && (
+          {escrow && (
             <Card className="p-6 mb-8 border-[#FFC107]/30 bg-[#FFC107]/5">
-              <h3 className="font-bold flex items-center gap-2 mb-1">
-                <Shield className="w-5 h-5 text-[#FFC107]" />
-                Confirmer les paramètres avant déploiement
-              </h3>
-              <p className="text-xs text-muted-foreground mb-4">
-                Ce montant sera verrouillé en POL (jeton natif Polygon) directement depuis votre wallet lors du déploiement — vérifiez-le avant de continuer, cette action est irréversible une fois la transaction confirmée sur la blockchain.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Montant à verrouiller (POL)</label>
-                  <input type="number" min="0" step="0.0001" value={escrowAmount}
-                    onChange={(e) => setEscrowAmount(e.target.value)}
-                    className="w-full p-2 rounded-lg border border-border bg-input-background text-sm" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Date limite (deadline)</label>
-                  <input type="date" value={escrowDeadline}
-                    onChange={(e) => setEscrowDeadline(e.target.value)}
-                    className="w-full p-2 rounded-lg border border-border bg-input-background text-sm" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Pénalité de retard (%)</label>
-                  <input type="number" min="0" max="100" value={penaltyPercent}
-                    onChange={(e) => setPenaltyPercent(e.target.value)}
-                    className="w-full p-2 rounded-lg border border-border bg-input-background text-sm" />
-                </div>
+              <div className="flex items-start justify-between gap-4 flex-wrap mb-1">
+                <h3 className="font-bold flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-[#FFC107]" />
+                  Séquestre
+                </h3>
+                <EscrowStatusBadge status={escrow.status} />
               </div>
+              <p className="text-sm mb-4">
+                <span className="font-bold">{Number(escrow.amount).toLocaleString('fr-FR')} {escrow.currency}</span>
+                <span className="text-muted-foreground"> — échéance le {new Date(escrow.deadline).toLocaleDateString('fr-FR')}</span>
+                {escrow.penaltyPercent > 0 && <span className="text-muted-foreground"> · pénalité de retard {escrow.penaltyPercent}%</span>}
+              </p>
+
+              {escrow.status === 'PENDING_DEPOSIT' && isCreator && (
+                <div className="p-3 rounded-lg bg-muted/50 border border-border/60 mb-3">
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Le paiement en ligne (carte / mobile money) n'est pas encore disponible sur la plateforme. Vous pouvez continuer sans déposer les fonds pour l'instant — cette étape sera activée prochainement.
+                  </p>
+                  <Button size="sm" variant="outline" onClick={handleDepositEscrow} disabled={escrowActionLoading} className="gap-2">
+                    {escrowActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
+                    Déposer les fonds (bientôt disponible)
+                  </Button>
+                </div>
+              )}
+
+              {escrow.status === 'DEPOSITED' && (
+                <div className="p-3 rounded-lg bg-muted/50 border border-border/60 mb-3 space-y-2">
+                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 shrink-0" />
+                    Sans action du créateur, les fonds seront automatiquement libérés à l'échéance du {new Date(escrow.deadline).toLocaleString('fr-FR')}.
+                    Les deux parties sont prévenues 72h, 48h et 24h avant.
+                  </p>
+                  {isCreator && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" onClick={handleReleaseEscrow} disabled={escrowActionLoading} className="gap-2 bg-green-600 text-white hover:bg-green-700">
+                        {escrowActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                        Valider et libérer maintenant
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setShowBlockForm((v) => !v)} disabled={escrowActionLoading} className="gap-2 text-destructive border-destructive/30 hover:bg-destructive/5">
+                        <AlertCircle className="w-4 h-4" />
+                        Signaler un problème
+                      </Button>
+                    </div>
+                  )}
+                  {showBlockForm && (
+                    <div className="pt-2 space-y-2">
+                      <textarea
+                        value={blockReason}
+                        onChange={(e) => setBlockReason(e.target.value)}
+                        placeholder="Décrivez le problème rencontré..."
+                        className="w-full p-2 rounded-lg border border-border bg-input-background text-xs min-h-[60px]"
+                      />
+                      <Button size="sm" variant="destructive" onClick={handleBlockEscrow} disabled={escrowActionLoading || !blockReason.trim()}>
+                        Confirmer le blocage
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {escrow.status === 'DISPUTED' && (
+                <p className="text-xs text-destructive flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  Libération bloquée par le créateur{escrow.disputeReason ? ` : ${escrow.disputeReason}` : ''}. En attente de résolution.
+                </p>
+              )}
+
+              {escrow.status === 'RELEASED' && (
+                <p className="text-xs text-green-600 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  Fonds libérés{escrow.releasedAt ? ` le ${new Date(escrow.releasedAt).toLocaleDateString('fr-FR')}` : ''}.
+                </p>
+              )}
+
+              {escrowActionError && (
+                <p className="text-xs text-destructive mt-2 flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {escrowActionError}
+                </p>
+              )}
             </Card>
           )}
 
@@ -703,4 +798,16 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
       )}
     </div>
   )
+}
+
+function EscrowStatusBadge({ status }: { status: string }) {
+  const config: Record<string, { label: string; className: string }> = {
+    PENDING_DEPOSIT: { label: "En attente de dépôt", className: "bg-muted text-muted-foreground border-border" },
+    DEPOSITED: { label: "Fonds déposés", className: "bg-blue-500/10 text-blue-600 border-blue-500/20" },
+    RELEASED: { label: "Libéré", className: "bg-green-500/10 text-green-600 border-green-500/20" },
+    DISPUTED: { label: "Bloqué / litige", className: "bg-destructive/10 text-destructive border-destructive/20" },
+    REFUNDED: { label: "Remboursé", className: "bg-muted text-muted-foreground border-border" },
+  }
+  const c = config[status] || { label: status, className: "bg-muted text-muted-foreground border-border" }
+  return <Badge className={c.className}>{c.label}</Badge>
 }

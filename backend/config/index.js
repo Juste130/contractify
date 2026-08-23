@@ -29,6 +29,12 @@ const config = {
     groqApiKey: process.env.GROQ_API_KEY,
     groqModel: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
 
+    // Payments (escrow) — no real payment aggregator wired yet. Deposit/payout stay
+    // disabled until this is turned on and a real PaymentProvider is plugged in. The
+    // scheduler checks for due reminders (T-72h/48h/24h) and due releases at this interval.
+    paymentsEnabled: process.env.PAYMENTS_ENABLED === 'true',
+    escrowSchedulerIntervalMs: parseInt(process.env.ESCROW_SCHEDULER_INTERVAL_MS || String(15 * 60 * 1000), 10),
+
     // Pinata (IPFS)
     pinataJwt: process.env.PINATA_JWT,
     pinataGateway: process.env.PINATA_GATEWAY || 'https://gateway.pinata.cloud',
