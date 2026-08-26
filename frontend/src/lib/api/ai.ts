@@ -91,4 +91,25 @@ export const aiApi = {
             throw new Error(handleApiError(error));
         }
     },
+
+    /**
+     * Asks which known jurisdiction seat city actually covers a city the user typed by
+     * hand (e.g. a satellite town of a bigger city's court). Best-effort suggestion only —
+     * never a source of truth, the caller must let the user accept or ignore it.
+     */
+    async resolveJurisdictionCity(data: {
+        city: string;
+        country: string;
+        knownCities: string[];
+    }): Promise<{
+        coveringCity: string | null;
+        confidence: "high" | "medium" | "low";
+    }> {
+        try {
+            const response = await apiClient.post('/api/ai/resolve-jurisdiction-city', data);
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
 };

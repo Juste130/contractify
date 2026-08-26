@@ -122,3 +122,22 @@ exports.validateContract = async (req, res, next) => {
         next(error);
     }
 };
+
+/**
+ * Resolve which known jurisdiction seat city covers a free-text city
+ */
+exports.resolveJurisdictionCity = async (req, res, next) => {
+    try {
+        const { city, country, knownCities } = req.body;
+
+        if (!city || !country || !Array.isArray(knownCities) || knownCities.length === 0) {
+            return res.status(400).json({ error: 'city, country and a non-empty knownCities array are required' });
+        }
+
+        const result = await aiService.resolveJurisdictionCity(city, country, knownCities);
+
+        res.json(result);
+    } catch (error) {
+        next(error);
+    }
+};

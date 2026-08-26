@@ -136,3 +136,19 @@ export const E_SIGNATURE_LEGAL_BASIS: Record<string, string> = {
 };
 
 export const DEFAULT_E_SIGNATURE_LEGAL_BASIS = "la loi applicable au présent contrat";
+
+/**
+ * Principales villes sièges de juridiction (tribunal de première instance / tribunal de
+ * commerce) par pays — c'est le tribunal du siège qui est réellement compétent sur un
+ * ressort donné, pas nécessairement la ville d'exécution elle-même. Liste non exhaustive à
+ * usage de sélection guidée : la ville de signature/exécution restait en texte libre alors
+ * que le pays est un menu contrôlé, un risque de faute de frappe qui se répercute
+ * directement dans la clause de juridiction compétente. "Autre" reste disponible en secours
+ * pour toute ville hors de cette liste.
+ */
+export const JURISDICTION_CITIES: Record<string, string[]> = {
+  "Bénin": ["Cotonou", "Porto-Novo", "Parakou", "Abomey", "Ouidah", "Lokossa", "Natitingou", "Kandi"],
+  "Togo": ["Lomé", "Kara", "Sokodé", "Atakpamé", "Aného", "Tsévié", "Dapaong"],
+  "Côte d'Ivoire": ["Abidjan", "Bouaké", "Yamoussoukro", "San-Pédro", "Daloa", "Korhogo", "Man", "Gagnoa", "Abengourou"],
+  "Sénégal": ["Dakar", "Thiès", "Kaolack", "Saint-Louis", "Ziguinchor", "Diourbel", "Tambacounda"],
+};

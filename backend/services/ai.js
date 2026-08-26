@@ -259,6 +259,38 @@ class AIService {
         }
     }
 
+    // ─── Résolution de ressort judiciaire ───────────────────────────────────────
+    /**
+     * Une ville saisie librement par l'utilisateur (ex: "Calavi") peut relever d'un
+     * tribunal dont le siège est ailleurs (ex: Cotonou). Demande au LLM laquelle des villes
+     * sièges connues couvre réellement la ville saisie. Best-effort : ne jette jamais,
+     * renvoie coveringCity=null si le modèle n'est pas sûr — c'est à l'appelant de
+     * présenter ça comme une suggestion, jamais comme une vérité imposée.
+     */
+    async resolveJurisdictionCity(cityInput, country, knownCities) {
+        try {
+            const text = await this._chat([
+                {
+                    role: 'system',
+                    content: 'Tu es un expert en organisation judiciaire d\'Afrique de l\'Ouest. Réponds UNIQUEMENT avec un objet JSON strict, sans aucun texte autour, sans markdown : {"coveringCity": "<une ville EXACTEMENT recopiée depuis la liste fournie, ou null si aucune ne correspond ou si tu n\'es pas sûr>", "confidence": "high" | "medium" | "low"}',
+                },
+                {
+                    role: 'user',
+                    content: `Pays : ${country}\nVille saisie par l'utilisateur : ${cityInput}\nVilles sièges de juridiction connues dans ce pays : ${knownCities.join(', ')}\n\nQuelle ville de cette liste couvre le ressort judiciaire (tribunal de première instance ou de commerce) de la ville saisie ? Si la ville saisie est elle-même dans la liste, ou si aucune ville de la liste ne la couvre de façon fiable, réponds coveringCity: null.`,
+                },
+            ], { max_tokens: 128, temperature: 0 });
+
+            const parsed = JSON.parse(text.replace(/```json|```/gi, '').trim());
+            const coveringCity = knownCities.includes(parsed.coveringCity) ? parsed.coveringCity : null;
+            const confidence = ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'low';
+
+            return { coveringCity, confidence };
+        } catch (error) {
+            logger.error('Error resolving jurisdiction city:', error);
+            return { coveringCity: null, confidence: 'low' };
+        }
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────────
 
     buildContractPrompt(templateType, partyAData, partyBData, additionalClauses, context) {

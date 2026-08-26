@@ -39,4 +39,11 @@ router.post('/suggest-clauses', authenticate, aiLimiter, aiController.suggestCla
  */
 router.post('/validate', authenticate, aiLimiter, aiController.validateContract);
 
+/**
+ * @route   POST /api/ai/resolve-jurisdiction-city
+ * @desc    Suggest which known jurisdiction seat city covers a free-text city
+ * @access  Private
+ */
+router.post('/resolve-jurisdiction-city', authenticate, aiLimiter, aiController.resolveJurisdictionCity);
+
 module.exports = router;
