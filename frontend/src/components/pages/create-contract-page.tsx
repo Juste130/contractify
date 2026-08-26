@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { AppSidebar } from "../layout/app-sidebar";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -14,6 +14,7 @@ import { ipfsApi } from "@/lib/api/ipfs";
 import { useWeb3 } from "@/contexts/web3-context";
 import { useContract } from "@/hooks/useContract";
 import { contractsApi } from "@/lib/api/contracts";
+import { deployDraftContract } from "@/lib/utils/deployContract";
 import {
   FileText,
   Users,
@@ -36,16 +37,21 @@ import {
   Info,
   Building,
   User,
+  PenLine,
+  Lock,
 } from "lucide-react";
 import { Checkbox } from "../ui/checkbox";
 import { useRouter } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs";
+import { ContractMarkdownRenderer } from "../contract/contract-markdown-renderer";
 import {
   CONTRACT_TEMPLATES,
   CLAUSE_LIBRARY,
   getContractTemplate,
   E_SIGNATURE_LEGAL_BASIS,
   DEFAULT_E_SIGNATURE_LEGAL_BASIS,
+  JURISDICTION_CITIES,
 } from "@/lib/contract-templates";
 import { SIGNATORY_ROLE_LABELS } from "@/lib/contract-roles";
 
@@ -73,6 +79,23 @@ async function computeSHA256(text: string): Promise<string> {
 
 function isValidEthAddress(addr: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(addr);
+}
+
+/**
+ * Deterministic (non-AI) séquestre clause appended verbatim to the generated contract text.
+ * The LLM is not trusted to faithfully transcribe the amount/deadline/penalty — this
+ * guarantees the signed, hashed document matches exactly what gets recorded in
+ * ContractEscrow, instead of the two silently drifting apart.
+ */
+function buildEscrowClause(details: { escrowAmount: string; escrowDeadline: string; penaltyPercent: string }): string {
+  const deadlineFormatted = details.escrowDeadline
+    ? new Date(details.escrowDeadline).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
+    : "une date à convenir entre les parties";
+  const penalty = Number(details.penaltyPercent) > 0 ? Number(details.penaltyPercent) : null;
+
+  return `\n\n## Séquestre\n\nUn montant de ${details.escrowAmount} FCFA sera déposé en séquestre par le créateur du présent contrat, au plus tard le ${deadlineFormatted}. Ce montant sera libéré automatiquement à cette échéance, sauf si le créateur signale un problème avant cette date.${
+    penalty ? ` En cas de retard dans l'exécution des obligations décrites au présent contrat, une pénalité de ${penalty}% sera appliquée sur le montant séquestré.` : ""
+  }`;
 }
 
 const ROLE_LABELS = SIGNATORY_ROLE_LABELS;
@@ -113,23 +136,29 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
   const [isSimplifying, setIsSimplifying] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [readyToDeployDraft, setReadyToDeployDraft] = useState<{ id: string; ipfsHash: string; metadata: any; signatories: any[] } | null>(null);
+  const [isDeploying, setIsDeploying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generationFailed, setGenerationFailed] = useState(false);
   const [hasValidated, setHasValidated] = useState(false);
   const [acknowledgeIssues, setAcknowledgeIssues] = useState(false);
   const [draftRestored, setDraftRestored] = useState(false);
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
+  const errorRef = useRef<HTMLDivElement>(null);
+  const complianceCardRef = useRef<HTMLDivElement>(null);
   const [aiValidationResult, setAiValidationResult] = useState<{ issues: string[]; suggestions: string[] } | null>(null);
   const [consentChecked, setConsentChecked] = useState(false);
+  const [isCheckingJurisdiction, setIsCheckingJurisdiction] = useState(false);
+  const [jurisdictionSuggestion, setJurisdictionSuggestion] = useState<{ coveringCity: string; confidence: string } | null>(null);
   const router = useRouter();
-  const { isConnected, connect } = useWeb3();
+  const { isConnected, connect, account } = useWeb3();
   const { createContract } = useContract();
 
   // ─── Form State ─────────────────────────────────────────────────────────────
 
   const [formData, setFormData] = useState({
-    partyA: { type: "company", name: "", email: "", address: "", phone: "", rccm: "", ifu: "", legalRepName: "", legalRepTitle: "" },
-    partyB: { type: "individual", name: "", email: "", address: "", phone: "", rccm: "", ifu: "", legalRepName: "", legalRepTitle: "" },
+    partyA: { type: "company", name: "", email: "", address: "", phone: "", rccm: "", ifu: "", legalRepName: "", legalRepTitle: "", dateOfBirth: "" },
+    partyB: { type: "individual", name: "", email: "", address: "", phone: "", rccm: "", ifu: "", legalRepName: "", legalRepTitle: "", dateOfBirth: "" },
     details: {
       duration: "",
       amount: "",
@@ -203,7 +232,22 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
     try { window.localStorage.removeItem(DRAFT_STORAGE_KEY); } catch { /* ignore */ }
   }
 
+  // Après toute action qui échoue, ramène l'utilisateur vers l'erreur plutôt que
+  // de la laisser hors champ (le message peut apparaître loin du bouton cliqué).
+  // Cas particulier étape 3 : si le blocage vient de la conformité non vérifiée,
+  // on cible directement la carte de vérification plutôt que le bandeau générique.
+  useEffect(() => {
+    if (!error) return;
+    if (currentStep === 3 && !hasValidated && complianceCardRef.current) {
+      complianceCardRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else {
+      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [error]);
+
   const activeTemplate = getContractTemplate(selectedTemplate);
+  const jurisdictionCities = JURISDICTION_CITIES[formData.details.country] || [];
+  const isKnownJurisdictionCity = jurisdictionCities.includes(formData.details.city);
 
   // ─── UI Templates ───────────────────────────────────────────────────────────
 
@@ -305,12 +349,15 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
         .filter(([key, val]) => val && (activeTemplate?.clauseOptions.includes(key as any) ?? true))
         .map(([key]) => CLAUSE_LIBRARY[key as keyof typeof CLAUSE_LIBRARY]?.promptText || key);
 
+      const formatBirthDate = (isoDate: string) =>
+        new Date(isoDate).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+
       const partyALine = formData.partyA.type === 'company'
         ? `Société, RCCM: ${formData.partyA.rccm}, IFU: ${formData.partyA.ifu}, représentée par ${formData.partyA.legalRepName || 'un représentant légal'}${formData.partyA.legalRepTitle ? `, en qualité de ${formData.partyA.legalRepTitle}` : ''}`
-        : 'Particulier/Freelance';
+        : `Particulier/Freelance${formData.partyA.dateOfBirth ? `, né(e) le ${formatBirthDate(formData.partyA.dateOfBirth)}` : ''}`;
       const partyBLine = formData.partyB.type === 'company'
         ? `Société, RCCM: ${formData.partyB.rccm}, IFU: ${formData.partyB.ifu}, représentée par ${formData.partyB.legalRepName || 'un représentant légal'}${formData.partyB.legalRepTitle ? `, en qualité de ${formData.partyB.legalRepTitle}` : ''}`
-        : 'Particulier/Freelance';
+        : `Particulier/Freelance${formData.partyB.dateOfBirth ? `, né(e) le ${formatBirthDate(formData.partyB.dateOfBirth)}` : ''}`;
 
       const response = await aiApi.generateContract({
         templateType: selectedTemplate,
@@ -324,10 +371,17 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
         Partie B (${activeTemplate?.partyBLabel || 'Partie B'}): ${partyBLine}.
         Important : Le contrat doit impérativement inclure une clause stipulant que le droit applicable est le droit du/de la ${formData.details.country} et que le tribunal compétent est celui de la ville de ${formData.details.city}.`
       });
-      setContractText(response.contract);
+      const escrowDeclared = Number(formData.details.escrowAmount) > 0;
+      setContractText(escrowDeclared ? response.contract + buildEscrowClause(formData.details) : response.contract);
 
-      // Pre-fill signatories from party emails
+      // Pre-fill signatories from party emails — both named parties must sign, not just
+      // the counterparty. Role 1 (Co-Signataire) for both: being Party A doesn't make
+      // someone "the creator" (role 0) — that's decided server-side from the account
+      // that actually submits the draft, not assumed from a form slot.
       const initial: Signatory[] = [];
+      if (formData.partyA.email) {
+        initial.push({ name: formData.partyA.name, email: formData.partyA.email, role: 1 });
+      }
       if (formData.partyB.email) {
         initial.push({ name: formData.partyB.name, email: formData.partyB.email, role: 1 });
       }
@@ -371,6 +425,31 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
     }
   };
 
+  // Best-effort: when the user types a city that isn't one of our known jurisdiction seats,
+  // ask the AI which known seat actually covers it (e.g. a satellite town of a bigger city's
+  // court). Never overwrites the typed value on its own — only surfaces a suggestion the
+  // user can accept, since a wrong jurisdiction is a real legal consequence.
+  const checkJurisdictionCoverage = async (city: string) => {
+    if (!city.trim() || jurisdictionCities.length === 0) return;
+    setIsCheckingJurisdiction(true);
+    setJurisdictionSuggestion(null);
+    try {
+      const result = await aiApi.resolveJurisdictionCity({
+        city,
+        country: formData.details.country,
+        knownCities: jurisdictionCities,
+      });
+      if (result.coveringCity && result.coveringCity.toLowerCase() !== city.trim().toLowerCase()) {
+        setJurisdictionSuggestion({ coveringCity: result.coveringCity, confidence: result.confidence });
+      }
+    } catch {
+      // Silent — the free-text city the user typed remains valid on its own; this is a
+      // convenience suggestion, not a requirement.
+    } finally {
+      setIsCheckingJurisdiction(false);
+    }
+  };
+
   const handleAddSignatory = () => {
     if (!newSignatory.email) {
       setValidationErrors((e) => ({ ...e, newSignatory: "L'email est requis pour notifier le signataire." }));
@@ -385,7 +464,14 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
     setValidationErrors((e) => { const { newSignatory: _, ...rest } = e; return rest; });
   };
 
+  // Une partie nommée dans le texte du contrat (Partie A/B) doit rester signataire :
+  // la retirer créerait un contrat dont un signataire nommé ne signe jamais.
+  const isNamedContractParty = (email: string) =>
+    (!!formData.partyA.email && email === formData.partyA.email) ||
+    (!!formData.partyB.email && email === formData.partyB.email);
+
   const removeSignatory = (email: string) => {
+    if (isNamedContractParty(email)) return;
     setSignatories(signatories.filter((s) => s.email !== email));
   };
 
@@ -452,12 +538,34 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
       });
 
       clearSavedDraft();
-      router.push(`/contract-details?id=${draftResult.contract.id}&created=true`);
+
+      // Every signatory already had an account when the draft was saved — nothing is
+      // blocking deployment anymore. Offer to deploy right here instead of silently
+      // redirecting to the contract page and making the creator find and click that
+      // button on a second visit.
+      if ((draftResult.contract as any).status === "READY_TO_DEPLOY") {
+        setReadyToDeployDraft(draftResult.contract as any);
+      } else {
+        router.push(`/contract-details?id=${draftResult.contract.id}&created=true`);
+      }
     } catch (err: any) {
       setError(err.message || "Erreur lors de la sauvegarde du brouillon.");
       console.error(err);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeployNow = async () => {
+    if (!readyToDeployDraft || !isConnected) return;
+    setIsDeploying(true);
+    setError(null);
+    try {
+      const { contractId } = await deployDraftContract(readyToDeployDraft as any, createContract, contractsApi.markDraftDeployed, account);
+      window.location.href = `/contract-details?id=${contractId}`;
+    } catch (err: any) {
+      setError("Erreur lors du déploiement : " + (err.message || "Erreur inconnue"));
+      setIsDeploying(false);
     }
   };
 
@@ -534,14 +642,15 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
         )}
 
         {error && (
-          <div className="max-w-4xl mx-auto mb-6 p-4 bg-destructive/10 text-destructive border border-destructive/20 rounded-lg flex items-center gap-3">
+          <div ref={errorRef} className="max-w-4xl mx-auto mb-6 p-4 bg-destructive/10 text-destructive border border-destructive/20 rounded-lg flex items-center gap-3">
             <AlertCircle className="w-5 h-5 shrink-0" />
             <p className="text-sm font-medium">{error}</p>
           </div>
         )}
 
-        {/* Step Content */}
-        <div className="max-w-4xl mx-auto">
+        {/* Step Content — l'étape 3 (aperçu du document) a besoin de bien plus de largeur
+            qu'un formulaire pour être lisible ; les autres étapes restent en max-w-4xl. */}
+        <div className={currentStep === 3 ? "max-w-6xl mx-auto" : "max-w-4xl mx-auto"}>
 
           {/* ── STEP 1: Template ── */}
           {currentStep === 1 && (
@@ -746,6 +855,18 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                         </>
                       )}
 
+                      {formData.partyA.type === "individual" && (
+                        <FieldGroup label="Date de naissance (optionnel)">
+                          <Input
+                            type="date"
+                            className="bg-background"
+                            value={formData.partyA.dateOfBirth || ""}
+                            onChange={(e) => updateFormData("partyA", "dateOfBirth", e.target.value)}
+                          />
+                          <p className="text-[11px] text-muted-foreground mt-1">Non obligatoire, mais renforce l'identification de la partie dans le contrat.</p>
+                        </FieldGroup>
+                      )}
+
                       <FieldGroup label="Adresse postale" className="md:col-span-2">
                         <Input
                           placeholder="123 Rue de la Paix, Cotonou, Bénin"
@@ -754,7 +875,7 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                           onChange={(e) => updateFormData("partyA", "address", e.target.value)}
                         />
                       </FieldGroup>
-                      
+
                       <FieldGroup label="Téléphone">
                         <Input
                           placeholder="+229 90 00 00 00"
@@ -851,6 +972,18 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                           </FieldGroup>
                         </>
                       )}
+
+                      {formData.partyB.type === "individual" && (
+                        <FieldGroup label="Date de naissance (optionnel)">
+                          <Input
+                            type="date"
+                            className="bg-background"
+                            value={formData.partyB.dateOfBirth || ""}
+                            onChange={(e) => updateFormData("partyB", "dateOfBirth", e.target.value)}
+                          />
+                          <p className="text-[11px] text-muted-foreground mt-1">Non obligatoire, mais renforce l'identification de la partie dans le contrat.</p>
+                        </FieldGroup>
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -894,7 +1027,17 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                       </FieldGroup>
                       
                       <FieldGroup label="Pays d'exécution">
-                        <Select value={formData.details.country} onValueChange={(val) => updateFormData("details", "country", val)}>
+                        <Select value={formData.details.country} onValueChange={(val) => {
+                          // Reset the city to the new country's first known jurisdiction seat
+                          // rather than leaving the old one in place — an unrecognized city
+                          // falls into "Autre (préciser)", which reads as "you must type it
+                          // yourself" even when the user's actual choice is right there in
+                          // the list for the new country.
+                          const nextCities = JURISDICTION_CITIES[val] || [];
+                          updateFormData("details", "country", val);
+                          updateFormData("details", "city", nextCities[0] || "");
+                          setJurisdictionSuggestion(null);
+                        }}>
                           <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="Bénin">Bénin</SelectItem>
@@ -907,9 +1050,53 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                       </FieldGroup>
                       
                       <FieldGroup label="Ville de signature / exécution *" error={validationErrors["details.city"]}>
-                        <Input className="bg-background" placeholder="Ex: Cotonou"
-                          value={formData.details.city}
-                          onChange={(e) => updateFormData("details", "city", e.target.value)} />
+                        {jurisdictionCities.length > 0 ? (
+                          <>
+                            <Select
+                              value={isKnownJurisdictionCity ? formData.details.city : "__autre__"}
+                              onValueChange={(val) => {
+                                updateFormData("details", "city", val === "__autre__" ? "" : val);
+                                setJurisdictionSuggestion(null);
+                              }}
+                            >
+                              <SelectTrigger className="bg-background"><SelectValue placeholder="Sélectionnez une ville" /></SelectTrigger>
+                              <SelectContent>
+                                {jurisdictionCities.map((city) => (
+                                  <SelectItem key={city} value={city}>{city}</SelectItem>
+                                ))}
+                                <SelectItem value="__autre__">Autre (préciser)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {!isKnownJurisdictionCity && (
+                              <>
+                                <Input className="bg-background mt-2" placeholder="Ex: Calavi"
+                                  value={formData.details.city}
+                                  onChange={(e) => { updateFormData("details", "city", e.target.value); setJurisdictionSuggestion(null); }}
+                                  onBlur={(e) => checkJurisdictionCoverage(e.target.value)} />
+                                {isCheckingJurisdiction && (
+                                  <p className="text-[11px] text-muted-foreground mt-1">Vérification de la juridiction compétente...</p>
+                                )}
+                                {jurisdictionSuggestion && (
+                                  <div className="mt-2 p-3 rounded-lg border border-[#2196F3]/30 bg-[#2196F3]/5 flex items-center justify-between gap-3 flex-wrap">
+                                    <p className="text-[11px] text-muted-foreground">
+                                      {formData.details.city} est {jurisdictionSuggestion.confidence === "high" ? "" : "probablement "}
+                                      couvert(e) par le tribunal de <strong>{jurisdictionSuggestion.coveringCity}</strong> — suggestion IA, à vérifier.
+                                    </p>
+                                    <Button type="button" size="sm" variant="outline" className="shrink-0"
+                                      onClick={() => { updateFormData("details", "city", jurisdictionSuggestion.coveringCity); setJurisdictionSuggestion(null); }}>
+                                      Utiliser {jurisdictionSuggestion.coveringCity}
+                                    </Button>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                            <p className="text-[11px] text-muted-foreground mt-1">Ville où siège le tribunal compétent pour ce contrat.</p>
+                          </>
+                        ) : (
+                          <Input className="bg-background" placeholder="Ex: Cotonou"
+                            value={formData.details.city}
+                            onChange={(e) => updateFormData("details", "city", e.target.value)} />
+                        )}
                       </FieldGroup>
                     </div>
                   </div>
@@ -1045,7 +1232,7 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   {/* Preview */}
                   <Card className="lg:col-span-2 p-8 shadow-xl">
-                    <div className="mb-6 flex items-center justify-between">
+                    <div className="mb-6 flex items-center justify-between flex-wrap gap-3">
                       <h3 className="font-bold text-xl">Aperçu du document</h3>
                       <div className="flex items-center gap-2">
                         <AiBadge />
@@ -1053,13 +1240,35 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                       </div>
                     </div>
 
-                    <div className="bg-white text-gray-800 p-10 rounded-lg min-h-[600px] shadow-inner border font-serif text-sm leading-relaxed overflow-y-auto max-h-[700px]">
-                      <Textarea
-                        value={contractText}
-                        onChange={(e) => { setContractText(e.target.value); setHasValidated(false); }}
-                        className="w-full h-full min-h-[600px] border-none focus-visible:ring-0 p-0 resize-none font-serif text-base"
-                      />
-                    </div>
+                    {/* Le contrat généré par l'IA est du Markdown brut (#, **gras**...) —
+                        du charabia pour un public qui n'a jamais vu de Markdown. "Aperçu"
+                        (par défaut) l'affiche mis en forme comme un vrai document ; "Modifier
+                        le texte" ouvre la source éditable pour qui veut ajuster une formulation. */}
+                    <Tabs defaultValue="preview" className="w-full">
+                      <TabsList className="mb-4">
+                        <TabsTrigger value="preview" className="gap-1.5"><Eye className="w-3.5 h-3.5" /> Aperçu</TabsTrigger>
+                        <TabsTrigger value="edit" className="gap-1.5"><PenLine className="w-3.5 h-3.5" /> Modifier le texte</TabsTrigger>
+                      </TabsList>
+
+                      <TabsContent value="preview" className="mt-0">
+                        <div className="bg-white text-gray-800 p-10 md:p-14 rounded-lg shadow-inner border overflow-y-auto max-h-[85vh] min-h-[500px]">
+                          <ContractMarkdownRenderer content={contractText} />
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="edit" className="mt-0">
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Modifiez librement le texte ci-dessous — la mise en forme (titres, gras) est appliquée automatiquement dans l'onglet "Aperçu".
+                        </p>
+                        <div className="bg-white text-gray-800 p-10 rounded-lg shadow-inner border font-serif text-sm leading-relaxed overflow-y-auto max-h-[85vh] min-h-[500px]">
+                          <Textarea
+                            value={contractText}
+                            onChange={(e) => { setContractText(e.target.value); setHasValidated(false); }}
+                            className="w-full h-full min-h-[480px] border-none focus-visible:ring-0 p-0 resize-none font-serif text-base"
+                          />
+                        </div>
+                      </TabsContent>
+                    </Tabs>
 
                     {/* SHA-256 fingerprint display */}
                     <div className="mt-4 p-3 bg-muted rounded-lg flex items-center gap-2">
@@ -1069,15 +1278,22 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                       </p>
                     </div>
 
-                    <div className="flex justify-between mt-8">
+                    <div className="flex justify-between items-center mt-8">
                       <Button variant="outline" onClick={() => setCurrentStep(2)} className="px-8">
                         <ChevronLeft className="w-5 h-5 mr-2" />
                         Précédent
                       </Button>
-                      <Button className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300] px-8 font-bold" onClick={() => { setError(null); if (validateStep3()) setCurrentStep(4); }}>
-                        Suivant
-                        <ChevronRight className="w-5 h-5 ml-2" />
-                      </Button>
+                      <div className="flex flex-col items-end gap-1.5">
+                        {!hasValidated && (
+                          <p className="text-[11px] text-[#2196F3] font-medium flex items-center gap-1">
+                            <Shield className="w-3 h-3" /> Vérification de conformité requise →
+                          </p>
+                        )}
+                        <Button className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300] px-8 font-bold" onClick={() => { setError(null); if (validateStep3()) setCurrentStep(4); }}>
+                          Suivant
+                          <ChevronRight className="w-5 h-5 ml-2" />
+                        </Button>
+                      </div>
                     </div>
                   </Card>
 
@@ -1096,68 +1312,77 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                             : <Brain className="w-4 h-4 mr-3 text-[#9C27B0]" />}
                           {isSimplifying ? "Simplification..." : "Simplifier le langage"}
                         </Button>
-                        <Button variant="outline" className="w-full justify-start text-sm hover:bg-[#2196F3]/5 border-[#2196F3]/30"
-                          onClick={handleValidateCompliance} disabled={isValidating}>
-                          {isValidating
-                            ? <Loader2 className="w-4 h-4 mr-3 animate-spin" />
-                            : <Eye className="w-4 h-4 mr-3 text-[#2196F3]" />}
-                          {isValidating ? "Vérification..." : "Vérifier la conformité"}
-                        </Button>
                       </div>
                     </Card>
 
-                    {/* Résultat de la validation IA */}
-                    {aiValidationResult && (
-                      <Card className="p-5 border border-[#2196F3]/30 bg-[#2196F3]/5">
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-[#2196F3] mb-3 flex items-center gap-2">
-                          <Eye className="w-4 h-4" /> Rapport de conformité
-                        </h4>
-                        {aiValidationResult.issues.length > 0 && (
-                          <div className="mb-3">
-                            <p className="text-[10px] font-bold text-destructive mb-1">⚠ Points à corriger :</p>
-                            <ul className="space-y-1">
-                              {aiValidationResult.issues.map((issue, i) => (
-                                <li key={i} className="text-[10px] text-muted-foreground flex gap-1">
-                                  <span className="shrink-0">•</span>{issue}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
+                    {/* Vérification de conformité — étape obligatoire avant l'étape 4 */}
+                    <Card ref={complianceCardRef} className={`p-6 border-2 ${!hasValidated ? "border-[#2196F3] bg-[#2196F3]/5" : "border-[#2196F3]/20"}`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-bold flex items-center gap-2">
+                          <Shield className="w-5 h-5 text-[#2196F3]" />
+                          Vérification de conformité
+                        </h3>
+                        {!hasValidated && (
+                          <span className="text-[9px] font-bold uppercase tracking-wide bg-[#2196F3] text-white px-2 py-1 rounded-full shrink-0">
+                            Étape obligatoire
+                          </span>
                         )}
-                        {aiValidationResult.suggestions.length > 0 && (
-                          <div>
-                            <p className="text-[10px] font-bold text-[#4CAF50] mb-1">✓ Suggestions :</p>
-                            <ul className="space-y-1">
-                              {aiValidationResult.suggestions.map((s, i) => (
-                                <li key={i} className="text-[10px] text-muted-foreground flex gap-1">
-                                  <span className="shrink-0">•</span>{s}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        {aiValidationResult.issues.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-[#2196F3]/20 flex items-start gap-2 cursor-pointer" onClick={() => setAcknowledgeIssues(!acknowledgeIssues)}>
-                            <Checkbox checked={acknowledgeIssues} onCheckedChange={(v) => setAcknowledgeIssues(!!v)} className="mt-0.5" />
-                            <p className="text-[10px] text-muted-foreground leading-relaxed">
-                              Je reconnais les points de conformité relevés ci-dessus et je souhaite tout de même continuer.
-                            </p>
-                          </div>
-                        )}
-                        {aiValidationResult.issues.length === 0 && (
-                          <p className="text-[10px] text-[#4CAF50] font-medium flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Aucun point bloquant relevé.</p>
-                        )}
-                      </Card>
-                    )}
-
-                    {!hasValidated && !isValidating && (
-                      <Card className="p-4 border border-[#FFC107]/30 bg-[#FFC107]/5">
-                        <p className="text-[11px] text-muted-foreground leading-relaxed flex items-start gap-2">
-                          <AlertCircle className="w-4 h-4 text-[#FFC107] shrink-0 mt-0.5" />
-                          Une vérification de conformité est requise avant de passer à l'étape des signataires.
+                      </div>
+                      {!hasValidated && !isValidating && (
+                        <p className="text-xs text-muted-foreground leading-relaxed mb-4 flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 text-[#2196F3] shrink-0 mt-0.5" />
+                          Vous ne pourrez pas passer à l'étape des signataires tant que ce contrôle n'aura pas été lancé.
                         </p>
-                      </Card>
-                    )}
+                      )}
+                      <Button className="w-full justify-center text-sm bg-[#2196F3] text-white hover:bg-[#1E88E5]"
+                        onClick={handleValidateCompliance} disabled={isValidating}>
+                        {isValidating
+                          ? <Loader2 className="w-4 h-4 mr-3 animate-spin" />
+                          : <Eye className="w-4 h-4 mr-3" />}
+                        {isValidating ? "Vérification..." : "Vérifier la conformité"}
+                      </Button>
+
+                      {/* Résultat de la validation IA */}
+                      {aiValidationResult && (
+                        <div className="mt-4 pt-4 border-t border-[#2196F3]/20">
+                          {aiValidationResult.issues.length > 0 && (
+                            <div className="mb-3">
+                              <p className="text-[10px] font-bold text-destructive mb-1">⚠ Points à corriger :</p>
+                              <ul className="space-y-1">
+                                {aiValidationResult.issues.map((issue, i) => (
+                                  <li key={i} className="text-[10px] text-muted-foreground flex gap-1">
+                                    <span className="shrink-0">•</span>{issue}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {aiValidationResult.suggestions.length > 0 && (
+                            <div>
+                              <p className="text-[10px] font-bold text-[#4CAF50] mb-1">✓ Suggestions :</p>
+                              <ul className="space-y-1">
+                                {aiValidationResult.suggestions.map((s, i) => (
+                                  <li key={i} className="text-[10px] text-muted-foreground flex gap-1">
+                                    <span className="shrink-0">•</span>{s}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {aiValidationResult.issues.length > 0 && (
+                            <div className="mt-3 pt-3 border-t border-[#2196F3]/20 flex items-start gap-2 cursor-pointer" onClick={() => setAcknowledgeIssues(!acknowledgeIssues)}>
+                              <Checkbox checked={acknowledgeIssues} onCheckedChange={(v) => setAcknowledgeIssues(!!v)} className="mt-0.5" />
+                              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                                Je reconnais les points de conformité relevés ci-dessus et je souhaite tout de même continuer.
+                              </p>
+                            </div>
+                          )}
+                          {aiValidationResult.issues.length === 0 && (
+                            <p className="text-[10px] text-[#4CAF50] font-medium flex items-center gap-1 mt-2"><CheckCircle2 className="w-3 h-3" /> Aucun point bloquant relevé.</p>
+                          )}
+                        </div>
+                      )}
+                    </Card>
 
                     <Card className="p-6 bg-muted/40 border-dashed border-2">
                       <div className="flex items-start gap-2">
@@ -1173,8 +1398,49 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
             </div>
           )}
 
+          {/* ── STEP 4b: Ready to deploy right away ── */}
+          {currentStep === 4 && readyToDeployDraft && (
+            <Card className="p-10 text-center">
+              <div className="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-5">
+                <CheckCircle2 className="w-8 h-8 text-green-500" />
+              </div>
+              <h2 className="font-bold text-xl mb-2">Brouillon enregistré — tous vos signataires ont déjà un compte</h2>
+              <p className="text-muted-foreground max-w-md mx-auto mb-8">
+                Rien ne bloque plus ce contrat. Vous pouvez le déployer sur la blockchain dès maintenant pour lancer les signatures, ou le faire plus tard depuis la page du contrat.
+              </p>
+              {!isConnected && (
+                <p className="text-sm text-[#FFC107] mb-4 flex items-center justify-center gap-2">
+                  <AlertCircle className="w-4 h-4" /> Connectez votre portefeuille pour déployer maintenant.
+                </p>
+              )}
+              <div className="flex items-center justify-center gap-3">
+                <Button variant="outline" className="px-6" disabled={isDeploying}
+                  onClick={() => router.push(`/contract-details?id=${readyToDeployDraft.id}&created=true`)}>
+                  Plus tard
+                </Button>
+                <Button
+                  className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300] px-8 font-bold"
+                  onClick={handleDeployNow}
+                  disabled={isDeploying || !isConnected}
+                >
+                  {isDeploying ? (
+                    <>
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Déploiement...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5 mr-2" />
+                      Déployer maintenant
+                    </>
+                  )}
+                </Button>
+              </div>
+            </Card>
+          )}
+
           {/* ── STEP 4: Signatories ── */}
-          {currentStep === 4 && (
+          {currentStep === 4 && !readyToDeployDraft && (
             <Card className="p-8">
               <div className="text-center mb-8">
                 <h2 className="mb-2 font-bold">Ajouter les signataires</h2>
@@ -1185,24 +1451,35 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
 
               {/* Signatories list */}
               <div className="space-y-3 mb-6">
-                {signatories.map((s, idx) => (
-                  <Card key={idx} className="p-4 border-l-4 border-l-[#4CAF50] bg-[#4CAF50]/5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-[#4CAF50]/10 flex items-center justify-center">
-                          <Users className="w-5 h-5 text-[#4CAF50]" />
+                {signatories.map((s, idx) => {
+                  const locked = isNamedContractParty(s.email);
+                  return (
+                    <Card key={idx} className="p-4 border-l-4 border-l-[#4CAF50] bg-[#4CAF50]/5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-[#4CAF50]/10 flex items-center justify-center">
+                            <Users className="w-5 h-5 text-[#4CAF50]" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-sm">{s.name || s.email}</p>
+                            {s.name && <p className="text-xs text-muted-foreground">{s.email}</p>}
+                            <p className="text-[10px] text-muted-foreground uppercase">{ROLE_LABELS[s.role]}</p>
+                            {locked && (
+                              <p className="text-[10px] text-muted-foreground italic">Partie nommée dans le contrat — ne peut pas être retirée</p>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-bold text-sm">{s.name || s.email}</p>
-                          <p className="text-[10px] text-muted-foreground uppercase">{ROLE_LABELS[s.role]}</p>
-                        </div>
+                        {locked ? (
+                          <Lock className="w-4 h-4 text-muted-foreground shrink-0" />
+                        ) : (
+                          <Button variant="ghost" size="sm" onClick={() => removeSignatory(s.email)}>
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        )}
                       </div>
-                      <Button variant="ghost" size="sm" onClick={() => removeSignatory(s.email)}>
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </Card>
-                ))}
+                    </Card>
+                  );
+                })}
               </div>
 
               {/* Add signatory form */}
@@ -1213,9 +1490,12 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                     <Input placeholder="Sophie Martin" value={newSignatory.name}
                       onChange={(e) => setNewSignatory((p) => ({ ...p, name: e.target.value }))} />
                   </FieldGroup>
-                  <FieldGroup label="Email *">
+                  <FieldGroup label="Email *" error={validationErrors["newSignatory"]}>
                     <Input type="email" placeholder="sophie@exemple.com" value={newSignatory.email}
-                      onChange={(e) => setNewSignatory((p) => ({ ...p, email: e.target.value }))} />
+                      onChange={(e) => {
+                        setNewSignatory((p) => ({ ...p, email: e.target.value }));
+                        if (validationErrors["newSignatory"]) setValidationErrors((err) => { const { newSignatory: _, ...rest } = err; return rest; });
+                      }} />
                   </FieldGroup>
                   <FieldGroup label="Rôle" className="md:col-span-2">
                     <Select value={String(newSignatory.role)} onValueChange={(v) => setNewSignatory((p) => ({ ...p, role: Number(v) }))}>
@@ -1267,8 +1547,8 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
               {/* Consent Checkbox */}
               <div className={`p-4 border rounded-lg mb-8 ${validationErrors["consent"] ? "border-destructive bg-destructive/5" : "border-primary/20 bg-primary/5"}`}>
                 <div className="flex items-start gap-3 cursor-pointer" onClick={() => { setConsentChecked(!consentChecked); if (validationErrors["consent"]) setValidationErrors((e) => { const { consent: _, ...r } = e; return r; }); }}>
-                  <Checkbox id="consent" checked={consentChecked} onCheckedChange={(v) => { setConsentChecked(!!v); }} />
-                  <Label htmlFor="consent" className="cursor-pointer text-sm leading-relaxed">
+                  <Checkbox id="consent" checked={consentChecked} onCheckedChange={(v) => { setConsentChecked(!!v); }} className="mt-1" />
+                  <Label htmlFor="consent" className="block cursor-pointer text-sm leading-relaxed">
                     Je certifie avoir <strong>lu et approuvé</strong> le contrat dans son intégralité. Je confirme que les informations saisies sont exactes et je consens à la signature électronique sur blockchain. Ce consentement constitue une preuve légale au sens de {E_SIGNATURE_LEGAL_BASIS[formData.details.country] || DEFAULT_E_SIGNATURE_LEGAL_BASIS}.
                   </Label>
                 </div>
