@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const prisma = require('../models/prisma');
 const emailService = require('./email');
+const notificationService = require('./notification');
 const logger = require('../utils/logger');
 const { config } = require('../config');
 const { UserRole } = require('@prisma/client');
@@ -206,13 +207,31 @@ class AuthService {
 
                 if (pendingCount === 0) {
                     // Tous les signataires ont un wallet ! Le contrat est prêt.
-                    await prisma.contractCache.update({
+                    const draft = await prisma.contractCache.update({
                         where: { id: draftId },
-                        data: { status: 'READY_TO_DEPLOY' }
+                        data: { status: 'READY_TO_DEPLOY' },
+                        include: { user: { select: { id: true, email: true } } },
                     });
                     logger.info(`[Drafts] Le brouillon ${draftId} est maintenant READY_TO_DEPLOY !`);
-                    
-                    // TODO: Envoyer un email au créateur pour lui dire de déployer
+
+                    // Without this, the creator has no way to know it's their turn to deploy —
+                    // they'd have to remember to come back and check the contract page themselves.
+                    if (draft.user) {
+                        await notificationService.create(draft.user.id, {
+                            type: 'CONTRACT_READY_TO_DEPLOY',
+                            title: 'Contrat prêt à être déployé',
+                            message: `Tous les signataires de "${draft.title}" ont désormais un compte. Vous pouvez déployer le contrat sur la blockchain.`,
+                            contractCacheId: draft.id,
+                        });
+                        if (draft.user.email) {
+                            emailService.sendGenericNotification(
+                                draft.user.email,
+                                'Contrat prêt à être déployé',
+                                `Tous les signataires de "${draft.title}" ont désormais un compte sur ContracTify. Vous pouvez déployer le contrat sur la blockchain pour lancer les signatures.`,
+                                draft.id
+                            ).catch(err => logger.error(`[Email] Failed to send ready-to-deploy notice for draft ${draftId}:`, err));
+                        }
+                    }
                 }
             }
         } catch (error) {

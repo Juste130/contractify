@@ -35,6 +35,7 @@ async function hasContractAccess(contract, user, signatories) {
 exports.saveDraft = async (req, res, next) => {
     try {
         const userId = req.user.userId;
+        const creatorEmail = req.user.email;
         const { title, metadata, signatories, ipfsHash } = req.body;
 
         if (!title || !title.trim()) {
@@ -72,10 +73,16 @@ exports.saveDraft = async (req, res, next) => {
             const walletAddress = s.walletAddress || (user?.wallet?.publicAddress) || null;
             const isRegistered = !!walletAddress;
 
+            // Role 0 (Créateur) reflects a fact — this signatory is the account that submitted
+            // the draft — not a form slot the client can claim. Derived here from the
+            // authenticated session, overriding whatever role the client sent for this entry.
+            const isDraftCreator = creatorEmail && s.email.toLowerCase() === creatorEmail.toLowerCase();
+            const role = isDraftCreator ? 0 : s.role;
+
             return {
                 email: s.email,
                 name: s.name || null,
-                role: s.role,
+                role,
                 walletAddress,
                 isRegistered
             };
@@ -121,9 +128,13 @@ exports.saveDraft = async (req, res, next) => {
             }
         }
 
-        // Send invitation emails to each signatory (non-blocking)
+        // Invite not-yet-registered signatories to create an account now — they need lead
+        // time, since deployment can't happen until every signatory has a wallet. Signatories
+        // who are already registered are deliberately NOT emailed "please sign" here: nobody
+        // can actually sign until the contract is deployed on-chain (status PENDING_SIGNATURES),
+        // which only happens later when the creator deploys. That "please sign" email is sent
+        // from markDraftDeployed instead, once signing is genuinely possible.
         const notRegisteredSignatories = contract.signatories.filter(s => !s.isRegistered);
-        const registeredSignatories = contract.signatories.filter(s => s.isRegistered);
 
         for (const signatory of notRegisteredSignatories) {
             emailService.sendDraftInvitationEmail(
@@ -132,16 +143,6 @@ exports.saveDraft = async (req, res, next) => {
                 contract.title,
                 contract.id
             ).catch(err => logger.error(`[Email] Failed to send invitation to ${signatory.email}:`, err));
-        }
-
-        // For already-registered signatories, send a signature request
-        for (const signatory of registeredSignatories) {
-            emailService.sendSignatureRequest(
-                signatory.email,
-                contract.title,
-                contract.id,
-                signatory.name || signatory.email
-            ).catch(err => logger.error(`[Email] Failed to send sign request to ${signatory.email}:`, err));
         }
 
         res.status(201).json({ message: 'Draft saved successfully', contract });
@@ -191,7 +192,7 @@ exports.markDraftDeployed = async (req, res, next) => {
             return res.status(400).json({ error: 'transactionHash is required' });
         }
 
-        const contract = await prisma.contractCache.findUnique({ where: { id } });
+        const contract = await prisma.contractCache.findUnique({ where: { id }, include: { signatories: true } });
         if (!contract) return res.status(404).json({ error: 'Draft not found' });
         if (contract.userId !== userId) return res.status(403).json({ error: 'Unauthorized' });
 
@@ -203,7 +204,18 @@ exports.markDraftDeployed = async (req, res, next) => {
             return res.status(400).json({ error: `Could not verify on-chain deployment: ${verifyError.message}` });
         }
 
-        const updatedContract = await prisma.contractCache.update({
+        // The background event listener (blockchain-sync.js startEventListener) polls the
+        // chain independently every ~15s and, on catching this same ContractCreated event
+        // before this request finishes, may have already upserted a placeholder ContractCache
+        // row for this contractId — with no IPFS hash and no signatories, since it only knows
+        // what's on-chain. contractId is unique, so whichever write loses this race must
+        // reconcile with whatever already claimed it, instead of throwing and leaving two rows
+        // (this real draft with the content, and an empty phantom with the contractId) for the
+        // same on-chain contract.
+        const dropStalePlaceholder = () => prisma.contractCache.deleteMany({
+            where: { contractId: verified.contractId, id: { not: id } }
+        });
+        const claimContractId = () => prisma.contractCache.update({
             where: { id },
             data: {
                 contractId: verified.contractId,
@@ -215,9 +227,33 @@ exports.markDraftDeployed = async (req, res, next) => {
             }
         });
 
+        await dropStalePlaceholder();
+        let updatedContract;
+        try {
+            updatedContract = await claimContractId();
+        } catch (err) {
+            if (err.code !== 'P2002') throw err;
+            // Lost a tighter race: the placeholder was (re-)created between the delete above
+            // and this update. One more attempt is enough — the event listener only fires once
+            // per event, not in a tight loop against us.
+            await dropStalePlaceholder();
+            updatedContract = await claimContractId();
+        }
+
         // Now that the draft row owns this contractId, pull the authoritative on-chain
         // details (signers, escrow, dates...) into it.
         await blockchainSyncService.syncContract(verified.contractId.toString(), userId);
+
+        // Signing only becomes possible now (status PENDING_SIGNATURES) — this is the right
+        // moment to tell every signatory, including the creator, that it's their turn to sign.
+        for (const signatory of contract.signatories) {
+            emailService.sendSignatureRequest(
+                signatory.email,
+                contract.title,
+                contract.id,
+                signatory.name || signatory.email
+            ).catch(err => logger.error(`[Email] Failed to send sign request to ${signatory.email}:`, err));
+        }
 
         res.json({ message: 'Contract marked as deployed', contract: updatedContract });
     } catch (error) {
@@ -269,13 +305,17 @@ exports.resendSignatureRequest = async (req, res, next) => {
                 contract.title,
                 contract.id
             );
-        } else {
+        } else if (contract.contractId) {
+            // A registered signatory can only actually sign once the contract is deployed —
+            // before that, there is nothing to remind them of (they aren't the blocker).
             await emailService.sendSignatureRequest(
                 signatory.email,
                 contract.title,
-                contract.contractId || contract.id,
+                contract.contractId,
                 signatory.name || signatory.email
             );
+        } else {
+            return res.status(400).json({ error: "Ce contrat n'est pas encore déployé — il n'y a rien à relancer pour ce signataire pour le moment." });
         }
 
         logger.info(`[Email] Signature reminder resent to ${signatory.email} for contract ${contract.id}`);
