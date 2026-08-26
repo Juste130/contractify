@@ -12,9 +12,8 @@ import { useAuthStore } from "@/hooks/useAuth";
  * l'utilisateur en base de données.
  *
  * Priorité des adresses :
- *   1. Smart Wallet Privy natif (walletClientType === 'smart_wallet')
- *   2. Embedded Wallet Privy classique (EOA)
- *   3. Adresse du user.wallet (EOA via Privy user object)
+ *   1. Embedded Wallet Privy classique (EOA) — gas couvert par le sponsoring natif Privy
+ *   2. Adresse du user.wallet (EOA via Privy user object)
  */
 export function AuthInitializer() {
   const { ready, authenticated, user, getAccessToken } = usePrivy();
@@ -42,20 +41,17 @@ export function AuthInitializer() {
           return;
         }
 
-        // Déterminer l'adresse wallet à enregistrer en base
-        // Priorité : Smart Wallet Privy > EOA Privy > EOA du user object
-        const smartWallet = wallets.find(w => w.walletClientType === 'smart_wallet');
+        // Déterminer l'adresse wallet à enregistrer en base.
+        // Il n'y a pas de smart wallet à prioriser ici : useWallets() ne retourne que les
+        // wallets embarqués/externes (EOA) — les smart wallets natifs Privy sont un concept
+        // séparé (useSmartWallets()) que cette app n'utilise pas. Le gas est couvert via le
+        // sponsoring natif Privy sur cette même adresse EOA, pas via un smart wallet.
         const eoaWallet = wallets.find(w => w.walletClientType === 'privy') || wallets[0];
 
-        const walletAddress = smartWallet?.address
-          || eoaWallet?.address
-          || user.wallet?.address;
+        const walletAddress = eoaWallet?.address || user.wallet?.address;
 
         if (walletAddress) {
-          console.log(
-            `[AuthInitializer] Using wallet address: ${walletAddress}`,
-            smartWallet ? '(Smart Wallet Privy)' : '(EOA Privy)'
-          );
+          console.log(`[AuthInitializer] Using wallet address: ${walletAddress} (EOA Privy)`);
         }
 
         await privyLogin(

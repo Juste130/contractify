@@ -1,9 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useAuthStore } from "@/hooks/useAuth";
+
+// Only ever send people to a path inside our own app — a redirect/callbackUrl value
+// come from a URL query string, so treating it as trustworthy without this check would
+// let a crafted invitation-style link send a just-authenticated user to an external site.
+function safeInternalPath(path: string | null): string | null {
+    if (!path) return null;
+    return path.startsWith("/") && !path.startsWith("//") ? path : null;
+}
 
 /**
  * Logique partagée entre /login et /signup : les deux pages ne sont que des
@@ -18,9 +26,16 @@ export function usePrivySync() {
     const { ready, authenticated, login, user, getAccessToken } = usePrivy();
     const { wallets } = useWallets();
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { privyLogin, isAuthenticated } = useAuthStore();
     const [isSyncing, setIsSyncing] = useState(false);
     const syncInProgress = useRef(false);
+
+    // /signup links use "redirect" (see sendDraftInvitationEmail), /login uses
+    // "callbackUrl" (see ProtectedRoute/AdminGuard) — both are honored here so an
+    // invited signatory lands back on the contract they were invited to instead of
+    // a generic dashboard, no matter which of the two page ever forwarded them.
+    const destination = safeInternalPath(searchParams.get("redirect") || searchParams.get("callbackUrl")) || "/dashboard";
 
     useEffect(() => {
         if (process.env.NODE_ENV === 'development') {
@@ -28,12 +43,12 @@ export function usePrivySync() {
         }
     }, [ready, authenticated, isAuthenticated]);
 
-    // Si déjà authentifié PARTOUT, rediriger vers dashboard
+    // Si déjà authentifié PARTOUT, rediriger vers la destination demandée (ou dashboard)
     useEffect(() => {
         if (ready && authenticated && user && isAuthenticated) {
-            router.replace('/dashboard');
+            router.replace(destination);
         }
-    }, [ready, authenticated, user, isAuthenticated, router]);
+    }, [ready, authenticated, user, isAuthenticated, router, destination]);
 
     // Auto-sync si déjà authentifié via Privy mais pas backend
     useEffect(() => {
@@ -47,14 +62,15 @@ export function usePrivySync() {
                     if (!token) { setIsSyncing(false); return; }
 
                     const email = user.email?.address || user.google?.email;
-                    const smartWallet = wallets.find(w => w.walletClientType === 'smart_wallet');
+                    // No smart wallet to prioritize: useWallets() only returns embedded/external
+                    // EOA wallets. Gas is covered by Privy's native sponsorship on this same EOA.
                     const eoaWallet = wallets.find(w => w.walletClientType === 'privy') || wallets[0];
-                    const walletAddress = smartWallet?.address || eoaWallet?.address || user.wallet?.address;
+                    const walletAddress = eoaWallet?.address || user.wallet?.address;
 
                     if (!email) { setIsSyncing(false); return; }
 
                     await privyLogin({ privyId: user.id, email, walletAddress, profileData: { name: user.google?.name || email.split('@')[0] } }, token);
-                    router.replace("/dashboard");
+                    router.replace(destination);
                 } catch (error) {
                     console.error("Error syncing with backend:", error);
                     setIsSyncing(false);
@@ -68,7 +84,7 @@ export function usePrivySync() {
         // `wallets` retiré des dépendances : ce tableau change plusieurs fois pendant
         // la création du wallet embarqué et redéclenchait cet effet en rafale.
         // `wallets` est lu depuis la closure au moment de l'exécution, ce qui suffit ici.
-    }, [ready, authenticated, user, isAuthenticated, privyLogin, router]);
+    }, [ready, authenticated, user, isAuthenticated, privyLogin, router, destination]);
 
     const handleLogin = () => {
         if (ready && !authenticated) {

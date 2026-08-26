@@ -21,7 +21,12 @@ export const useAuthStore = create<AuthState>()(
         (set) => ({
             user: null,
             isAuthenticated: false,
-            isLoading: false,
+            // Starts true, not false: right after a reload, whether the session is valid
+            // is genuinely unknown until checkAuth() resolves — it is not yet "logged out".
+            // ProtectedRoute below renders nothing while `!isAuthenticated`, so a `false`
+            // default here made it flash a blank page on every reload of a protected route,
+            // for the one render before the checkAuth() effect had a chance to flip this.
+            isLoading: true,
             error: null,
 
             logout: async () => {

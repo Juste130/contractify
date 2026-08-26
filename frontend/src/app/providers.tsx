@@ -55,9 +55,9 @@ export default function Providers({ children }: { children: ReactNode }) {
         mfa: {
           noPromptOnMfaRequired: false,
         },
-        // Smart Wallets natifs Privy (ERC-4337)
-        // Privy gère le bundler et le paymaster directement.
-        // Aucune dépendance externe (Biconomy, ZeroDev, etc.) n'est requise.
+        // Wallet embarqué (EOA) classique — le gas est couvert par le sponsoring natif
+        // Privy ("App pays", activé côté Dashboard), pas par des smart wallets ERC-4337 :
+        // ceux-ci nécessiteraient un SmartWalletsProvider séparé, jamais mis en place ici.
         embeddedWallets: {
           ethereum: {
             createOnLogin: 'users-without-wallets',
