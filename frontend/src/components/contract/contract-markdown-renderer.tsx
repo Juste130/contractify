@@ -2,9 +2,18 @@
 
 /**
  * ContractMarkdownRenderer
- * Renders AI-generated Markdown contract content with proper legal document styling.
- * Handles: headings, bold/italic, lists, horizontal rules, paragraphs.
+ * Renders AI-generated contract content with proper legal document styling.
+ *
+ * The AI now writes plain text, not Markdown (see backend/services/ai.js) — the target
+ * audience doesn't know Markdown, and this renderer never supported tables anyway, which
+ * made an AI-drawn Markdown signature table render as garbled "| | |" text. The plain-text
+ * convention: first non-empty line = document title (any case), lines starting with
+ * "Article N" / "Chapitre" / "Titre" / "Préambule" / "Annexe" = section headers, blank
+ * lines separate paragraphs. Markdown syntax (#, ##, **bold**, lists) is still recognized
+ * below for backward compatibility with contracts generated before this change.
  */
+const SECTION_HEADER_RE = /^(article\s+\d+|chapitre\b|titre\s+[ivx\d]|préambule\b|préambule\s*:|annexe\s*\d*)/i
+
 export function ContractMarkdownRenderer({ content }: { content: string }) {
   if (!content) {
     return (
@@ -14,23 +23,47 @@ export function ContractMarkdownRenderer({ content }: { content: string }) {
     )
   }
 
-  // Parse markdown to React elements without external lib to avoid SSR issues
+  // Parse to React elements without external lib to avoid SSR issues
   const lines = content.split('\n')
   const elements: React.ReactNode[] = []
   let i = 0
+  let titleConsumed = false
 
   while (i < lines.length) {
     const line = lines[i]
+    const trimmed = line.trim()
 
-    // H1
-    if (line.startsWith('# ')) {
+    // Plain-text document title: the first non-empty line, when it isn't itself a
+    // section header (a contract can legitimately open straight on "Préambule").
+    if (!titleConsumed && trimmed !== '' && !line.startsWith('#') && !SECTION_HEADER_RE.test(trimmed)) {
+      titleConsumed = true
+      elements.push(
+        <h1 key={i} className="text-2xl font-bold text-gray-900 mt-2 mb-4 pb-3 border-b-2 border-gray-200 uppercase tracking-wide text-center">
+          {formatInline(trimmed)}
+        </h1>
+      )
+      i++
+      continue
+    }
+    if (trimmed !== '') titleConsumed = true
+
+    // Plain-text section header: "Article 3 - ...", "Chapitre II ...", "Préambule", "Annexe 1 ..."
+    if (SECTION_HEADER_RE.test(trimmed) && trimmed.length < 140) {
+      elements.push(
+        <h2 key={i} className="text-lg font-bold text-gray-800 mt-8 mb-3 pb-1 border-b border-gray-200 uppercase tracking-wide">
+          {formatInline(trimmed)}
+        </h2>
+      )
+    }
+    // H1 (legacy Markdown)
+    else if (line.startsWith('# ')) {
       elements.push(
         <h1 key={i} className="text-2xl font-bold text-gray-900 mt-10 mb-4 pb-3 border-b-2 border-gray-200 uppercase tracking-wide text-center">
           {formatInline(line.slice(2).trim())}
         </h1>
       )
     }
-    // H2
+    // H2 (legacy Markdown)
     else if (line.startsWith('## ')) {
       elements.push(
         <h2 key={i} className="text-lg font-bold text-gray-800 mt-8 mb-3 pb-1 border-b border-gray-200 uppercase tracking-wide">
@@ -38,7 +71,7 @@ export function ContractMarkdownRenderer({ content }: { content: string }) {
         </h2>
       )
     }
-    // H3
+    // H3 (legacy Markdown)
     else if (line.startsWith('### ')) {
       elements.push(
         <h3 key={i} className="text-base font-semibold text-gray-700 mt-6 mb-2">
@@ -49,6 +82,19 @@ export function ContractMarkdownRenderer({ content }: { content: string }) {
     // Horizontal rule
     else if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
       elements.push(<hr key={i} className="border-gray-200 my-6" />)
+    }
+    // Leftover Markdown table row (legacy content only — the AI no longer draws these):
+    // render as a plain space-separated line instead of literal "| a | b |" garbage.
+    else if (/^\s*\|.*\|\s*$/.test(line)) {
+      const cells = line.split('|').map(c => c.trim()).filter(Boolean)
+      const isSeparatorRow = cells.every(c => /^:?-+:?$/.test(c))
+      if (!isSeparatorRow && cells.length > 0) {
+        elements.push(
+          <p key={i} className="text-gray-800 leading-relaxed my-1">
+            {formatInline(cells.join('   —   '))}
+          </p>
+        )
+      }
     }
     // Unordered list item
     else if (/^[-*•]\s/.test(line)) {
@@ -111,7 +157,11 @@ export function ContractMarkdownRenderer({ content }: { content: string }) {
   }
 
   return (
-    <div className="contract-content font-serif text-[15px]">
+    // lining-nums: Georgia (the font-serif fallback here) defaults to old-style figures —
+    // uneven digit height, some with descenders — which reads as an inconsistent/odd font
+    // wherever amounts, dates or article numbers appear. Lining figures keep every digit
+    // the same height, aligned with the surrounding text, as expected in a legal document.
+    <div className="contract-content font-serif text-[15px] lining-nums tabular-nums">
       {elements}
     </div>
   )
@@ -151,12 +201,10 @@ function formatInline(text: string): React.ReactNode {
         </em>
       )
     } else if (raw.startsWith('`')) {
-      // Code
-      parts.push(
-        <code key={match.index} className="bg-gray-100 text-gray-800 px-1 py-0.5 rounded text-xs font-mono">
-          {raw.slice(1, -1)}
-        </code>
-      )
+      // The AI sometimes wraps a number/amount in backticks out of habit — this is a legal
+      // document, not code, so it must stay in the same serif body font as the rest of the
+      // paragraph rather than switching to a monospace "code" style.
+      parts.push(raw.slice(1, -1))
     }
 
     lastIndex = match.index + raw.length

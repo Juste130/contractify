@@ -63,11 +63,33 @@ export async function generateCertifiedPDF(data: PDFData) {
     addText(data.title.toUpperCase(), 16, true, [30, 30, 30]);
     yPos += 6;
 
-    // 3. Parse and render markdown content properly in PDF
+    // 3. Render contract content — the AI now writes plain text (see backend/services/ai.js):
+    // first non-empty line = document title, "Article N / Chapitre / Préambule / Annexe"
+    // lines = section headers. Legacy #/##/### Markdown is still recognized for contracts
+    // generated before this change.
     if (data.content) {
         const lines = data.content.split('\n');
+        const sectionHeaderRe = /^(article\s+\d+|chapitre\b|titre\s+[ivx\d]|préambule\b|annexe\s*\d*)/i;
+        let titleConsumed = false;
         for (const line of lines) {
-            if (line.startsWith('# ')) {
+            const trimmed = line.trim();
+
+            if (!titleConsumed && trimmed !== '' && !line.startsWith('#') && !sectionHeaderRe.test(trimmed)) {
+                titleConsumed = true;
+                yPos += 4;
+                checkPageBreak(10);
+                addText(trimmed.toUpperCase(), 13, true, [30, 30, 30]);
+                yPos += 2;
+                continue;
+            }
+            if (trimmed !== '') titleConsumed = true;
+
+            if (sectionHeaderRe.test(trimmed) && trimmed.length < 140) {
+                yPos += 3;
+                checkPageBreak(9);
+                addText(trimmed, 11, true, [50, 50, 50]);
+                yPos += 1;
+            } else if (line.startsWith('# ')) {
                 yPos += 4;
                 checkPageBreak(10);
                 addText(line.slice(2).trim().toUpperCase(), 13, true, [30, 30, 30]);
@@ -88,10 +110,18 @@ export async function generateCertifiedPDF(data: PDFData) {
                 doc.setDrawColor(200, 200, 200);
                 doc.line(margin, yPos, pageWidth - margin, yPos);
                 yPos += 4;
+            } else if (/^\s*\|.*\|\s*$/.test(line)) {
+                // Leftover Markdown table row (legacy content only) — render as plain text
+                // instead of literal pipes; the AI no longer draws signature tables.
+                const cells = line.split('|').map((c) => c.trim()).filter(Boolean);
+                const isSeparatorRow = cells.every((c) => /^:?-+:?$/.test(c));
+                if (!isSeparatorRow && cells.length > 0) {
+                    addText(cells.join('   —   '), 10, false, [60, 60, 60]);
+                }
             } else if (line.trim() === '') {
                 yPos += 3;
             } else {
-                // Strip inline markdown (**bold**, *italic*)
+                // Strip any leftover inline markdown (**bold**, *italic*)
                 const clean = line
                     .replace(/\*\*([^*]+)\*\*/g, '$1')
                     .replace(/\*([^*]+)\*/g, '$1')

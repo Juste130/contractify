@@ -153,10 +153,22 @@ class AIService {
             const content = await this._chat([
                 {
                     role: 'system',
-                    content: 'Tu es un avocat d\'affaires expert. Tu rédiges des contrats juridiques professionnels, structurés, complets et parfaitement formatés en Markdown. Tu n\'ajoutes aucun commentaire en dehors du contrat lui-même.',
+                    // Le public cible ne connaît pas le Markdown — un contrat truffé de #, **
+                    // et de tableaux en | est illisible tel quel pour lui, et le renderer
+                    // maison de l'app ne sait de toute façon pas afficher un tableau Markdown
+                    // (d'où le bloc signature qui s'affichait cassé). Texte brut uniquement.
+                    content: 'Tu es un avocat d\'affaires expert. Tu rédiges des contrats juridiques professionnels, structurés et complets, en TEXTE BRUT et en français courant compréhensible par un non-juriste. N\'utilise JAMAIS de syntaxe Markdown ni aucun langage de balisage : pas de #, pas de **, pas de *, pas de _, pas de `, pas de tableaux avec des |. Tu n\'ajoutes aucun commentaire en dehors du contrat lui-même.',
                 },
                 { role: 'user', content: prompt },
-            ], { temperature: 0.2, max_tokens: 8192 });
+            ], { temperature: 0.2, max_tokens: 6000 });
+            // Groq compte le prompt + max_tokens contre la limite TPM du palier gratuit
+            // (8000 tokens/minute pour ce modèle) — pas seulement ce qui est réellement
+            // généré. 8192 dépassait systématiquement ce plafond dès que le prompt
+            // dépassait ~0 token utile, faisant échouer TOUTE génération de contrat
+            // (voir logs backend, "Request too large... Limit 8000, Requested 9040").
+            // 6000 laisse ~2000 tokens de marge pour le prompt (largement suffisant : les
+            // sections imposées + rappel de clauses standards font quelques centaines de
+            // tokens) tout en restant assez généreux pour un contrat complet en Markdown.
 
             const suggestions = this.extractClauseSuggestions(content);
 
@@ -174,11 +186,11 @@ class AIService {
             const text = await this._chat([
                 {
                     role: 'system',
-                    content: 'Tu es un expert juridique. Tu améliores des clauses contractuelles. Tu réponds toujours avec le format :\nAMÉLIORATION: [la clause améliorée]\nEXPLICATION: [explication courte]',
+                    content: 'Tu es un expert juridique. Tu améliores des clauses contractuelles, en TEXTE BRUT (jamais de Markdown : pas de #, **, *, `, ni de tableaux avec des |). Tu réponds toujours avec le format :\nAMÉLIORATION: [la clause améliorée]\nEXPLICATION: [explication courte]',
                 },
                 {
                     role: 'user',
-                    content: `Améliore cette clause juridique pour la rendre plus claire et précise.\n${context ? `Contexte: ${context}\n` : ''}Clause originale:\n${clause}`,
+                    content: `Améliore ce texte juridique pour le rendre plus clair et précis, en conservant sa structure en articles et son format texte brut (aucun symbole Markdown).\n${context ? `Contexte: ${context}\n` : ''}Texte original:\n${clause}`,
                 },
             ], { max_tokens: 2048 });
 
@@ -231,7 +243,7 @@ class AIService {
                     role: 'user',
                     content: `Analyse ce contrat et identifie les problèmes de conformité et les suggestions d'amélioration :\n\n${contractText.substring(0, 3000)}`,
                 },
-            ], { max_tokens: 2048 });
+            ], { max_tokens: 2048, temperature: 0 });
 
             const { issues, suggestions } = this.parseValidation(text);
             logger.info('Contract validation completed');
@@ -268,7 +280,14 @@ ${sectionsList}
 
 ${STANDARD_CLAUSES_REMINDER}
 
-Rédige un contrat complet, structuré en Markdown (# pour les titres, ## pour les articles). Utilise un langage juridique précis et professionnel.`;
+Rédige un contrat complet, en TEXTE BRUT uniquement — aucun symbole Markdown (pas de #, pas de **, pas de listes avec *, pas de tableaux avec des |, pas de guillemets inversés \` autour des montants, dates ou articles). Respecte ces règles de mise en forme :
+- La toute première ligne est le titre du contrat, en MAJUSCULES, seule sur sa ligne.
+- Chaque article commence sur sa propre ligne par "Article N - Titre de l'article" (numérotation continue, sans autre symbole devant).
+- Les paragraphes sont séparés par une ligne vide.
+- Pour l'article final ("Signatures et date"), rédige uniquement une formule de clôture en texte (lieu, date, nombre d'exemplaires, mention que chaque partie signe électroniquement via la plateforme) — NE DESSINE JAMAIS de tableau, de grille ou de lignes de signature manuscrite : la signature elle-même est gérée séparément par la plateforme, pas dans ce texte.
+- Pour identifier un particulier, n'utilise QUE les informations effectivement fournies ci-dessus (nom, adresse, email...). Si aucune date de naissance n'est fournie, ne l'invente jamais et ne laisse aucun espace réservé ou mention du type "né(e) le ___" — omets simplement cette précision.
+
+Utilise un langage juridique précis et professionnel, en français courant compréhensible par un non-juriste.`;
     }
 
     extractClauseSuggestions(content) {
