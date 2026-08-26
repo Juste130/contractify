@@ -4,7 +4,7 @@ export function LandingFooter() {
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
           <div>
-            <h3 className="text-[#FFC107] mb-4">Contractify</h3>
+            <h3 className="text-[#FFC107] mb-4">ContracTify</h3>
             <p className="text-sm text-gray-400">
               Simplifiez la gestion de vos contrats avec l'IA.
             </p>
@@ -39,7 +39,7 @@ export function LandingFooter() {
         </div>
         
         <div className="pt-8 border-t border-gray-800 text-center text-sm text-gray-400">
-          <p>© 2025 Contractify. Tous droits réservés.</p>
+          <p>© 2025 ContracTify. Tous droits réservés.</p>
         </div>
       </div>
     </footer>

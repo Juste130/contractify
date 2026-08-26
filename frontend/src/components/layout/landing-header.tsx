@@ -7,7 +7,7 @@ export function LandingHeader() {
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <Link href="/" className="text-[#FFC107] text-lg font-bold">
-            Contractify
+            ContracTify
           </Link>
 
           <nav className="hidden md:flex items-center gap-8">

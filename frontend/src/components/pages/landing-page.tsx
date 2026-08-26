@@ -110,7 +110,7 @@ export function LandingPage() {
             <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-border w-full max-w-4xl transition-transform hover:scale-[1.01] duration-300">
               <ImageWithFallback
                 src="https://images.unsplash.com/photo-1748609339084-ea43ec1b8fbb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBidXNpbmVzcyUyMGRhc2hib2FyZHxlbnwxfHx8fDE3NjYwMDAyNjN8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
-                alt="Dashboard Contractify"
+                alt="Dashboard ContracTify"
                 className="w-full object-cover"
               />
             </div>
@@ -122,7 +122,7 @@ export function LandingPage() {
       <section id="features" className="py-20 bg-muted px-4 sm:px-6 lg:px-8">
         <div className="container mx-auto max-w-6xl">
           <div className="text-center mb-12">
-            <h2 className="mb-4">Pourquoi choisir Contractify ?</h2>
+            <h2 className="mb-4">Pourquoi choisir ContracTify ?</h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
               Une solution complète pour transformer votre gestion de contrats
             </p>
@@ -254,7 +254,7 @@ export function LandingPage() {
           <div className="text-center mb-12">
             <h2 className="mb-4">Questions fréquentes</h2>
             <p className="text-muted-foreground">
-              Tout ce que vous devez savoir sur Contractify
+              Tout ce que vous devez savoir sur ContracTify
             </p>
           </div>
 
@@ -278,7 +278,7 @@ export function LandingPage() {
             Prêt à simplifier vos contrats ?
           </h2>
           <p className="text-[#212121]/80 text-xl mb-8">
-            Rejoignez des milliers d'entreprises qui font confiance à Contractify
+            Rejoignez des milliers d'entreprises qui font confiance à ContracTify
           </p>
           <Link href="/signup">
             <Button

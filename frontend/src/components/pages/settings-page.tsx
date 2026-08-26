@@ -206,7 +206,7 @@ export function SettingsPage() {
                       <div>
                         <p className="text-sm font-medium">Sécurité Blockchain</p>
                         <p className="text-xs text-muted-foreground">
-                          Votre clé privée n'est jamais stockée sur nos serveurs. Contractify utilise votre wallet local pour valider l'intégrité de vos documents.
+                          Votre clé privée n'est jamais stockée sur nos serveurs. ContracTify utilise votre wallet local pour valider l'intégrité de vos documents.
                         </p>
                       </div>
                     </div>
@@ -314,7 +314,7 @@ export function SettingsPage() {
                     <div className="flex-1">
                       <h4 className="mb-1">Déconnexion</h4>
                       <p className="text-sm text-muted-foreground">
-                        Met fin à votre session Contractify et déconnecte votre wallet Privy sur cet appareil.
+                        Met fin à votre session ContracTify et déconnecte votre wallet Privy sur cet appareil.
                       </p>
                     </div>
                     <Button
