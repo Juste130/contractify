@@ -2,17 +2,28 @@
 
 import { useState, useEffect } from "react";
 import apiClient from "@/lib/api/client";
+import { useAuthStore } from "@/hooks/useAuth";
+import { useContract } from "@/hooks/useContract";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Shield, Server, AlertCircle, CheckCircle, Activity, XCircle } from "lucide-react";
+import { Shield, Server, AlertCircle, CheckCircle, Activity, XCircle, Loader2, PauseCircle, PlayCircle } from "lucide-react";
 
 export function AdminSystemPage() {
     const [apiStatus, setApiStatus] = useState<'loading' | 'online' | 'offline'>('loading');
     const [dbStatus, setDbStatus] = useState<'loading' | 'online' | 'offline'>('loading');
+    const [pauseState, setPauseState] = useState<{ paused: boolean; pausedAt: number; owner: string; emergencyAdmin: string } | null>(null);
+    const [chainStatus, setChainStatus] = useState<'loading' | 'online' | 'offline'>('loading');
+    const [pauseReason, setPauseReason] = useState("");
+    const [pauseActionLoading, setPauseActionLoading] = useState(false);
+    const [pauseActionError, setPauseActionError] = useState<string | null>(null);
+    const { user } = useAuthStore();
+    const { getPauseState, emergencyPause, resumeContractPlatform } = useContract();
+
+    const isAdmin = user?.role === 'ADMIN';
 
     useEffect(() => {
         const checkHealth = async () => {
@@ -27,6 +38,43 @@ export function AdminSystemPage() {
         };
         checkHealth();
     }, []);
+
+    const refreshPauseState = async () => {
+        setChainStatus('loading');
+        try {
+            const state = await getPauseState();
+            setPauseState(state);
+            setChainStatus('online');
+        } catch {
+            setChainStatus('offline');
+        }
+    };
+
+    useEffect(() => {
+        refreshPauseState();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const handlePauseToggle = async () => {
+        if (!pauseReason.trim()) return;
+        setPauseActionLoading(true);
+        setPauseActionError(null);
+        try {
+            if (pauseState?.paused) {
+                await resumeContractPlatform(pauseReason);
+            } else {
+                await emergencyPause(pauseReason);
+            }
+            setPauseReason("");
+            await refreshPauseState();
+        } catch (err: any) {
+            // The contract itself is the real gate (onlyAuthorizedPauser / onlyOwnerOrEmergencyAdmin) —
+            // a wallet that isn't actually authorized on-chain reverts here rather than silently "succeeding".
+            setPauseActionError(err?.reason || err?.message || "Action refusée par le smart contract.");
+        } finally {
+            setPauseActionLoading(false);
+        }
+    };
 
     const StatusBadge = ({ status }: { status: 'loading' | 'online' | 'offline' }) => {
         if (status === 'loading') return <Badge className="bg-gray-400 text-white">Chargement…</Badge>;
@@ -63,12 +111,16 @@ export function AdminSystemPage() {
                         <div className="flex items-center justify-between p-4 rounded-lg bg-muted">
                             <div>
                                 <p className="text-sm text-muted-foreground">Blockchain</p>
-                                <p className="font-medium">Connecté</p>
+                                <p className="font-medium">
+                                    {chainStatus !== 'online' ? (chainStatus === 'loading' ? 'Vérification…' : 'Inaccessible')
+                                        : pauseState?.paused ? 'En pause' : 'Opérationnel'}
+                                </p>
                             </div>
-                            <Badge className="bg-[#4CAF50] text-white">
-                                <CheckCircle className="w-3 h-3 mr-1" />
-                                Actif
-                            </Badge>
+                            {chainStatus === 'online' && pauseState?.paused ? (
+                                <Badge className="bg-[#FFC107] text-[#212121]"><PauseCircle className="w-3 h-3 mr-1" />En pause</Badge>
+                            ) : (
+                                <StatusBadge status={chainStatus} />
+                            )}
                         </div>
                         <div className="flex items-center justify-between p-4 rounded-lg bg-muted">
                             <div>
@@ -80,85 +132,141 @@ export function AdminSystemPage() {
                     </div>
                 </Card>
 
-                {/* Emergency Admin */}
+                {/* Emergency Admin — read-only, real on-chain addresses */}
                 <Card className="p-6 mb-6">
                     <div className="flex items-center gap-2 mb-4">
                         <Shield className="w-5 h-5 text-[#9C27B0]" />
-                        <h3>Emergency Admin</h3>
+                        <h3>Administration d'urgence du smart contract</h3>
                     </div>
-                    <p className="text-sm text-muted-foreground mb-4">
-                        Gérez l'administrateur d'urgence du smart contract
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div className="bg-muted p-4 rounded-lg">
+                            <p className="text-sm text-muted-foreground mb-1">Owner</p>
+                            <p className="font-mono text-xs break-all">{pauseState?.owner || (chainStatus === 'loading' ? 'Chargement…' : 'Indisponible')}</p>
+                        </div>
+                        <div className="bg-muted p-4 rounded-lg">
+                            <p className="text-sm text-muted-foreground mb-1">Emergency Admin</p>
+                            <p className="font-mono text-xs break-all">{pauseState?.emergencyAdmin || (chainStatus === 'loading' ? 'Chargement…' : 'Indisponible')}</p>
+                        </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                        Transférer ces rôles (setEmergencyAdmin, addAuthorizedPauser) est une action rare et sensible —
+                        à faire directement via une interaction blockchain (ex. interface du smart contract), pas depuis un bouton de cette page.
                     </p>
-                    <div className="bg-muted p-4 rounded-lg mb-4">
-                        <p className="text-sm text-muted-foreground mb-1">Adresse actuelle</p>
-                        <p className="font-mono text-sm">0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb</p>
-                    </div>
-                    <Button variant="outline">
-                        Modifier l'Emergency Admin
-                    </Button>
                 </Card>
 
-                {/* Feature Flags */}
+                {/* Real pause/resume — gated by the ADMIN app role, enforced for real by the contract's own modifiers */}
                 <Card className="p-6 mb-6">
-                    <h3 className="mb-4">Fonctionnalités</h3>
+                    <div className="flex items-center gap-2 mb-4">
+                        <PauseCircle className="w-5 h-5 text-destructive" />
+                        <h3>Pause d'urgence de la plateforme</h3>
+                    </div>
+                    <div className="bg-destructive/5 border border-destructive/20 rounded-lg p-4 mb-4">
+                        <div className="flex items-start gap-3">
+                            <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
+                            <p className="text-sm text-muted-foreground">
+                                Bloque immédiatement la création, la signature, l'escrow et les litiges pour <strong>tous les contrats</strong>
+                                — pas seulement celui que vous consultez. Réservé à un incident réel (bug critique, fonds à risque).
+                            </p>
+                        </div>
+                    </div>
+                    {!isAdmin ? (
+                        <p className="text-sm text-muted-foreground">Réservé aux comptes administrateurs.</p>
+                    ) : (
+                        <div className="space-y-3">
+                            <textarea
+                                value={pauseReason}
+                                onChange={(e) => setPauseReason(e.target.value)}
+                                placeholder="Justification (1-200 caractères, exigée par le smart contract)..."
+                                className="w-full p-2 rounded-lg border border-border bg-input-background text-sm min-h-[70px]"
+                                maxLength={200}
+                            />
+                            <Button
+                                variant={pauseState?.paused ? "default" : "destructive"}
+                                onClick={handlePauseToggle}
+                                disabled={pauseActionLoading || !pauseReason.trim() || chainStatus !== 'online'}
+                                className="gap-2"
+                            >
+                                {pauseActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : pauseState?.paused ? <PlayCircle className="w-4 h-4" /> : <PauseCircle className="w-4 h-4" />}
+                                {pauseState?.paused ? "Reprendre la plateforme" : "Mettre en pause la plateforme"}
+                            </Button>
+                            <p className="text-xs text-muted-foreground">
+                                Votre wallet connecté doit être l'owner, l'emergency admin, ou un pauser autorisé — sinon la
+                                transaction sera rejetée par le smart contract lui-même.
+                            </p>
+                            {pauseActionError && (
+                                <p className="text-xs text-destructive flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5 shrink-0" />{pauseActionError}</p>
+                            )}
+                        </div>
+                    )}
+                </Card>
+
+                {/* Feature Flags — none of these are backed by a real toggle yet */}
+                <Card className="p-6 mb-6">
+                    <div className="flex items-center gap-2 mb-1">
+                        <h3>Fonctionnalités</h3>
+                        <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-muted text-muted-foreground">Bientôt disponible</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mb-4">
+                        Ces bascules ne sont pas encore reliées à un contrôle réel côté serveur — les fonctionnalités listées
+                        sont actuellement toujours actives pour tous les utilisateurs.
+                    </p>
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between opacity-60">
                             <div>
                                 <h4 className="mb-1">Génération IA</h4>
                                 <p className="text-sm text-muted-foreground">
                                     Activer la génération automatique de contrats par IA
                                 </p>
                             </div>
-                            <Switch defaultChecked />
+                            <Switch disabled defaultChecked />
                         </div>
                         <Separator />
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between opacity-60">
                             <div>
                                 <h4 className="mb-1">Signature électronique</h4>
                                 <p className="text-sm text-muted-foreground">
                                     Permettre la signature électronique des contrats
                                 </p>
                             </div>
-                            <Switch defaultChecked />
+                            <Switch disabled defaultChecked />
                         </div>
                         <Separator />
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between opacity-60">
                             <div>
                                 <h4 className="mb-1">Blockchain</h4>
                                 <p className="text-sm text-muted-foreground">
                                     Enregistrer les contrats sur la blockchain
                                 </p>
                             </div>
-                            <Switch defaultChecked />
+                            <Switch disabled defaultChecked />
                         </div>
                     </div>
                 </Card>
 
-                {/* Maintenance Mode */}
+                {/* Maintenance Mode — not backed by anything yet, shown as unavailable rather than fake */}
                 <Card className="p-6">
-                    <div className="flex items-center gap-2 mb-4">
+                    <div className="flex items-center gap-2 mb-1">
                         <Server className="w-5 h-5 text-[#FFC107]" />
                         <h3>Mode maintenance</h3>
+                        <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-muted text-muted-foreground ml-1">Bientôt disponible</span>
                     </div>
-                    <div className="bg-[#FFC107]/10 border border-[#FFC107]/20 rounded-lg p-4 mb-4">
+                    <div className="bg-muted/50 border border-border rounded-lg p-4 mb-4">
                         <div className="flex items-start gap-3">
-                            <AlertCircle className="w-5 h-5 text-[#FFC107] flex-shrink-0 mt-0.5" />
-                            <div>
-                                <p className="font-medium mb-1">Attention</p>
-                                <p className="text-sm text-muted-foreground">
-                                    Activer le mode maintenance empêchera tous les utilisateurs (sauf les admins) d'accéder à la plateforme.
-                                </p>
-                            </div>
+                            <AlertCircle className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                            <p className="text-sm text-muted-foreground">
+                                Pas encore implémenté côté serveur — ce contrôle n'a aucun effet pour l'instant. Pour un
+                                incident réel touchant les transactions blockchain, utilisez la pause d'urgence ci-dessus.
+                            </p>
                         </div>
                     </div>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between opacity-60">
                         <div>
                             <h4 className="mb-1">Activer le mode maintenance</h4>
                             <p className="text-sm text-muted-foreground">
                                 La plateforme sera inaccessible aux utilisateurs
                             </p>
                         </div>
-                        <Switch />
+                        <Switch disabled />
                     </div>
                 </Card>
             </main>

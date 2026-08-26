@@ -41,6 +41,7 @@ export function AppSidebar() {
   const { isCollapsed, toggleSidebar } = useSidebar();
   const { user } = useAuthStore();
   const { logout } = useLogout();
+  const isAdmin = user?.role === "ADMIN";
 
   const userInitial = user?.email?.[0]?.toUpperCase() ?? "U";
   const userLabel = user?.profileData?.name || user?.email || "Mon compte";
@@ -112,31 +113,11 @@ export function AppSidebar() {
         isCollapsed ? "w-20" : "w-64"
       )}
     >
-      {/* Edge toggle handle — sits right on the sidebar's border */}
-      <TooltipProvider delayDuration={300}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={toggleSidebar}
-              aria-label={isCollapsed ? "Développer la barre latérale" : "Réduire la barre latérale"}
-              className="rounded-full border border-border bg-card shadow-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-[#FFC107] transition-colors"
-              style={{ position: "absolute", top: "50%", right: "-12px", transform: "translateY(-50%)", zIndex: 20, width: "24px", height: "24px" }}
-            >
-              {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            <p>{isCollapsed ? "Développer" : "Réduire"}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-
       {/* Logo */}
       <div className="p-6 flex items-center justify-between">
         {!isCollapsed ? (
           <Link href="/">
-            <h2 className="text-[#FFC107]">Contractify</h2>
+            <h2 className="text-[#FFC107]">ContracTify</h2>
           </Link>
         ) : (
           <Link href="/" className="mx-auto">
@@ -148,10 +129,30 @@ export function AppSidebar() {
       </div>
 
       {/* Separator between the brand and the menu, framed by "<" and ">" */}
-      <div className="px-4 pb-4 flex items-center gap-2 text-border">
+      <div className="relative px-4 pb-4 flex items-center gap-2 text-border">
         <ChevronLeft className="w-3 h-3 shrink-0 opacity-50" />
         <div className="flex-1 h-px bg-border" />
         <ChevronRight className="w-3 h-3 shrink-0 opacity-50" />
+
+        {/* Edge toggle handle — sits right on the sidebar's border, level with this separator */}
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                aria-label={isCollapsed ? "Développer la barre latérale" : "Réduire la barre latérale"}
+                className="rounded-full border border-border bg-card shadow-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-[#FFC107] transition-colors"
+                style={{ position: "absolute", top: "50%", right: "-12px", transform: "translateY(-50%)", zIndex: 20, width: "24px", height: "24px" }}
+              >
+                {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>{isCollapsed ? "Développer" : "Réduire"}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
       {/* Navigation */}
@@ -159,16 +160,18 @@ export function AppSidebar() {
         {/* User Menu Items */}
         {userMenuItems.map(renderMenuItem)}
 
-        {/* Admin Section */}
-        {/* TODO: Afficher seulement si user.role === 'admin' */}
-        <div className="pt-4 mt-4 border-t border-border">
-          {!isCollapsed && (
-            <p className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">
-              Administration
-            </p>
-          )}
-          {adminMenuItems.map(renderMenuItem)}
-        </div>
+        {/* Admin Section — only rendered for admins; this is a UX convenience only,
+            the actual access control lives server-side (see AdminGuard + backend middleware). */}
+        {isAdmin && (
+          <div className="pt-4 mt-4 border-t border-border">
+            {!isCollapsed && (
+              <p className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase">
+                Administration
+              </p>
+            )}
+            {adminMenuItems.map(renderMenuItem)}
+          </div>
+        )}
       </nav>
 
       {/* Notifications */}
