@@ -17,6 +17,7 @@ const aiRoutes = require('./routes/ai');
 const ipfsRoutes = require('./routes/ipfs');
 const contractRoutes = require('./routes/contract');
 const escrowRoutes = require('./routes/escrow');
+const incidentRoutes = require('./routes/incident');
 const notificationRoutes = require('./routes/notifications');
 
 const app = express();
@@ -59,6 +60,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/ipfs', ipfsRoutes);
 app.use('/api/contracts', contractRoutes);
 app.use('/api/contracts', escrowRoutes);
+app.use('/api/contracts', incidentRoutes);
 app.use('/api/notifications', notificationRoutes);
 
 // NOTE: le job horaire de réconciliation des wallets a été retiré — avec Privy, le

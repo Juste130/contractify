@@ -9,6 +9,7 @@ interface NFTItem {
   title: string;
   effectiveDate?: string;
   ipfsUrl?: string;
+  contractStatus?: string;
 }
 
 interface NFTGalleryProps {

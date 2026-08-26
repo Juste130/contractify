@@ -3,6 +3,7 @@ const prisma = require('../models/prisma');
 const logger = require('../utils/logger');
 const { config } = require('../config');
 const { ContractStatus } = require('@prisma/client');
+const notificationService = require('./notification');
 
 const CONTRACT_MANAGER_ABI = [
     'function getUserContracts(address user) external view returns (uint256[])',
@@ -82,6 +83,32 @@ class BlockchainSyncService {
                 };
             }));
 
+            // terminationInfo/disputeInfo were returned by getContractDetails all along but
+            // never captured here — even though the app doesn't drive termination/dispute
+            // exclusively through this sync path, a status change reaching Terminated (or
+            // Disputed, if ever triggered by a direct chain interaction outside the app)
+            // must still be explainable in the UI instead of showing a bare status badge.
+            const terminationInfo = contractData.terminationInfo && Number(contractData.terminationInfo.reason) > 0
+                ? {
+                    reason: Number(contractData.terminationInfo.reason),
+                    customReason: contractData.terminationInfo.customReason,
+                    proofIpfsHash: contractData.terminationInfo.proofIpfsHash,
+                    justification: contractData.terminationInfo.justification?.justification || null,
+                    justifiedAt: Number(contractData.terminationInfo.justification?.timestamp || 0),
+                    justifiedBy: contractData.terminationInfo.justification?.updatedBy || null,
+                }
+                : null;
+            const disputeInfo = contractData.disputeInfo && Number(contractData.disputeInfo.reason) > 0
+                ? {
+                    reason: Number(contractData.disputeInfo.reason),
+                    customReason: contractData.disputeInfo.customReason,
+                    proofIpfsHash: contractData.disputeInfo.proofIpfsHash,
+                    justification: contractData.disputeInfo.justification?.justification || null,
+                    justifiedAt: Number(contractData.disputeInfo.justification?.timestamp || 0),
+                    justifiedBy: contractData.disputeInfo.justification?.updatedBy || null,
+                }
+                : null;
+
             const metadata = {
                 creator: contractData.creator,
                 createdAt: Number(contractData.createdAt),
@@ -89,6 +116,8 @@ class BlockchainSyncService {
                 effectiveDate: Number(contractData.effectiveDate),
                 allowTermination: contractData.allowTermination,
                 allowDispute: contractData.allowDispute,
+                terminationInfo,
+                disputeInfo,
                 escrowAmount: contractData.escrowAmount.toString(),
                 penaltyPercent: Number(contractData.penaltyPercent),
                 sha256Hash: contractData.sha256Hash,
@@ -115,11 +144,22 @@ class BlockchainSyncService {
                 return;
             }
 
+            // Merge onto whatever off-chain metadata already exists (content, parties,
+            // country/city, escrow declaration, deploymentTxHash...) instead of replacing
+            // it wholesale — a plain `metadata: metadata` update here would silently wipe
+            // the draft's document content the moment this runs post-deployment, since this
+            // upsert matches the same row by the contractId that markDraftDeployed just set.
+            const existingRow = await prisma.contractCache.findUnique({
+                where: { contractId: parseInt(contractId) },
+                select: { metadata: true },
+            });
+            const mergedMetadata = { ...(existingRow?.metadata || {}), ...metadata };
+
             await prisma.contractCache.upsert({
                 where: { contractId: parseInt(contractId) },
                 update: {
                     status,
-                    metadata,
+                    metadata: mergedMetadata,
                     lastSync: new Date(),
                 },
                 create: {
@@ -241,6 +281,28 @@ class BlockchainSyncService {
                             ).catch(err => logger.error(`[Email] Failed to send status notification to ${signer.email}:`, err));
                         }
                     }
+
+                    // TERMINATED specifically also gets an in-app notification, not just a
+                    // generic status email — a party affected by a termination could
+                    // otherwise miss it entirely if they don't check their inbox.
+                    if (statusString === 'TERMINATED') {
+                        const reasonText = contract.metadata.terminationInfo?.customReason
+                            || contract.metadata.terminationInfo?.justification
+                            || null;
+                        for (const signer of contract.metadata.signers) {
+                            if (!signer.email) continue;
+                            const notifyUser = await prisma.user.findUnique({ where: { email: signer.email } });
+                            if (!notifyUser) continue;
+                            await notificationService.create(notifyUser.id, {
+                                type: 'CONTRACT_TERMINATED',
+                                title: 'Contrat résilié',
+                                message: reasonText
+                                    ? `Le contrat "${contract.title}" a été résilié : ${reasonText}`
+                                    : `Le contrat "${contract.title}" a été résilié.`,
+                                contractCacheId: contract.id,
+                            });
+                        }
+                    }
                 }
             }
         };
@@ -313,11 +375,17 @@ class BlockchainSyncService {
         if (receipt.status !== 1) {
             throw new Error('Transaction failed on-chain');
         }
-        if (receipt.to?.toLowerCase() !== config.contractManagerAddress?.toLowerCase()) {
-            throw new Error('Transaction was not sent to the Contract Manager');
-        }
 
+        // Privy's native gas sponsorship routes this transaction through Privy's own
+        // infrastructure rather than sending it directly to the Contract Manager, so
+        // receipt.to is no longer a reliable signal (it used to be, back when the frontend
+        // called a plain ethers signer.sendTransaction straight to that address). The
+        // meaningful check is below instead: a genuine ContractCreated event actually
+        // emitted BY the Contract Manager contract — verified via each log's own `address`,
+        // not merely by successfully decoding it against the ABI (any contract could emit a
+        // same-shaped log otherwise).
         const event = receipt.logs
+            .filter((log) => log.address?.toLowerCase() === config.contractManagerAddress?.toLowerCase())
             .map((log) => {
                 try { return this.contractManager.interface.parseLog(log); }
                 catch { return null; }

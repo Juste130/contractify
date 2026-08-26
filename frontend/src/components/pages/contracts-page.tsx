@@ -12,6 +12,7 @@ import { Spinner } from "../ui/spinner";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { contractsApi } from "@/lib/api/contracts";
+import { getEffectiveStatus } from "@/lib/contract-status";
 import {
   Table,
   TableBody,
@@ -58,11 +59,16 @@ export function ContractsPage() {
 
   const getStatusLabel = (status: string) => {
     switch (status.toUpperCase()) {
+      case 'DRAFT_WAITING_SIGNERS': return 'draft';
+      case 'READY_TO_DEPLOY': return 'draft';
       case 'PENDING_SIGNATURES': return 'pending';
       case 'ACTIVE': return 'signed';
       case 'COMPLETED': return 'completed';
       case 'CANCELLED': return 'cancelled';
       case 'DISPUTED': return 'disputed';
+      case 'TERMINATED': return 'terminated';
+      case 'RESIGNED': return 'resigned';
+      case 'EXPIRED': return 'expired';
       default: return 'pending';
     }
   };
@@ -167,7 +173,7 @@ export function ContractsPage() {
                       {contract.ipfsHash ? `${contract.ipfsHash.slice(0, 10)}...` : 'N/A'}
                     </TableCell>
                     <TableCell>
-                      <StatusBadge status={getStatusLabel(contract.status) as any} />
+                      <StatusBadge status={getStatusLabel(getEffectiveStatus(contract)) as any} />
                     </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
@@ -193,13 +199,13 @@ export function ContractsPage() {
                               Voir sur IPFS
                             </DropdownMenuItem>
                           )}
-                          <DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">
                             <Archive className="w-4 h-4 mr-2" />
-                            Archiver
+                            Archiver (bientôt disponible)
                           </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">
                             <Trash2 className="w-4 h-4 mr-2" />
-                            Supprimer
+                            Supprimer (bientôt disponible)
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

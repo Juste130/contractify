@@ -86,6 +86,7 @@ model ContractCache {
   user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   signatories ContractSignatory[]
   escrow      ContractEscrow?
+  incidents   ContractIncident[]
 
   @@index([userId])
   @@index([status])
@@ -157,6 +158,83 @@ model ContractEscrow {
   @@map("contract_escrows")
 }
 
+// ==================== CONTRACT INCIDENTS (litiges / pauses, hors-chaîne) ====================
+//
+// openDispute()/Disputed on-chain n'a aucune fonction de sortie tant que l'escrow crypto
+// n'a pas été déposé (voir applyPenalty) — or il ne l'est plus jamais depuis le passage à
+// l'escrow fiat off-chain. Plutôt que d'emprunter ce cul-de-sac, litiges et pauses sont
+// gérés entièrement ici, avec un ancrage on-chain léger (addJustification, déjà existant
+// et fonctionnel) pour la preuve d'horodatage — sans jamais dépendre de l'escrow crypto.
+//
+// DISPUTE : une partie signale un problème, prend effet immédiatement (pas besoin de
+// l'accord de l'autre pour EXISTER, seulement pour être résolu).
+// HOLD : pause mutuelle sans faute alléguée — ne gèle rien tant que l'autre partie ne l'a
+// pas acceptée (sinon n'importe qui pourrait geler un contrat unilatéralement).
+
+enum IncidentType {
+  DISPUTE
+  HOLD
+}
+
+enum IncidentReason {
+  NON_PAYMENT
+  POOR_QUALITY_WORK
+  DELAYS_IN_PERFORMANCE
+  BREACH_OF_CONFIDENTIALITY
+  INTELLECTUAL_PROPERTY_DISPUTE
+  MUTUAL_TIMEOUT
+  OTHER
+}
+
+enum IncidentStatus {
+  OPEN               // DISPUTE : ouvert, en attente de résolution. HOLD : proposé, en attente de réponse.
+  ACCEPTED_ACTIVE     // HOLD accepté par l'autre partie — gèle effectivement l'escrow/l'échéance.
+  REJECTED            // HOLD refusé par l'autre partie — n'a jamais pris effet.
+  RESOLVED
+  WITHDRAWN
+}
+
+model ContractIncident {
+  id              String          @id @default(uuid())
+  contractCacheId String          @map("contract_cache_id")
+  type            IncidentType
+  reason          IncidentReason
+  customReason    String?         @map("custom_reason")
+  description     String          @db.Text
+  proofIpfsHash   String?         @map("proof_ipfs_hash")
+  requiresConsent Boolean         @default(false) @map("requires_consent") // true pour un HOLD
+  status          IncidentStatus  @default(OPEN)
+  raisedByUserId  String          @map("raised_by_user_id")
+  respondedByUserId String?       @map("responded_by_user_id")
+  respondedAt     DateTime?       @map("responded_at")
+  resolution      String?         @db.Text
+  resolvedByUserId String?        @map("resolved_by_user_id")
+  resolvedAt      DateTime?       @map("resolved_at")
+  onchainTxHash   String?         @map("onchain_tx_hash") // ancrage addJustification, si signé par le déclarant
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  contract ContractCache @relation(fields: [contractCacheId], references: [id], onDelete: Cascade)
+
+  @@index([contractCacheId])
+  @@index([status])
+  @@map("contract_incidents")
+}
+
+// ==================== SCHEDULER LOCK (verrou distribué) ====================
+//
+// escrow-scheduler.js tourne en setInterval in-process — sans verrou, plusieurs instances
+// (scaling horizontal) exécuteraient sendDueReminders()/releaseDue() en parallèle. Verrou
+// simple par ligne DB avec expiration (claim via UPDATE conditionnel), pas besoin de Redis.
+
+model SchedulerLock {
+  name       String   @id
+  lockedAt   DateTime @map("locked_at")
+  lockedUntil DateTime @map("locked_until")
+
+  @@map("scheduler_locks")
+}
+
 // ==================== NOTIFICATIONS ====================
 
 enum NotificationType {
@@ -164,6 +242,12 @@ enum NotificationType {
   ESCROW_RELEASED
   ESCROW_DISPUTED
   CONTRACT_READY_TO_DEPLOY
+  CONTRACT_TERMINATED
+  CONTRACT_DISPUTE_OPENED
+  CONTRACT_HOLD_PROPOSED
+  CONTRACT_HOLD_ACCEPTED
+  CONTRACT_HOLD_REJECTED
+  CONTRACT_INCIDENT_RESOLVED
   GENERIC
 }
 

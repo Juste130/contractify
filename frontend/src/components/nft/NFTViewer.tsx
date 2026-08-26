@@ -12,6 +12,7 @@ interface NFTViewerProps {
   title: string;
   effectiveDate?: string;
   ipfsUrl?: string;
+  contractStatus?: string;
 }
 
 export function NFTViewer(props: NFTViewerProps) {

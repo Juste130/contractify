@@ -4,6 +4,7 @@ const { config } = require('../config');
 const { paymentProvider } = require('./payments');
 const notificationService = require('./notification');
 const emailService = require('./email');
+const incidentService = require('./incident');
 
 const REMINDER_WINDOWS = [
     { hours: 72, field: 'reminder72SentAt' },
@@ -76,11 +77,19 @@ class EscrowService {
         });
     }
 
-    /** Creator explicitly releases early, before the deadline. */
+    /**
+     * Creator explicitly releases early, before the deadline. Blocked while any
+     * participant has an open dispute or an accepted hold on the contract — not just the
+     * creator's own blockRelease flag — so a beneficiary who raised a dispute can't have
+     * the creator quietly release funds out from under them.
+     */
     async releaseNow(contractCacheId, userId) {
         const escrow = await this._getOwnedEscrow(contractCacheId, userId);
         if (escrow.status !== 'DEPOSITED') {
             throw new Error(`Impossible de libérer : le séquestre est au statut ${escrow.status}.`);
+        }
+        if (await incidentService.hasOpenIncident(contractCacheId)) {
+            throw new Error('Impossible de libérer : un litige ou une pause est actif sur ce contrat. Résolvez-le d\'abord.');
         }
         return this._release(escrow, 'creator');
     }
@@ -147,18 +156,28 @@ class EscrowService {
         return sent;
     }
 
-    /** Scheduler tick: DEPOSITED escrows whose deadline has arrived get released. */
+    /**
+     * Scheduler tick: DEPOSITED escrows whose deadline has arrived get released — unless
+     * an open dispute or accepted hold exists on the contract, in which case auto-release
+     * is skipped entirely (it will be retried on the next tick once the incident closes).
+     */
     async releaseDue() {
         const now = new Date();
         const due = await prisma.contractEscrow.findMany({
             where: { status: 'DEPOSITED', deadline: { lte: now } },
         });
 
+        let released = 0;
         for (const escrow of due) {
+            if (await incidentService.hasOpenIncident(escrow.contractCacheId)) {
+                logger.info(`[Escrow] Skipping auto-release for ${escrow.contractCacheId}: open incident`);
+                continue;
+            }
             await this._release(escrow, 'auto');
+            released++;
         }
 
-        return due.length;
+        return released;
     }
 
     async _release(escrow, trigger) {

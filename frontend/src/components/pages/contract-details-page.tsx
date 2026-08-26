@@ -8,6 +8,7 @@ import { Card } from "../ui/card"
 import { Badge } from "../ui/badge"
 import { contractsApi, type Contract } from "@/lib/api/contracts"
 import { escrowApi, type Escrow } from "@/lib/api/escrow"
+import { incidentsApi, type Incident } from "@/lib/api/incidents"
 import { ipfsApi } from "@/lib/api/ipfs"
 import { useWeb3 } from "@/contexts/web3-context"
 import { useContract } from "@/hooks/useContract"
@@ -27,7 +28,10 @@ import {
   Copy,
   Check,
   ArrowLeft,
-  UserX
+  UserX,
+  Gavel,
+  PauseCircle,
+  XCircle,
 } from "lucide-react"
 import { KycSignatureModal } from "@/components/contract/kyc-signature-modal"
 import { SignaturePanel } from "@/components/contract/signaturePanel"
@@ -35,6 +39,15 @@ import { NFTViewer } from "@/components/nft/NFTViewer"
 import { AiBadge } from "../ui/ai-badge"
 import { ContractMarkdownRenderer } from "@/components/contract/contract-markdown-renderer"
 import { cn } from "@/components/ui/utils"
+import { getEffectiveStatus } from "@/lib/contract-status"
+import { deployDraftContract } from "@/lib/utils/deployContract"
+import {
+  DISPUTE_REASONS,
+  DISPUTE_REASON_LABELS,
+  INCIDENT_STATUS_LABELS,
+  TERMINATION_REASON_LABELS,
+  type IncidentReason,
+} from "@/lib/contract-incidents"
 
 interface ContractDetailsPageProps {
   id: string
@@ -55,8 +68,19 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
   const [escrowActionError, setEscrowActionError] = useState<string | null>(null)
   const [blockReason, setBlockReason] = useState("")
   const [showBlockForm, setShowBlockForm] = useState(false)
+  const [incidents, setIncidents] = useState<Incident[]>([])
+  const [showDisputeForm, setShowDisputeForm] = useState(false)
+  const [showHoldForm, setShowHoldForm] = useState(false)
+  const [showTerminateForm, setShowTerminateForm] = useState(false)
+  const [disputeReason, setDisputeReason] = useState<IncidentReason>("OTHER")
+  const [disputeDescription, setDisputeDescription] = useState("")
+  const [holdDescription, setHoldDescription] = useState("")
+  const [terminateReason, setTerminateReason] = useState(1)
+  const [terminateJustification, setTerminateJustification] = useState("")
+  const [incidentActionLoading, setIncidentActionLoading] = useState(false)
+  const [incidentActionError, setIncidentActionError] = useState<string | null>(null)
   const { account, isConnected } = useWeb3()
-  const { signContract, createContract, loading: isSigning } = useContract()
+  const { signContract, createContract, terminateContract, anchorJustification, loading: isSigning } = useContract()
   const { user } = useAuthStore()
 
   const copyToClipboard = async (field: string, value: string) => {
@@ -153,6 +177,20 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contract?.id])
 
+  const fetchIncidents = async () => {
+    try {
+      const response = await incidentsApi.list(id)
+      setIncidents(response.incidents)
+    } catch {
+      // Not accessible yet / none declared — not worth surfacing as an error.
+    }
+  }
+
+  useEffect(() => {
+    if (contract) fetchIncidents()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contract?.id])
+
   const handleSign = async () => {
     try {
       await signContract(id)
@@ -166,38 +204,10 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
     if (!contract || !isConnected) return;
     try {
       setLoading(true);
-      const metadata = contract.metadata;
-      const signatories = (contract as any).signatories || [];
-
-      const signersWithRoles = signatories.map((s: any) => ({
-         signer: s.walletAddress,
-         role: s.role,
-         customRole: "",
-         hasSignedContract: false,
-         signedAt: 0,
-      }));
-
-      // Escrow is handled entirely off-chain (see the "Séquestre" card below) — it is
-      // deliberately never passed to the smart contract, so these stay at zero here.
-      const expiresAt = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60;
-
-      const tx = await createContract(
-        contract.ipfsHash,
-        metadata.sha256Hash,
-        signersWithRoles,
-        expiresAt,
-        metadata.options?.allowTermination || true,
-        metadata.options?.allowDispute || true,
-        "0",
-        0,
-        "Contrat déployé depuis un brouillon ContracTify"
-      );
-
-      // The backend independently verifies this transaction on-chain (receipt, event,
-      // creator match) rather than trusting tx.id/tx.transactionHash blindly — it returns
-      // the contractId it verified, which is what we navigate to, not the client's own read.
-      const deployResult = await contractsApi.markDraftDeployed(contract.id, { transactionHash: tx.transactionHash || "" });
-      window.location.href = `/contract-details/${deployResult.contract.contractId}`;
+      const { contractId } = await deployDraftContract(contract as any, createContract, contractsApi.markDraftDeployed, account);
+      // Query-param route (see app/contract-details/page.tsx) — there is no
+      // /contract-details/[id] path route, so a path-segment URL here would 404.
+      window.location.href = `/contract-details?id=${contractId}`;
     } catch(err: any) {
       setError("Erreur lors du déploiement : " + (err.message || "Erreur inconnue"));
       setLoading(false);
@@ -247,6 +257,91 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
     }
   }
 
+  const handleRaiseDispute = async () => {
+    if (!disputeDescription.trim()) return
+    setIncidentActionLoading(true)
+    setIncidentActionError(null)
+    try {
+      // Best-effort on-chain breadcrumb — never blocks the actual dispute if it fails.
+      const onchainTxHash = contract?.contractId
+        ? await anchorJustification(String(contract.contractId), `DISPUTE ${disputeReason}: ${disputeDescription}`.slice(0, 200))
+        : null
+      await incidentsApi.raiseDispute(id, {
+        reason: disputeReason,
+        description: disputeDescription,
+        onchainTxHash: onchainTxHash || undefined,
+      })
+      setShowDisputeForm(false)
+      setDisputeDescription("")
+      await fetchIncidents()
+    } catch (err: any) {
+      setIncidentActionError(err.message || "Impossible d'ouvrir le litige.")
+    } finally {
+      setIncidentActionLoading(false)
+    }
+  }
+
+  const handleProposeHold = async () => {
+    if (!holdDescription.trim()) return
+    setIncidentActionLoading(true)
+    setIncidentActionError(null)
+    try {
+      const onchainTxHash = contract?.contractId
+        ? await anchorJustification(String(contract.contractId), `HOLD proposed: ${holdDescription}`.slice(0, 200))
+        : null
+      await incidentsApi.proposeHold(id, { description: holdDescription, onchainTxHash: onchainTxHash || undefined })
+      setShowHoldForm(false)
+      setHoldDescription("")
+      await fetchIncidents()
+    } catch (err: any) {
+      setIncidentActionError(err.message || "Impossible de proposer la pause.")
+    } finally {
+      setIncidentActionLoading(false)
+    }
+  }
+
+  const handleRespondToHold = async (incidentId: string, accept: boolean) => {
+    setIncidentActionLoading(true)
+    setIncidentActionError(null)
+    try {
+      await incidentsApi.respondToHold(id, incidentId, accept)
+      await fetchIncidents()
+    } catch (err: any) {
+      setIncidentActionError(err.message || "Impossible de répondre à cette proposition.")
+    } finally {
+      setIncidentActionLoading(false)
+    }
+  }
+
+  const handleWithdrawIncident = async (incidentId: string) => {
+    setIncidentActionLoading(true)
+    setIncidentActionError(null)
+    try {
+      await incidentsApi.withdraw(id, incidentId)
+      await fetchIncidents()
+    } catch (err: any) {
+      setIncidentActionError(err.message || "Impossible de retirer cet incident.")
+    } finally {
+      setIncidentActionLoading(false)
+    }
+  }
+
+  const handleTerminate = async () => {
+    if (!contract?.contractId || !terminateJustification.trim()) return
+    setIncidentActionLoading(true)
+    setIncidentActionError(null)
+    try {
+      await terminateContract(String(contract.contractId), terminateReason, "", "", terminateJustification)
+      setShowTerminateForm(false)
+      setTerminateJustification("")
+      await fetchDetails()
+    } catch (err: any) {
+      setIncidentActionError(err.message || "La résiliation a échoué.")
+    } finally {
+      setIncidentActionLoading(false)
+    }
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'ACTIVE':
@@ -259,6 +354,16 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
         return <Badge className="bg-blue-500/10 text-blue-500 border-blue-500/20">Prêt à être déployé</Badge>
       case 'COMPLETED':
         return <Badge className="bg-green-500/10 text-green-500 border-green-500/20">Terminé</Badge>
+      case 'CANCELLED':
+        return <Badge className="bg-muted text-muted-foreground border-border">Annulé</Badge>
+      case 'DISPUTED':
+        return <Badge className="bg-destructive/10 text-destructive border-destructive/20">Litige en cours</Badge>
+      case 'TERMINATED':
+        return <Badge className="bg-red-500/10 text-red-500 border-red-500/20">Résilié</Badge>
+      case 'RESIGNED':
+        return <Badge className="bg-red-500/10 text-red-500 border-red-500/20">Démission</Badge>
+      case 'EXPIRED':
+        return <Badge className="bg-muted text-muted-foreground border-border">Expiré — fenêtre close</Badge>
       default:
         return <Badge variant="secondary">{status}</Badge>
     }
@@ -299,6 +404,13 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
   // Unified signer list: merges platform signatories (email, registration state)
   // with on-chain signature state, so we can show who signed / who's still pending
   // and offer a "resend" action for anyone who hasn't signed yet.
+  //
+  // What "resend" actually re-sends depends on what's actually blocking that signatory:
+  // not registered yet -> resend the account-creation invitation (nothing else is possible
+  // for them yet); registered but the contract isn't deployed -> nothing to resend, they're
+  // simply waiting on other signatories or on the creator, not on an email; deployed and
+  // registered but hasn't signed -> resend the "please sign" request.
+  const isDeployed = !!contract.contractId
   const dbSignatories = (contract as any).signatories || []
   type SignerRow = {
     key: string
@@ -310,13 +422,20 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
     hasSigned: boolean
     signedAt?: number | null
     isRegistered: boolean
-    canResend: boolean
+    resendKind: "invite" | "sign" | null
   }
 
   const signerRows: SignerRow[] = dbSignatories.length > 0
     ? dbSignatories.map((s: any) => {
         const onChain = signers.find((o: any) => s.walletAddress && o.address?.toLowerCase() === s.walletAddress.toLowerCase())
         const hasSigned = !!onChain?.hasSigned
+        const resendKind: SignerRow["resendKind"] = hasSigned
+          ? null
+          : !s.isRegistered
+            ? "invite"
+            : isDeployed
+              ? "sign"
+              : null
         return {
           key: s.id,
           signatoryId: s.id,
@@ -327,7 +446,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
           isRegistered: s.isRegistered,
           hasSigned,
           signedAt: onChain?.signedAt,
-          canResend: !hasSigned,
+          resendKind,
         }
       })
     : signers.map((s: any, idx: number) => ({
@@ -339,7 +458,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
         isRegistered: true,
         hasSigned: !!s.hasSigned,
         signedAt: s.signedAt,
-        canResend: false,
+        resendKind: null,
       }))
 
   const signedCount = signerRows.filter(s => s.hasSigned).length
@@ -371,7 +490,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-3 mb-2">
                 <h1 className="text-3xl font-bold truncate max-w-full">{contract.title}</h1>
-                {getStatusBadge(contract.status)}
+                {getStatusBadge(getEffectiveStatus(contract))}
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1">
@@ -402,12 +521,21 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                 {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 PDF
               </Button>
-              <Button variant="outline" size="sm" className="gap-2" asChild>
-                <a href={`${process.env.NEXT_PUBLIC_BLOCK_EXPLORER}/address/${contract.metadata?.creator}`} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="w-4 h-4" />
-                  Explorer
-                </a>
-              </Button>
+              {contract.metadata?.deploymentTxHash ? (
+                <Button variant="outline" size="sm" className="gap-2" asChild>
+                  <a href={`${process.env.NEXT_PUBLIC_BLOCK_EXPLORER}/tx/${contract.metadata.deploymentTxHash}`} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="w-4 h-4" />
+                    Explorer
+                  </a>
+                </Button>
+              ) : contract.metadata?.creator && (
+                <Button variant="outline" size="sm" className="gap-2" asChild>
+                  <a href={`${process.env.NEXT_PUBLIC_BLOCK_EXPLORER}/address/${contract.metadata.creator}`} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="w-4 h-4" />
+                    Explorer (créateur)
+                  </a>
+                </Button>
+              )}
               {canSign && (
                 <Button
                   className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2 px-6"
@@ -428,8 +556,89 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                  Déployer sur la blockchain
                </Button>
               )}
+              {contract.status === 'ACTIVE' && contract.metadata?.allowTermination && (currentUserSigner || isCreator) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 text-destructive border-destructive/30 hover:bg-destructive/5"
+                  onClick={() => setShowTerminateForm((v) => !v)}
+                >
+                  <XCircle className="w-4 h-4" />
+                  Résilier
+                </Button>
+              )}
             </div>
           </div>
+
+          {showTerminateForm && (
+            <Card className="p-6 mb-8 border-destructive/30 bg-destructive/5">
+              <h3 className="font-bold flex items-center gap-2 mb-3 text-destructive">
+                <XCircle className="w-5 h-5" />
+                Résilier ce contrat
+              </h3>
+              <p className="text-xs text-muted-foreground mb-4">
+                Action définitive et irréversible, ancrée sur la blockchain. Toutes les parties seront notifiées.
+              </p>
+              <div className="space-y-3">
+                <select
+                  value={terminateReason}
+                  onChange={(e) => setTerminateReason(Number(e.target.value))}
+                  className="w-full p-2 rounded-lg border border-border bg-input-background text-sm"
+                >
+                  {TERMINATION_REASON_LABELS.slice(1).map((label, idx) => (
+                    <option key={idx + 1} value={idx + 1}>{label}</option>
+                  ))}
+                </select>
+                <textarea
+                  value={terminateJustification}
+                  onChange={(e) => setTerminateJustification(e.target.value)}
+                  placeholder="Justification de la résiliation (visible par toutes les parties)..."
+                  className="w-full p-2 rounded-lg border border-border bg-input-background text-sm min-h-[70px]"
+                  maxLength={200}
+                />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleTerminate}
+                    disabled={incidentActionLoading || !terminateJustification.trim()}
+                  >
+                    {incidentActionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                    Confirmer la résiliation
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setShowTerminateForm(false)}>Annuler</Button>
+                </div>
+                {incidentActionError && (
+                  <p className="text-xs text-destructive flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5 shrink-0" />{incidentActionError}</p>
+                )}
+              </div>
+            </Card>
+          )}
+
+          {contract.metadata?.terminationInfo && (
+            <Card className="p-6 mb-8 border-red-500/30 bg-red-500/5">
+              <h3 className="font-bold flex items-center gap-2 mb-2 text-red-600">
+                <XCircle className="w-5 h-5" />
+                Ce contrat a été résilié
+              </h3>
+              <p className="text-sm">
+                <span className="font-medium">{TERMINATION_REASON_LABELS[contract.metadata.terminationInfo.reason] || "Raison non précisée"}</span>
+                {contract.metadata.terminationInfo.customReason && ` — ${contract.metadata.terminationInfo.customReason}`}
+              </p>
+              {contract.metadata.terminationInfo.justification && (
+                <p className="text-sm text-muted-foreground mt-1">{contract.metadata.terminationInfo.justification}</p>
+              )}
+              {contract.metadata.terminationInfo.proofIpfsHash && (
+                <a
+                  href={`https://gateway.pinata.cloud/ipfs/${contract.metadata.terminationInfo.proofIpfsHash}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-primary underline mt-2 inline-block"
+                >
+                  Voir la preuve jointe
+                </a>
+              )}
+            </Card>
+          )}
 
           {escrow && (
             <Card className="p-6 mb-8 border-[#FFC107]/30 bg-[#FFC107]/5">
@@ -512,6 +721,114 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                   {escrowActionError}
                 </p>
+              )}
+            </Card>
+          )}
+
+          {contract.status === 'ACTIVE' && (currentUserSigner || isCreator) && (
+            <Card className="p-6 mb-8">
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                <h3 className="font-bold flex items-center gap-2">
+                  <Gavel className="w-5 h-5 text-primary" />
+                  Litiges et pauses
+                </h3>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setShowHoldForm(false); setShowDisputeForm((v) => !v) }}>
+                    <AlertCircle className="w-3.5 h-3.5" /> Signaler un litige
+                  </Button>
+                  <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setShowDisputeForm(false); setShowHoldForm((v) => !v) }}>
+                    <PauseCircle className="w-3.5 h-3.5" /> Proposer une pause
+                  </Button>
+                </div>
+              </div>
+
+              {showDisputeForm && (
+                <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5 mb-3 space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Prend effet immédiatement — bloque toute libération du séquestre jusqu'à résolution. L'équipe ContracTify tranche en cas de désaccord.
+                  </p>
+                  <select
+                    value={disputeReason}
+                    onChange={(e) => setDisputeReason(e.target.value as IncidentReason)}
+                    className="w-full p-2 rounded-lg border border-border bg-input-background text-sm"
+                  >
+                    {DISPUTE_REASONS.map((r) => (
+                      <option key={r} value={r}>{DISPUTE_REASON_LABELS[r]}</option>
+                    ))}
+                  </select>
+                  <textarea
+                    value={disputeDescription}
+                    onChange={(e) => setDisputeDescription(e.target.value)}
+                    placeholder="Décrivez le problème..."
+                    className="w-full p-2 rounded-lg border border-border bg-input-background text-sm min-h-[70px]"
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="destructive" onClick={handleRaiseDispute} disabled={incidentActionLoading || !disputeDescription.trim()}>
+                      Ouvrir le litige
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setShowDisputeForm(false)}>Annuler</Button>
+                  </div>
+                </div>
+              )}
+
+              {showHoldForm && (
+                <div className="p-4 rounded-lg border border-border bg-muted/30 mb-3 space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Ne gèle rien tant que l'autre partie n'a pas accepté — sans faute alléguée, juste une pause négociée.
+                  </p>
+                  <textarea
+                    value={holdDescription}
+                    onChange={(e) => setHoldDescription(e.target.value)}
+                    placeholder="Ex : report de 2 semaines le temps de finaliser un document..."
+                    className="w-full p-2 rounded-lg border border-border bg-input-background text-sm min-h-[70px]"
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={handleProposeHold} disabled={incidentActionLoading || !holdDescription.trim()}>
+                      Proposer
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setShowHoldForm(false)}>Annuler</Button>
+                  </div>
+                </div>
+              )}
+
+              {incidentActionError && (
+                <p className="text-xs text-destructive mb-3 flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5 shrink-0" />{incidentActionError}</p>
+              )}
+
+              {incidents.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Aucun litige ni pause sur ce contrat.</p>
+              ) : (
+                <div className="space-y-2">
+                  {incidents.map((incident) => (
+                    <div key={incident.id} className="rounded-lg border bg-muted/30 p-3">
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div>
+                          <p className="text-sm font-bold">
+                            {incident.type === 'DISPUTE' ? 'Litige' : 'Pause'} — {DISPUTE_REASON_LABELS[incident.reason]}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{incident.description}</p>
+                        </div>
+                        <Badge variant="secondary" className="text-[10px]">{INCIDENT_STATUS_LABELS[incident.status]}</Badge>
+                      </div>
+                      {incident.resolution && (
+                        <p className="text-xs text-green-700 dark:text-green-400 mt-2 pt-2 border-t border-border/60">
+                          Résolution : {incident.resolution}
+                        </p>
+                      )}
+                      {incident.type === 'HOLD' && incident.status === 'OPEN' && incident.raisedByUserId !== user?.id && (
+                        <div className="flex gap-2 mt-2 pt-2 border-t border-border/60">
+                          <Button size="sm" variant="outline" onClick={() => handleRespondToHold(incident.id, true)} disabled={incidentActionLoading}>Accepter</Button>
+                          <Button size="sm" variant="ghost" onClick={() => handleRespondToHold(incident.id, false)} disabled={incidentActionLoading}>Refuser</Button>
+                        </div>
+                      )}
+                      {incident.status === 'OPEN' && incident.raisedByUserId === user?.id && (
+                        <div className="mt-2 pt-2 border-t border-border/60">
+                          <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => handleWithdrawIncident(incident.id)} disabled={incidentActionLoading}>Retirer</Button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
             </Card>
           )}
@@ -611,15 +928,19 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                 ) : (
                   <div className="space-y-3">
                     {signerRows.map((signer) => {
+                      // A registered signer can't actually sign until the contract itself is
+                      // deployed on-chain — before that, "En attente de signature" falsely
+                      // implies signing is underway when the real blocker may be a completely
+                      // different signatory who hasn't even registered yet.
                       const statusLabel = signer.hasSigned
                         ? "Signé"
                         : signer.isRegistered
-                          ? "En attente de signature"
+                          ? (isDeployed ? "En attente de signature" : "Inscrit — en attente du déploiement")
                           : "En attente d'inscription"
                       const statusColor = signer.hasSigned
                         ? "text-green-600"
                         : signer.isRegistered
-                          ? "text-yellow-600"
+                          ? (isDeployed ? "text-yellow-600" : "text-blue-500")
                           : "text-orange-500"
                       const StatusIcon = signer.hasSigned ? CheckCircle2 : signer.isRegistered ? Clock : UserX
                       const feedback = resendFeedback?.id === signer.signatoryId ? resendFeedback : null
@@ -633,7 +954,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                                 signer.hasSigned
                                   ? "bg-green-500/20 text-green-600"
                                   : signer.isRegistered
-                                    ? "bg-yellow-500/20 text-yellow-600"
+                                    ? (isDeployed ? "bg-yellow-500/20 text-yellow-600" : "bg-blue-500/20 text-blue-500")
                                     : "bg-orange-500/20 text-orange-500"
                               )}
                             >
@@ -653,7 +974,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                             </div>
                           </div>
 
-                          {isCreator && signer.canResend && signer.signatoryId && (
+                          {isCreator && signer.resendKind && signer.signatoryId && (
                             <div className="mt-2.5 pt-2.5 border-t border-border/60" style={{ minWidth: 0 }}>
                               <span
                                 className="text-[10px] text-muted-foreground block mb-2"
@@ -674,7 +995,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                                 ) : (
                                   <Mail className="w-3 h-3" />
                                 )}
-                                Renvoyer l'email
+                                {signer.resendKind === "invite" ? "Renvoyer l'invitation" : "Renvoyer la demande de signature"}
                               </Button>
                             </div>
                           )}
@@ -707,6 +1028,14 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                     <span className="text-muted-foreground">Type</span>
                     <span className="font-medium">Contrat NFT</span>
                   </div>
+                  {contract.metadata?.expiresAt && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Expire le</span>
+                      <span className="font-medium text-xs">
+                        {new Date(contract.metadata.expiresAt * 1000).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </span>
+                    </div>
+                  )}
                   <div style={{ minWidth: 0 }}>
                     <span className="text-muted-foreground block mb-1.5">IPFS Hash</span>
                     {contract.ipfsHash ? (
@@ -746,6 +1075,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                         title={contract.title}
                         effectiveDate={contract.metadata?.effectiveDate ? new Date(contract.metadata.effectiveDate * 1000).toISOString() : undefined}
                         ipfsUrl={contract.ipfsHash ? ipfsApi.getPublicUrl(contract.ipfsHash) : undefined}
+                        contractStatus={contract.status}
                       />
                       <Button variant="outline" className="w-full text-xs gap-2" asChild>
                         <a href={`https://gateway.pinata.cloud/ipfs/${contract.ipfsHash}`} target="_blank" rel="noopener noreferrer">

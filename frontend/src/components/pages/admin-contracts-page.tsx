@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import apiClient from "@/lib/api/client";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Card } from "@/components/ui/card";
@@ -13,10 +14,11 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import { FileText, CheckCircle, Clock, AlertCircle } from "lucide-react";
+import { FileText, CheckCircle, Clock, AlertCircle, XCircle } from "lucide-react";
 
 export function AdminContractsPage() {
     const [contracts, setContracts] = useState<any[]>([]);
+    const router = useRouter();
 
     useEffect(() => {
         const fetchContracts = async () => {
@@ -27,9 +29,10 @@ export function AdminContractsPage() {
                     title: c.title || (c.metadata?.title) || "Sans titre",
                     type: c.metadata?.type || "Standard",
                     user: c.user?.email || "Inconnu",
-                    status: c.status?.toLowerCase() === 'finalized' ? 'signed' : c.status?.toLowerCase() || 'pending',
+                    status: c.status?.toLowerCase() || 'pending',
+                    createdAt: c.createdAt,
                     createdDate: new Date(c.createdAt).toLocaleDateString('fr-FR'),
-                    signedDate: c.status === 'FINALIZED' ? new Date(c.lastSync).toLocaleDateString('fr-FR') : null,
+                    signedDate: c.status === 'ACTIVE' || c.status === 'COMPLETED' ? new Date(c.lastSync).toLocaleDateString('fr-FR') : null,
                 }));
                 setContracts(mappedContracts);
             } catch (error) {
@@ -39,14 +42,26 @@ export function AdminContractsPage() {
         fetchContracts();
     }, []);
 
+    const thisMonthCount = contracts.filter((c) => {
+        const created = new Date(c.createdAt);
+        const now = new Date();
+        return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
+    }).length;
+
     const getStatusBadge = (status: string) => {
         switch (status) {
-            case "signed":
+            case "active":
+            case "completed":
                 return <Badge className="bg-[#4CAF50] text-white"><CheckCircle className="w-3 h-3 mr-1" />Signé</Badge>;
-            case "pending":
+            case "pending_signatures":
                 return <Badge className="bg-[#FFC107] text-[#212121]"><Clock className="w-3 h-3 mr-1" />En attente</Badge>;
-            case "draft":
+            case "draft_waiting_signers":
+            case "ready_to_deploy":
                 return <Badge className="bg-[#9E9E9E] text-white"><FileText className="w-3 h-3 mr-1" />Brouillon</Badge>;
+            case "disputed":
+            case "terminated":
+            case "cancelled":
+                return <Badge className="bg-destructive text-white"><XCircle className="w-3 h-3 mr-1" />{status}</Badge>;
             default:
                 return <Badge><AlertCircle className="w-3 h-3 mr-1" />{status}</Badge>;
         }
@@ -74,15 +89,15 @@ export function AdminContractsPage() {
                     </Card>
                     <Card className="p-6">
                         <p className="text-sm text-muted-foreground mb-2">Signés</p>
-                        <p className="text-3xl">{contracts.filter(c => c.status === 'signed').length}</p>
+                        <p className="text-3xl">{contracts.filter(c => c.status === 'active' || c.status === 'completed').length}</p>
                     </Card>
                     <Card className="p-6">
                         <p className="text-sm text-muted-foreground mb-2">En attente</p>
-                        <p className="text-3xl">{contracts.filter(c => c.status === 'pending').length}</p>
+                        <p className="text-3xl">{contracts.filter(c => c.status === 'pending_signatures').length}</p>
                     </Card>
                     <Card className="p-6">
                         <p className="text-sm text-muted-foreground mb-2">Ce mois</p>
-                        <p className="text-3xl">3</p>
+                        <p className="text-3xl">{thisMonthCount}</p>
                     </Card>
                 </div>
 
@@ -101,7 +116,11 @@ export function AdminContractsPage() {
                         </TableHeader>
                         <TableBody>
                             {contracts.map((contract) => (
-                                <TableRow key={contract.id} className="cursor-pointer hover:bg-muted/50">
+                                <TableRow
+                                    key={contract.id}
+                                    className="cursor-pointer hover:bg-muted/50"
+                                    onClick={() => router.push(`/contract-details?id=${contract.id}`)}
+                                >
                                     <TableCell className="font-medium">{contract.title}</TableCell>
                                     <TableCell>{contract.type}</TableCell>
                                     <TableCell>{contract.user}</TableCell>
