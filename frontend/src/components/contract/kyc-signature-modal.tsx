@@ -48,9 +48,9 @@ const STEPS = [
   {
     id: "identity",
     icon: UserCheck,
-    title: "Vérification d'identité",
+    title: "Confirmation d'identité",
     description:
-      "Confirmez que vous êtes bien la personne autorisée à signer ce contrat. Votre identité est liée à votre compte et à votre portefeuille numérique.",
+      "Confirmez que vous êtes bien la personne autorisée à signer ce contrat, via le compte et le portefeuille numérique déjà connectés à cette session. Il ne s'agit pas d'une vérification d'identité par pièce officielle.",
     color: "text-blue-500",
     bg: "bg-blue-500/10",
     border: "border-blue-500/20",
@@ -102,10 +102,17 @@ export function KycSignatureModal({
 
   const step = STEPS[currentStep]
   const isLastStep = currentStep === STEPS.length - 1
+  // A warning that doesn't actually stop the signature isn't a safeguard — if the displayed
+  // text doesn't match the hash the platform itself certified, signing it is blocked
+  // outright rather than left to a checkbox the user might click past without reading.
+  const hasHashMismatch =
+    contractContent !== "CONTRAT_PDF_EXTERNE" &&
+    calculatedHash !== "" &&
+    calculatedHash !== originalHash
 
   const handleNext = async () => {
     if (isLastStep) {
-      if (!agreed) return
+      if (!agreed || hasHashMismatch) return
       try {
         setSigning(true)
         await onConfirm()
@@ -239,8 +246,8 @@ export function KycSignatureModal({
                           <p><span className="text-muted-foreground">Texte affiché :</span> <span className={calculatedHash === originalHash ? "text-emerald-500" : "text-amber-500"}>{calculatedHash || "Calcul en cours..."}</span></p>
                           <p><span className="text-muted-foreground">Original (IPFS) :</span> {originalHash || "N/A"}</p>
                         </div>
-                        {calculatedHash !== originalHash && calculatedHash !== "" && (
-                          <p className="text-[10px] text-destructive mt-1 font-bold">⚠ Attention : Le texte affiché diffère de la version originale certifiée.</p>
+                        {hasHashMismatch && (
+                          <p className="text-[10px] text-destructive mt-1 font-bold">⚠ Le texte affiché diffère de la version originale certifiée — la signature est bloquée tant que cet écart n'est pas résolu.</p>
                         )}
                       </>
                     )}
@@ -294,7 +301,7 @@ export function KycSignatureModal({
                 <Button
                   className="flex-1 gap-2"
                   onClick={handleNext}
-                  disabled={(isLastStep && !agreed) || signing}
+                  disabled={(isLastStep && (!agreed || hasHashMismatch)) || signing}
                 >
                   {signing ? (
                     <>
