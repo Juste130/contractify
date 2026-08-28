@@ -2,6 +2,7 @@ const { ethers } = require('ethers');
 const prisma = require('../models/prisma');
 const logger = require('../utils/logger');
 const { config } = require('../config');
+const { AppError } = require('../utils/errors');
 
 // NOTE: la génération/le chiffrement de clé privée custodiale (createUserWallet,
 // associateAdminWallet, encryptPrivateKey, fundInitialGas) a été retirée — Privy gère
@@ -27,7 +28,7 @@ class WalletService {
             return ethers.formatEther(balance);
         } catch (error) {
             logger.error('Error getting wallet balance:', error);
-            throw new Error('Failed to get wallet balance');
+            throw new AppError('Failed to get wallet balance', 500);
         }
     }
 }

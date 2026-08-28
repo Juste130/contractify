@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 const { config } = require('../config');
 const { ContractStatus } = require('@prisma/client');
 const notificationService = require('./notification');
+const { AppError, BadRequestError, NotFoundError, ForbiddenError } = require('../utils/errors');
 
 const CONTRACT_MANAGER_ABI = [
     'function getUserContracts(address user) external view returns (uint256[])',
@@ -441,18 +442,18 @@ class BlockchainSyncService {
      */
     async verifyDeploymentTx(transactionHash, expectedCreatorUserId) {
         if (!this.contractManager) {
-            throw new Error('Blockchain sync unavailable: no valid contract manager configured');
+            throw new AppError('Blockchain sync unavailable: no valid contract manager configured', 503);
         }
         if (!transactionHash || !/^0x[a-fA-F0-9]{64}$/.test(transactionHash)) {
-            throw new Error('Invalid transaction hash');
+            throw new BadRequestError('Invalid transaction hash');
         }
 
         const receipt = await this.provider.getTransactionReceipt(transactionHash);
         if (!receipt) {
-            throw new Error('Transaction not found or not yet mined');
+            throw new NotFoundError('Transaction not found or not yet mined');
         }
         if (receipt.status !== 1) {
-            throw new Error('Transaction failed on-chain');
+            throw new BadRequestError('Transaction failed on-chain');
         }
 
         // Privy's native gas sponsorship routes this transaction through Privy's own
@@ -472,7 +473,7 @@ class BlockchainSyncService {
             .find((e) => e && e.name === 'ContractCreated');
 
         if (!event) {
-            throw new Error('No ContractCreated event found in this transaction');
+            throw new BadRequestError('No ContractCreated event found in this transaction');
         }
 
         const contractId = event.args.contractId.toString();
@@ -483,7 +484,7 @@ class BlockchainSyncService {
                 where: { publicAddress: { equals: creatorAddress, mode: 'insensitive' } },
             });
             if (!creatorWallet || creatorWallet.userId !== expectedCreatorUserId) {
-                throw new Error('On-chain creator does not match the authenticated user');
+                throw new ForbiddenError('On-chain creator does not match the authenticated user');
             }
         }
 

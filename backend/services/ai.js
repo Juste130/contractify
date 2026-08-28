@@ -1,6 +1,7 @@
 const Groq = require('groq-sdk');
 const logger = require('../utils/logger');
 const { config } = require('../config');
+const { AppError } = require('../utils/errors');
 
 // Structure des articles imposée au LLM, par type de contrat. Chaque type de contrat
 // obéit à un régime juridique différent (droit du travail pour CDI/CDD, droit du bail
@@ -141,7 +142,7 @@ class AIService {
             return content;
         } catch (error) {
             logger.error('Error correcting input:', error);
-            throw new Error('Failed to correct input');
+            throw new AppError('Failed to correct input', 500);
         }
     }
 
@@ -176,7 +177,7 @@ class AIService {
             return { content, suggestions };
         } catch (error) {
             logger.error('Error generating contract:', error);
-            throw new Error('Failed to generate contract');
+            throw new AppError('Failed to generate contract', 500);
         }
     }
 
@@ -199,7 +200,7 @@ class AIService {
             return { improved, explanation };
         } catch (error) {
             logger.error('Error improving clause:', error);
-            throw new Error('Failed to improve clause');
+            throw new AppError('Failed to improve clause', 500);
         }
     }
 
@@ -227,7 +228,7 @@ class AIService {
             return clauses;
         } catch (error) {
             logger.error('Error suggesting clauses:', error);
-            throw new Error('Failed to suggest clauses');
+            throw new AppError('Failed to suggest clauses', 500);
         }
     }
 
@@ -255,7 +256,7 @@ class AIService {
             };
         } catch (error) {
             logger.error('Error validating contract:', error);
-            throw new Error('Failed to validate contract');
+            throw new AppError('Failed to validate contract', 500);
         }
     }
 

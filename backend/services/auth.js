@@ -6,6 +6,7 @@ const notificationService = require('./notification');
 const logger = require('../utils/logger');
 const { config } = require('../config');
 const { UserRole } = require('@prisma/client');
+const { UnauthorizedError } = require('../utils/errors');
 
 /**
  * Vérifie si un email fait partie de la whitelist des administrateurs.
@@ -247,16 +248,16 @@ class AuthService {
             const stored = await prisma.refreshToken.findUnique({ where: { tokenHash } });
 
             if (!stored || stored.revoked) {
-                throw new Error('Refresh token revoked or not found');
+                throw new UnauthorizedError('Refresh token revoked or not found');
             }
 
             if (new Date(stored.expiresAt) <= new Date()) {
-                throw new Error('Refresh token expired');
+                throw new UnauthorizedError('Refresh token expired');
             }
 
             const user = await prisma.user.findUnique({ where: { id: payload.userId } });
             if (!user) {
-                throw new Error('User not found');
+                throw new UnauthorizedError('User not found');
             }
 
             // Rotation: create new refresh token, persist it, revoke old one
@@ -273,7 +274,11 @@ class AuthService {
             return { token, refreshToken: newRefreshToken };
         } catch (error) {
             logger.error('Error refreshing token:', error);
-            throw new Error('Invalid refresh token');
+            // Preserve a typed error thrown above (e.g. UnauthorizedError) instead of
+            // stomping it into a generic one — only wrap truly unexpected failures (jwt.verify
+            // throwing its own error, a DB error) into the same 401, since either way the
+            // client's refresh token isn't usable.
+            throw error instanceof UnauthorizedError ? error : new UnauthorizedError('Invalid refresh token');
         }
     }
 
@@ -333,7 +338,7 @@ class AuthService {
         try {
             return jwt.verify(token, config.jwt.secret);
         } catch (error) {
-            throw new Error('Invalid token');
+            throw new UnauthorizedError('Invalid token');
         }
     }
 

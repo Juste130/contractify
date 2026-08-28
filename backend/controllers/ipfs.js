@@ -66,6 +66,12 @@ exports.getDocumentMetadata = async (req, res, next) => {
 
         const metadata = await ipfsService.getDocumentMetadata(cid);
 
+        // Known limitation: `uploadedBy` on IpfsDocument is nullable (legacy uploads recorded
+        // before this field existed). When it's null this comparison denies everyone but an
+        // admin — including the document's real owner, who has no other way to prove ownership
+        // here. Deliberately left deny-by-default rather than guessing a fallback: there is no
+        // reliable alternate source of truth in this codebase to confirm the real owner, and a
+        // permissive fallback would open every such document to any authenticated user instead.
         if (metadata.uploadedBy !== userId && userRole !== 'ADMIN') {
             return res.status(403).json({ error: 'Unauthorized to access this document' });
         }
@@ -90,6 +96,8 @@ exports.unpinDocument = async (req, res, next) => {
 
         const metadata = await ipfsService.getDocumentMetadata(cid);
 
+        // See the same check in getDocumentMetadata above for why a null uploadedBy denies
+        // by default (including to the real owner) rather than guessing a fallback.
         if (metadata.uploadedBy !== userId && userRole !== 'ADMIN') {
             return res.status(403).json({ error: 'Unauthorized to unpin this document' });
         }

@@ -2,6 +2,7 @@ const { PinataSDK } = require('pinata-web3');
 const prisma = require('../models/prisma');
 const logger = require('../utils/logger');
 const { config } = require('../config');
+const { AppError, NotFoundError } = require('../utils/errors');
 
 class IPFSService {
     constructor() {
@@ -35,7 +36,7 @@ class IPFSService {
             return { cid, url };
         } catch (error) {
             logger.error('Error uploading to IPFS:', error);
-            throw new Error('Failed to upload document to IPFS');
+            throw new AppError('Failed to upload document to IPFS', 500);
         }
     }
 
@@ -61,7 +62,7 @@ class IPFSService {
             return { cid, url };
         } catch (error) {
             logger.error('Error uploading JSON to IPFS:', error);
-            throw new Error('Failed to upload JSON to IPFS');
+            throw new AppError('Failed to upload JSON to IPFS', 500);
         }
     }
 
@@ -72,13 +73,14 @@ class IPFSService {
             });
 
             if (!document) {
-                throw new Error('Document not found');
+                throw new NotFoundError('Document not found');
             }
 
             return document;
         } catch (error) {
+            if (error instanceof NotFoundError) throw error;
             logger.error('Error getting document metadata:', error);
-            throw new Error('Failed to get document metadata');
+            throw new AppError('Failed to get document metadata', 500);
         }
     }
 
@@ -93,7 +95,7 @@ class IPFSService {
             logger.info(`Document unpinned from IPFS: ${cid}`);
         } catch (error) {
             logger.error('Error unpinning document:', error);
-            throw new Error('Failed to unpin document');
+            throw new AppError('Failed to unpin document', 500);
         }
     }
 

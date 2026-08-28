@@ -5,6 +5,7 @@ const { paymentProvider } = require('./payments');
 const notificationService = require('./notification');
 const emailService = require('./email');
 const incidentService = require('./incident');
+const { BadRequestError, ConflictError, NotFoundError, ForbiddenError } = require('../utils/errors');
 
 const REMINDER_WINDOWS = [
     { hours: 72, field: 'reminder72SentAt' },
@@ -30,7 +31,7 @@ class EscrowService {
     async declareTerms(contractCacheId, { amount, currency, penaltyPercent, deadline }) {
         if (!amount || Number(amount) <= 0) return null;
         if (!deadline) {
-            throw new Error('Une date limite est requise pour déclarer un séquestre.');
+            throw new BadRequestError('Une date limite est requise pour déclarer un séquestre.');
         }
 
         return prisma.contractEscrow.create({
@@ -49,7 +50,7 @@ class EscrowService {
     async requestDeposit(contractCacheId, userId) {
         const escrow = await this._getOwnedEscrow(contractCacheId, userId);
         if (escrow.status !== 'PENDING_DEPOSIT') {
-            throw new Error(`Ce séquestre n'est plus en attente de dépôt (statut: ${escrow.status}).`);
+            throw new ConflictError(`Ce séquestre n'est plus en attente de dépôt (statut: ${escrow.status}).`);
         }
 
         const checkout = await paymentProvider.createDepositCheckout({
@@ -86,10 +87,10 @@ class EscrowService {
     async releaseNow(contractCacheId, userId) {
         const escrow = await this._getOwnedEscrow(contractCacheId, userId);
         if (escrow.status !== 'DEPOSITED') {
-            throw new Error(`Impossible de libérer : le séquestre est au statut ${escrow.status}.`);
+            throw new ConflictError(`Impossible de libérer : le séquestre est au statut ${escrow.status}.`);
         }
         if (await incidentService.hasOpenIncident(contractCacheId)) {
-            throw new Error('Impossible de libérer : un litige ou une pause est actif sur ce contrat. Résolvez-le d\'abord.');
+            throw new ConflictError('Impossible de libérer : un litige ou une pause est actif sur ce contrat. Résolvez-le d\'abord.');
         }
         return this._release(escrow, 'creator');
     }
@@ -98,10 +99,10 @@ class EscrowService {
     async blockRelease(contractCacheId, userId, reason) {
         const escrow = await this._getOwnedEscrow(contractCacheId, userId);
         if (escrow.status !== 'DEPOSITED') {
-            throw new Error('Le séquestre ne peut être bloqué que tant que les fonds sont déposés et non encore libérés.');
+            throw new ConflictError('Le séquestre ne peut être bloqué que tant que les fonds sont déposés et non encore libérés.');
         }
         if (escrow.deadline <= new Date()) {
-            throw new Error("L'échéance est déjà passée — la libération automatique a peut-être déjà eu lieu, réessayez dans un instant.");
+            throw new ConflictError("L'échéance est déjà passée — la libération automatique a peut-être déjà eu lieu, réessayez dans un instant.");
         }
 
         const updated = await prisma.contractEscrow.update({
@@ -199,14 +200,14 @@ class EscrowService {
 
     async _getEscrow(contractCacheId) {
         const escrow = await prisma.contractEscrow.findUnique({ where: { contractCacheId } });
-        if (!escrow) throw new Error("Aucun séquestre déclaré pour ce contrat.");
+        if (!escrow) throw new NotFoundError("Aucun séquestre déclaré pour ce contrat.");
         return escrow;
     }
 
     async _getOwnedEscrow(contractCacheId, userId) {
         const contract = await prisma.contractCache.findUnique({ where: { id: contractCacheId } });
-        if (!contract) throw new Error('Contrat introuvable.');
-        if (contract.userId !== userId) throw new Error('Seul le créateur du contrat peut gérer son séquestre.');
+        if (!contract) throw new NotFoundError('Contrat introuvable.');
+        if (contract.userId !== userId) throw new ForbiddenError('Seul le créateur du contrat peut gérer son séquestre.');
         return this._getEscrow(contractCacheId);
     }
 
