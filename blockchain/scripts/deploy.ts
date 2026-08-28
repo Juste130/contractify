@@ -20,7 +20,17 @@ async function main() {
   // Transférer ownership
   const tx = await contractNFT.transferOwnership(managerAddress);
   await tx.wait();
-  console.log("Ownership de ContractNFT transféré à ContractManager");
+
+  // Seul un vrai contrôle post-transfert a un sens : avant cet appel, ContractManager ne peut
+  // structurellement pas encore être owner (il n'a été déployé qu'à l'instant précédent).
+  const newOwner = await contractNFT.owner();
+  if (newOwner !== managerAddress) {
+    throw new Error(
+      `Échec du transfert de propriété : ContractNFT.owner() = ${newOwner}, attendu ${managerAddress}. ` +
+      `Les mints (et donc toute finalisation de contrat) échoueront tant que ce n'est pas corrigé.`
+    );
+  }
+  console.log("Ownership de ContractNFT transféré à ContractManager (vérifié)");
 
   console.log("Déploiement terminé avec succès!");
 }

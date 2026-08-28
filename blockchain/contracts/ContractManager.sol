@@ -271,10 +271,17 @@ contract ContractManager is Ownable, ReentrancyGuard {
         // Configuration initiale de sécurité
         emergencyAdmin = msg.sender; // Par défaut, le déployeur est emergencyAdmin
         paused = false;
-        
-        // Vérifier que ContractManager peut appeler mintContractNFT
-        require(contractNFT.owner() == address(this) || msg.sender == contractNFT.owner() || contractNFT.owner() == address(0), 
-            "ContractManager must be owner or have permission to mint NFTs");
+
+        // La propriété de ContractNFT ne peut PAS encore appartenir à ce contrat ici : il
+        // s'agit du script de déploiement standard (voir scripts/deploy.ts) où ContractNFT est
+        // déployé en premier, puis ContractManager, puis seulement ensuite `transferOwnership`
+        // vers ce contrat. Une vérification à ce stade ne peut donc que comparer le déployeur à
+        // lui-même — elle passait toujours, sans jamais rien vérifier de réel. La vraie garantie
+        // est portée ailleurs : `mintContractNFT` sur ContractNFT est `onlyOwner`, donc un
+        // transfert de propriété manqué ou raté se voit immédiatement (revert bruyant) au tout
+        // premier mint, plutôt que d'être masqué par une fausse vérification ici. Le script de
+        // déploiement vérifie désormais explicitement le transfert après coup, une fois qu'il
+        // peut réellement être vrai ou faux.
     }
 
     /**
