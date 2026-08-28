@@ -19,3 +19,27 @@ export function isEffectivelyExpired(contract: { status?: string; metadata?: { e
 export function getEffectiveStatus(contract: { status?: string; metadata?: { expiresAt?: number } }): string {
   return isEffectivelyExpired(contract) ? "EXPIRED" : (contract.status || "");
 }
+
+/**
+ * Single mapping from a raw ContractStatus (or the display-only "EXPIRED") to the small set
+ * of StatusBadge variants — shared by every page that lists contracts (contracts-page,
+ * dashboard-page) so they can't silently drift into showing the same contract two different
+ * ways depending on which screen you're looking at.
+ */
+export type StatusBadgeVariant = "draft" | "pending" | "signed" | "completed" | "cancelled" | "disputed" | "terminated" | "resigned" | "expired";
+
+export function getStatusBadgeVariant(status: string): StatusBadgeVariant {
+  switch (status.toUpperCase()) {
+    case 'DRAFT_WAITING_SIGNERS': return 'draft';
+    case 'READY_TO_DEPLOY': return 'draft';
+    case 'PENDING_SIGNATURES': return 'pending';
+    case 'ACTIVE': return 'signed';
+    case 'COMPLETED': return 'completed';
+    case 'CANCELLED': return 'cancelled';
+    case 'DISPUTED': return 'disputed';
+    case 'TERMINATED': return 'terminated';
+    case 'RESIGNED': return 'resigned';
+    case 'EXPIRED': return 'expired';
+    default: return 'pending';
+  }
+}

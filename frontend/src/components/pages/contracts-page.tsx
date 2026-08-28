@@ -12,7 +12,7 @@ import { Spinner } from "../ui/spinner";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { contractsApi } from "@/lib/api/contracts";
-import { getEffectiveStatus } from "@/lib/contract-status";
+import { getEffectiveStatus, getStatusBadgeVariant } from "@/lib/contract-status";
 import {
   Table,
   TableBody,
@@ -38,40 +38,47 @@ import {
   AlertCircle
 } from "lucide-react";
 
+// "Resigned" has no dedicated chip: no on-chain function ever sets that status today (see
+// ContractManager.sol), so it would always show a permanent, confusing "0" — the label and
+// badge still handle it correctly if that ever changes, it just isn't worth a filter yet.
+const STATUS_FILTERS: { label: string; id: string }[] = [
+  { label: 'Tous', id: 'all' },
+  { label: 'Brouillons', id: 'draft' },
+  { label: 'En attente', id: 'pending' },
+  { label: 'Signés', id: 'signed' },
+  { label: 'Complétés', id: 'completed' },
+  { label: 'Litiges', id: 'disputed' },
+  { label: 'Résiliés', id: 'terminated' },
+  { label: 'Annulés', id: 'cancelled' },
+  { label: 'Expirés', id: 'expired' },
+];
+
 export function ContractsPage() {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
 
+  // Fetched once, unfiltered by status — filtering happens entirely client-side below so
+  // every grouped category (not just the 3 the API's exact-match status param could express)
+  // works, and so every chip's count can be computed from the same data the "all" view sees.
   const { data: contractsData, isLoading, error } = useQuery({
-    queryKey: ['contracts', 'cached', filterStatus],
-    queryFn: () => contractsApi.getCachedContracts({
-      status: filterStatus === "all" ? undefined : filterStatus.toUpperCase(),
-      limit: 50
-    }),
+    queryKey: ['contracts', 'cached'],
+    queryFn: () => contractsApi.getCachedContracts({ limit: 50 }),
   });
 
   const contracts = contractsData?.contracts || [];
 
-  const filteredContracts = contracts.filter((contract) => {
-    return contract.title.toLowerCase().includes(searchQuery.toLowerCase());
-  });
+  const statusCounts = contracts.reduce<Record<string, number>>((acc, c) => {
+    const key = getStatusBadgeVariant(getEffectiveStatus(c));
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
 
-  const getStatusLabel = (status: string) => {
-    switch (status.toUpperCase()) {
-      case 'DRAFT_WAITING_SIGNERS': return 'draft';
-      case 'READY_TO_DEPLOY': return 'draft';
-      case 'PENDING_SIGNATURES': return 'pending';
-      case 'ACTIVE': return 'signed';
-      case 'COMPLETED': return 'completed';
-      case 'CANCELLED': return 'cancelled';
-      case 'DISPUTED': return 'disputed';
-      case 'TERMINATED': return 'terminated';
-      case 'RESIGNED': return 'resigned';
-      case 'EXPIRED': return 'expired';
-      default: return 'pending';
-    }
-  };
+  const filteredContracts = contracts.filter((contract) => {
+    const matchesStatus = filterStatus === "all" || getStatusBadgeVariant(getEffectiveStatus(contract)) === filterStatus;
+    const matchesSearch = contract.title.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesStatus && matchesSearch;
+  });
 
   return (
     <div className="flex min-h-screen bg-muted">
@@ -100,21 +107,25 @@ export function ContractsPage() {
         <Card className="p-4 mb-6">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex gap-2 flex-wrap">
-              {[
-                { label: 'Tous', id: 'all' },
-                { label: 'En attente', id: 'pending_signatures' },
-                { label: 'Signés', id: 'active' },
-                { label: 'Complétés', id: 'completed' }
-              ].map((btn) => (
-                <Button
-                  key={btn.id}
-                  variant={filterStatus === btn.id ? "default" : "outline"}
-                  onClick={() => setFilterStatus(btn.id)}
-                  className={filterStatus === btn.id ? "bg-[#FFC107] text-[#212121] hover:bg-[#FFB300]" : ""}
-                >
-                  {btn.label}
-                </Button>
-              ))}
+              {STATUS_FILTERS.map((btn) => {
+                const count = btn.id === 'all' ? contracts.length : (statusCounts[btn.id] || 0);
+                // Hide empty categories past "Tous" — a wall of permanently-zero chips
+                // (Litiges, Résiliés...) is just clutter for an account that's never had one.
+                if (btn.id !== 'all' && count === 0) return null;
+                return (
+                  <Button
+                    key={btn.id}
+                    variant={filterStatus === btn.id ? "default" : "outline"}
+                    onClick={() => setFilterStatus(btn.id)}
+                    className={`gap-1.5 ${filterStatus === btn.id ? "bg-[#FFC107] text-[#212121] hover:bg-[#FFB300]" : ""}`}
+                  >
+                    {btn.label}
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${filterStatus === btn.id ? "bg-[#212121]/10" : "bg-muted-foreground/10"}`}>
+                      {count}
+                    </span>
+                  </Button>
+                );
+              })}
             </div>
 
             <div className="flex-1 relative">
@@ -173,7 +184,7 @@ export function ContractsPage() {
                       {contract.ipfsHash ? `${contract.ipfsHash.slice(0, 10)}...` : 'N/A'}
                     </TableCell>
                     <TableCell>
-                      <StatusBadge status={getStatusLabel(getEffectiveStatus(contract)) as any} />
+                      <StatusBadge status={getStatusBadgeVariant(getEffectiveStatus(contract)) as any} />
                     </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
