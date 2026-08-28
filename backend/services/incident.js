@@ -18,6 +18,12 @@ class IncidentService {
         if (!description || !description.trim()) {
             throw new Error('Une description du litige est requise.');
         }
+        // Un litige déjà ouvert bloque déjà la libération du séquestre (voir hasOpenIncident) —
+        // en ouvrir un second sur le même contrat n'ajoute rien de fonctionnel et permettrait
+        // à une partie de spammer des litiges pour prolonger indéfiniment ce blocage.
+        if (await this.hasOpenIncident(contractCacheId)) {
+            throw new Error('Un litige ou une pause est déjà actif sur ce contrat. Attendez sa résolution avant d\'en signaler un nouveau.');
+        }
         const incident = await prisma.contractIncident.create({
             data: {
                 contractCacheId,
@@ -46,6 +52,9 @@ class IncidentService {
     async proposeHold(contractCacheId, userId, { reason, customReason, description, proofIpfsHash, onchainTxHash }) {
         if (!description || !description.trim()) {
             throw new Error('Une description de la pause proposée est requise.');
+        }
+        if (await this.hasOpenIncident(contractCacheId)) {
+            throw new Error('Un litige ou une pause est déjà actif sur ce contrat. Attendez sa résolution avant d\'en proposer une nouvelle.');
         }
         const incident = await prisma.contractIncident.create({
             data: {
