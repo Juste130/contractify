@@ -52,12 +52,12 @@ export function HowItWorksPage() {
     {
       icon: Zap,
       title: "Gain de temps massif",
-      description: "Réduisez de 80% le temps de création de contrats. Ce qui prenait des heures ne prend plus que quelques minutes."
+      description: "Réduisez considérablement le temps de création de contrats. Ce qui prenait des heures ne prend plus que quelques minutes."
     },
     {
       icon: Shield,
       title: "Conformité juridique",
-      description: "Nos modèles sont conformes aux normes juridiques françaises et régulièrement mis à jour par des experts."
+      description: "Nos modèles s'adaptent à la base légale de signature électronique en vigueur dans le pays de votre contrat (France, espace OHADA...) et sont régulièrement mis à jour."
     },
     {
       icon: Users,
@@ -75,17 +75,17 @@ export function HowItWorksPage() {
     {
       icon: Lock,
       title: "Chiffrement bout en bout",
-      description: "Toutes vos données sont chiffrées avec un protocole de niveau bancaire (AES-256)"
+      description: "Vos données sont chiffrées avec le standard AES-256."
     },
     {
       icon: Shield,
       title: "Blockchain",
-      description: "Chaque signature est enregistrée sur blockchain pour une traçabilité et une preuve juridique immuables"
+      description: "Chaque signature est enregistrée sur blockchain pour une traçabilité et une preuve d'horodatage immuables"
     },
     {
       icon: CheckCircle2,
-      title: "Signature électronique qualifiée",
-      description: "Nos signatures électroniques ont la même valeur juridique qu'une signature manuscrite"
+      title: "Signature électronique",
+      description: "Nos signatures sont horodatées et ancrées sur la blockchain, avec la valeur probatoire reconnue par le cadre légal applicable à votre contrat."
     }
   ];
 
@@ -208,7 +208,7 @@ export function HowItWorksPage() {
           <div className="text-center mb-12">
             <h2 className="mb-4">Les avantages de ContracTify</h2>
             <p className="text-lg text-muted-foreground">
-              Découvrez pourquoi des milliers d'entreprises nous font confiance
+              Découvrez pourquoi entreprises et indépendants nous font confiance
             </p>
           </div>
 
@@ -269,10 +269,11 @@ export function HowItWorksPage() {
               <div>
                 <h3 className="mb-2">Blockchain pour la traçabilité</h3>
                 <p className="text-muted-foreground">
-                  Chaque contrat signé est enregistré sur notre blockchain privée,
-                  garantissant une preuve d'horodatage immuable et juridiquement valable.
-                  Cette technologie assure que vos documents ne peuvent pas être modifiés
-                  rétroactivement et fournit une piste d'audit complète.
+                  Chaque contrat signé est enregistré sur Polygon, un réseau blockchain public,
+                  garantissant une preuve d'horodatage immuable. Cette technologie assure que vos
+                  documents ne peuvent pas être modifiés rétroactivement et fournit une piste
+                  d'audit complète. ContracTify est actuellement en phase de test sur le réseau
+                  Polygon Amoy, avant un déploiement sur le réseau principal.
                 </p>
               </div>
             </div>
@@ -285,7 +286,7 @@ export function HowItWorksPage() {
         <div className="container mx-auto max-w-4xl text-center">
           <h2 className="mb-6">Prêt à simplifier vos contrats ?</h2>
           <p className="text-xl text-muted-foreground mb-8">
-            Rejoignez des milliers d'entreprises qui gagnent du temps avec ContracTify
+            Rejoignez les entreprises et indépendants qui gagnent du temps avec ContracTify
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/signup">

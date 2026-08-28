@@ -278,7 +278,7 @@ export function LandingPage() {
             Prêt à simplifier vos contrats ?
           </h2>
           <p className="text-[#212121]/80 text-xl mb-8">
-            Rejoignez des milliers d'entreprises qui font confiance à ContracTify
+            Rejoignez les entreprises et indépendants qui font confiance à ContracTify
           </p>
           <Link href="/signup">
             <Button
