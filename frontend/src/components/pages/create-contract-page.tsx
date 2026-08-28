@@ -54,6 +54,7 @@ import {
   JURISDICTION_CITIES,
 } from "@/lib/contract-templates";
 import { SIGNATORY_ROLE_LABELS } from "@/lib/contract-roles";
+import { renderContractToHtml } from "@/lib/utils/renderContractHtml";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -486,6 +487,22 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
     setError(null);
 
     try {
+      // A bare template name ("CDI", "Freelance"...) is fine as a placeholder while nothing
+      // is signed yet, but is meaningless once the contract is actually deployed and being
+      // signed — indistinguishable from every other CDI a user has. Bake the parties' names
+      // in from the start instead of trying to rename it later: one correct, descriptive
+      // title used everywhere (dashboard, contracts list, PDF filename, IPFS document title)
+      // from the moment of creation, rather than a generic one that would need patching up
+      // the instant signing starts.
+      const templateLabel = selectedTemplate === "pdf_upload"
+        ? "Contrat"
+        : (contractTemplatesUI.find((t) => t.id === selectedTemplate)?.name || "Contrat");
+      const partyAName = formData.partyA.name?.trim();
+      const partyBName = formData.partyB.name?.trim();
+      const contractTitle = partyAName && partyBName
+        ? `${templateLabel} — ${partyAName} / ${partyBName}`
+        : templateLabel;
+
       let ipfsHash = "";
       let sha256Hash = "";
       let content = "";
@@ -498,27 +515,27 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
         content = "CONTRAT_PDF_EXTERNE";
       } else {
         // AI Generated Contract
+        // The SHA-256 fingerprint is (and must stay) the hash of the actual plain-text
+        // content — it's what the KYC modal recomputes and compares against at signing time
+        // (contract.metadata.content in Postgres, not whatever's rendered for IPFS below).
         sha256Hash = await computeSHA256(contractText);
         content = contractText;
-        const ipfsResult = await ipfsApi.uploadJSON({
-          data: {
-            title: contractTemplatesUI.find((t) => t.id === selectedTemplate)?.name || "Nouveau Contrat",
-            content: contractText,
-            sha256Hash,
-            parties: { partyA: formData.partyA, partyB: formData.partyB },
-            signatories: signatories.map((s) => ({ name: s.name, email: s.email })),
-            country: formData.details.country,
-            city: formData.details.city,
-            createdAt: new Date().toISOString(),
-          },
-          name: `contract_${Date.now()}`,
-        });
+
+        // Upload a self-contained, styled HTML rendering — not a JSON blob wrapping the
+        // text (every field that used to bundle, parties/signatories/country/city, is
+        // already saved right below in the draft's own `metadata`), and not raw plain text
+        // either (opens as an unstyled monospace wall of text with no paragraph structure).
+        // A .html file opens as an actual formatted document directly from the IPFS gateway
+        // link, in any browser, with no dependency on this app.
+        const html = renderContractToHtml(contractText, contractTitle);
+        const contractFile = new File([html], `${contractTitle}.html`, { type: "text/html;charset=utf-8" });
+        const ipfsResult = await ipfsApi.uploadDocument(contractFile);
         ipfsHash = ipfsResult.cid;
       }
 
       // Save draft in database
       const draftResult = await contractsApi.saveDraft({
-        title: contractTemplatesUI.find((t) => t.id === selectedTemplate)?.name || "Nouveau Contrat",
+        title: contractTitle,
         ipfsHash: ipfsHash,
         metadata: {
           content: content,
