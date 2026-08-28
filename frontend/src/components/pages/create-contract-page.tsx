@@ -1425,6 +1425,10 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
               <p className="text-muted-foreground max-w-md mx-auto mb-8">
                 Rien ne bloque plus ce contrat. Vous pouvez le déployer sur la blockchain dès maintenant pour lancer les signatures, ou le faire plus tard depuis la page du contrat.
               </p>
+              <p className="text-xs text-muted-foreground max-w-md mx-auto mb-6 flex items-center justify-center gap-1.5">
+                <Shield className="w-3.5 h-3.5 shrink-0" />
+                Le déploiement est immédiat et irréversible : le contrat sera ancré de façon permanente sur la blockchain.
+              </p>
               {!isConnected && (
                 <p className="text-sm text-[#FFC107] mb-4 flex items-center justify-center gap-2">
                   <AlertCircle className="w-4 h-4" /> Connectez votre portefeuille pour déployer maintenant.

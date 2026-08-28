@@ -71,7 +71,7 @@ const STEPS = [
     icon: PenLine,
     title: "Signature électronique",
     description:
-      "En cliquant sur « Signer », vous apposez votre signature électronique certifiée. Cette action déclenchera une transaction immuable sur la blockchain.",
+      "En cliquant sur « Signer », vous apposez votre signature électronique. Cette action déclenchera une transaction immuable sur la blockchain.",
     color: "text-emerald-500",
     bg: "bg-emerald-500/10",
     border: "border-emerald-500/20",

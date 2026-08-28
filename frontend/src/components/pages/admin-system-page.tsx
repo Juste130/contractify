@@ -18,6 +18,7 @@ export function AdminSystemPage() {
     const [pauseState, setPauseState] = useState<{ paused: boolean; pausedAt: number; owner: string; emergencyAdmin: string } | null>(null);
     const [chainStatus, setChainStatus] = useState<'loading' | 'online' | 'offline'>('loading');
     const [pauseReason, setPauseReason] = useState("");
+    const [pauseConfirmText, setPauseConfirmText] = useState("");
     const [pauseActionLoading, setPauseActionLoading] = useState(false);
     const [pauseActionError, setPauseActionError] = useState<string | null>(null);
     const { user } = useAuthStore();
@@ -56,7 +57,7 @@ export function AdminSystemPage() {
     }, []);
 
     const handlePauseToggle = async () => {
-        if (!pauseReason.trim()) return;
+        if (!pauseReason.trim() || pauseConfirmText.trim().toUpperCase() !== "CONFIRMER") return;
         setPauseActionLoading(true);
         setPauseActionError(null);
         try {
@@ -66,6 +67,7 @@ export function AdminSystemPage() {
                 await emergencyPause(pauseReason);
             }
             setPauseReason("");
+            setPauseConfirmText("");
             await refreshPauseState();
         } catch (err: any) {
             // The contract itself is the real gate (onlyAuthorizedPauser / onlyOwnerOrEmergencyAdmin) —
@@ -180,10 +182,22 @@ export function AdminSystemPage() {
                                 className="w-full p-2 rounded-lg border border-border bg-input-background text-sm min-h-[70px]"
                                 maxLength={200}
                             />
+                            <div>
+                                <label className="text-xs text-muted-foreground block mb-1">
+                                    Tapez <strong>CONFIRMER</strong> pour activer le bouton ci-dessous — cette action touche l'ensemble des contrats de la plateforme.
+                                </label>
+                                <input
+                                    type="text"
+                                    value={pauseConfirmText}
+                                    onChange={(e) => setPauseConfirmText(e.target.value)}
+                                    placeholder="CONFIRMER"
+                                    className="w-full p-2 rounded-lg border border-border bg-input-background text-sm"
+                                />
+                            </div>
                             <Button
                                 variant={pauseState?.paused ? "default" : "destructive"}
                                 onClick={handlePauseToggle}
-                                disabled={pauseActionLoading || !pauseReason.trim() || chainStatus !== 'online'}
+                                disabled={pauseActionLoading || !pauseReason.trim() || pauseConfirmText.trim().toUpperCase() !== "CONFIRMER" || chainStatus !== 'online'}
                                 className="gap-2"
                             >
                                 {pauseActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : pauseState?.paused ? <PlayCircle className="w-4 h-4" /> : <PauseCircle className="w-4 h-4" />}
