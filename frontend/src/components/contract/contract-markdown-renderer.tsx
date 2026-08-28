@@ -163,6 +163,9 @@ export function ContractMarkdownRenderer({ content }: { content: string }) {
     // the same height, aligned with the surrounding text, as expected in a legal document.
     <div className="contract-content font-serif text-[15px] lining-nums tabular-nums">
       {elements}
+      <p className="mt-8 pt-4 border-t border-border text-xs text-muted-foreground not-italic font-sans">
+        Ce contrat a été rédigé avec l'assistance d'une intelligence artificielle. Il ne constitue pas un avis juridique et il est recommandé de le faire réviser par un professionnel du droit avant signature, en particulier pour un engagement à enjeu significatif.
+      </p>
     </div>
   )
 }

@@ -193,6 +193,8 @@ export async function generateCertifiedPDF(data: PDFData) {
         addText(`Ancrage Blockchain : En attente de déploiement`, 8, false, [130, 130, 130]);
     }
     addText(`Horodatage : ${new Date(data.createdAt).toLocaleString('fr-FR')}`, 8, false, [130, 130, 130]);
+    yPos += 4;
+    addText("Ce contrat a été rédigé avec l'assistance d'une intelligence artificielle. Il ne constitue pas un avis juridique.", 7, false, [150, 150, 150]);
 
     // QR Code
     try {
