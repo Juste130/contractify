@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export function LandingFooter() {
   return (
     <footer className="bg-[#212121] text-white py-12">
@@ -33,13 +35,15 @@ export function LandingFooter() {
             <ul className="space-y-2 text-sm text-gray-400">
               <li><a href="#" className="hover:text-[#FFC107]">Centre d'aide</a></li>
               <li><a href="#" className="hover:text-[#FFC107]">Contact</a></li>
-              <li><a href="#" className="hover:text-[#FFC107]">Mentions légales</a></li>
+              <li><Link href="/legal/mentions-legales" className="hover:text-[#FFC107]">Mentions légales</Link></li>
+              <li><Link href="/legal/cgu" className="hover:text-[#FFC107]">Conditions générales</Link></li>
+              <li><Link href="/legal/confidentialite" className="hover:text-[#FFC107]">Confidentialité</Link></li>
             </ul>
           </div>
         </div>
-        
+
         <div className="pt-8 border-t border-gray-800 text-center text-sm text-gray-400">
-          <p>© 2025 ContracTify. Tous droits réservés.</p>
+          <p>© {new Date().getFullYear()} ContracTify. Tous droits réservés.</p>
         </div>
       </div>
     </footer>

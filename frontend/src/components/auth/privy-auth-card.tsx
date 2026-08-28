@@ -63,6 +63,13 @@ export function PrivyAuthCard({ title, subtitle, buttonLabel }: PrivyAuthCardPro
                     <p className="text-center text-sm text-muted-foreground mt-4">
                         L'authentification est gérée de manière sécurisée par Privy. Aucun mot de passe n'est requis.
                     </p>
+                    <p className="text-center text-xs text-muted-foreground">
+                        En continuant, vous acceptez les{" "}
+                        <Link href="/legal/cgu" className="underline hover:text-[#FFC107]">Conditions générales</Link>
+                        {" "}et la{" "}
+                        <Link href="/legal/confidentialite" className="underline hover:text-[#FFC107]">Politique de confidentialité</Link>
+                        {" "}de ContracTify.
+                    </p>
                 </div>
             </Card>
         </div>
