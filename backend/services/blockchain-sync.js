@@ -64,6 +64,17 @@ class BlockchainSyncService {
 
             const status = this.mapContractStatus(contractData.status);
 
+            // The name typed into THIS contract's own signatory form (ContractSignatory.name —
+            // e.g. "Jean Dupont", or "Ma Société SAS" for Partie A) is what the creator meant
+            // by this person's name on this specific document. The same wallet can be a
+            // different name on a different contract (a company rep signing under their title
+            // here, their own name there) — the signer's account-wide profile name is neither
+            // of those, and previously always won post-deployment, silently replacing whatever
+            // the form actually said with the account's global (and often email-derived) name.
+            const draftSignatories = await prisma.contractSignatory.findMany({
+                where: { contract: { contractId: parseInt(contractId, 10) } },
+            });
+
             // Lookup each signer's address in our database to resolve their name and email
             // (case-insensitive: on-chain addresses may be checksummed differently than stored)
             const enrichedSigners = await Promise.all(signers.map(async (s) => {
@@ -71,11 +82,14 @@ class BlockchainSyncService {
                     where: { publicAddress: { equals: s.signer, mode: 'insensitive' } },
                     include: { user: true }
                 });
+                const draftMatch = draftSignatories.find(
+                    (ds) => ds.walletAddress && ds.walletAddress.toLowerCase() === s.signer.toLowerCase()
+                );
 
                 return {
                     address: s.signer,
-                    name: wallet?.user?.profileData?.name || wallet?.user?.email || null,
-                    email: wallet?.user?.email || null,
+                    name: draftMatch?.name || wallet?.user?.profileData?.name || wallet?.user?.email || null,
+                    email: draftMatch?.email || wallet?.user?.email || null,
                     role: Number(s.role),
                     customRole: s.customRole,
                     hasSigned: s.hasSignedContract,
@@ -206,19 +220,36 @@ class BlockchainSyncService {
         const MAX_BLOCK_CHUNK = 9;
 
         const processChunk = async (fromBlock, toBlock) => {
+            // Every event body below is wrapped in its own try/catch. Without this, a single
+            // hiccup partway through (e.g. the DB connection pool exhaustion / RPC timeouts
+            // seen in production logs) throws out of processChunk entirely — which aborts the
+            // whole block-range scan BEFORE _lastScannedBlock is advanced (see pollEvents()
+            // below). The next tick then re-queries the *same* block range from scratch via
+            // queryFilter, which returns the *same* on-chain events again (they're permanent
+            // log entries), and re-runs every side effect for them — including re-sending
+            // emails and re-creating in-app notifications for signers who were already
+            // successfully notified moments earlier. That silent full-chunk retry, not a
+            // literal duplicate emission on-chain, is what produced duplicate notifications.
+            // Catching per-event means one contract's hiccup no longer nukes every other
+            // contract's already-completed notifications in the same chunk.
+
             // ContractCreated
             const createdEvents = await this.contractManager.queryFilter(
                 this.contractManager.filters.ContractCreated(),
                 fromBlock, toBlock
             );
             for (const event of createdEvents) {
-                const [contractId, creator] = event.args;
-                logger.info(`New contract created: ${contractId} by ${creator}`);
-                const wallet = await prisma.userWallet.findFirst({
-                    where: { publicAddress: { equals: creator, mode: 'insensitive' } },
-                });
-                if (wallet) {
-                    await this.syncContract(contractId.toString(), wallet.userId);
+                try {
+                    const [contractId, creator] = event.args;
+                    logger.info(`New contract created: ${contractId} by ${creator}`);
+                    const wallet = await prisma.userWallet.findFirst({
+                        where: { publicAddress: { equals: creator, mode: 'insensitive' } },
+                    });
+                    if (wallet) {
+                        await this.syncContract(contractId.toString(), wallet.userId);
+                    }
+                } catch (err) {
+                    logger.error(`Error processing ContractCreated for tx ${event.transactionHash}:`, err);
                 }
             }
 
@@ -228,27 +259,53 @@ class BlockchainSyncService {
                 fromBlock, toBlock
             );
             for (const event of finalizedEvents) {
-                const [contractId, nftTokenId] = event.args;
-                logger.info(`Contract finalized: ${contractId}, NFT: ${nftTokenId}`);
-                
-                // First sync contract details to keep cache accurate
-                await this.syncContract(contractId.toString(), null);
+                try {
+                    const [contractId, nftTokenId] = event.args;
+                    logger.info(`Contract finalized: ${contractId}, NFT: ${nftTokenId}`);
 
-                const contract = await prisma.contractCache.findUnique({
-                    where: { contractId: Number(contractId) }
-                });
+                    // First sync contract details to keep cache accurate
+                    await this.syncContract(contractId.toString(), null);
 
-                if (contract && contract.metadata && contract.metadata.signers) {
-                    const emailService = require('./email');
-                    for (const signer of contract.metadata.signers) {
-                        if (signer.email) {
+                    const contract = await prisma.contractCache.findUnique({
+                        where: { contractId: Number(contractId) }
+                    });
+
+                    if (contract && contract.metadata && contract.metadata.signers) {
+                        const emailService = require('./email');
+                        for (const signer of contract.metadata.signers) {
+                            if (!signer.email) continue;
                             emailService.sendContractFinalizedNotification(
                                 signer.email,
                                 contract.title,
                                 contractId.toString()
                             ).catch(err => logger.error(`[Email] Failed to send finalized notification to ${signer.email}:`, err));
                         }
+
+                        // In-app notification too, not just email — this is the moment every
+                        // signature has been collected and the contract goes live; missing it
+                        // in the bell because it only ever went out by email was the bulk of why
+                        // the in-app notification system looked completely dead in practice.
+                        // Each signer is its own try/catch: one signer's lookup failing (e.g. a
+                        // momentary DB pool exhaustion) must not stop the others in this same
+                        // event from being notified, nor abort the chunk and force a full retry.
+                        for (const signer of contract.metadata.signers) {
+                            if (!signer.email) continue;
+                            try {
+                                const notifyUser = await prisma.user.findUnique({ where: { email: signer.email } });
+                                if (!notifyUser) continue;
+                                await notificationService.create(notifyUser.id, {
+                                    type: 'GENERIC',
+                                    title: 'Contrat actif',
+                                    message: `Toutes les signatures ont été collectées : le contrat "${contract.title}" est maintenant actif.`,
+                                    contractCacheId: contract.id,
+                                });
+                            } catch (err) {
+                                logger.error(`[Notification] Failed to notify ${signer.email} of finalization:`, err);
+                            }
+                        }
                     }
+                } catch (err) {
+                    logger.error(`Error processing ContractFinalized for tx ${event.transactionHash}:`, err);
                 }
             }
 
@@ -258,51 +315,73 @@ class BlockchainSyncService {
                 fromBlock, toBlock
             );
             for (const event of statusEvents) {
-                const [contractId, , newStatus] = event.args;
-                logger.info(`Contract ${contractId} status updated to: ${newStatus}`);
-                
-                // First sync contract details to keep cache accurate
-                await this.syncContract(contractId.toString(), null);
+                try {
+                    const [contractId, , newStatus] = event.args;
+                    logger.info(`Contract ${contractId} status updated to: ${newStatus}`);
 
-                const contract = await prisma.contractCache.findUnique({
-                    where: { contractId: Number(contractId) }
-                });
+                    // First sync contract details to keep cache accurate
+                    await this.syncContract(contractId.toString(), null);
 
-                if (contract && contract.metadata && contract.metadata.signers) {
-                    const statusString = contract.status;
-                    const emailService = require('./email');
-                    for (const signer of contract.metadata.signers) {
-                        if (signer.email) {
-                            emailService.sendContractStatusNotification(
-                                signer.email,
-                                contract.title,
-                                contractId.toString(),
-                                statusString
-                            ).catch(err => logger.error(`[Email] Failed to send status notification to ${signer.email}:`, err));
-                        }
-                    }
+                    const contract = await prisma.contractCache.findUnique({
+                        where: { contractId: Number(contractId) }
+                    });
 
-                    // TERMINATED specifically also gets an in-app notification, not just a
-                    // generic status email — a party affected by a termination could
-                    // otherwise miss it entirely if they don't check their inbox.
-                    if (statusString === 'TERMINATED') {
-                        const reasonText = contract.metadata.terminationInfo?.customReason
-                            || contract.metadata.terminationInfo?.justification
-                            || null;
+                    if (contract && contract.metadata && contract.metadata.signers) {
+                        const statusString = contract.status;
+                        const emailService = require('./email');
                         for (const signer of contract.metadata.signers) {
-                            if (!signer.email) continue;
-                            const notifyUser = await prisma.user.findUnique({ where: { email: signer.email } });
-                            if (!notifyUser) continue;
-                            await notificationService.create(notifyUser.id, {
-                                type: 'CONTRACT_TERMINATED',
-                                title: 'Contrat résilié',
-                                message: reasonText
-                                    ? `Le contrat "${contract.title}" a été résilié : ${reasonText}`
-                                    : `Le contrat "${contract.title}" a été résilié.`,
-                                contractCacheId: contract.id,
-                            });
+                            if (signer.email) {
+                                emailService.sendContractStatusNotification(
+                                    signer.email,
+                                    contract.title,
+                                    contractId.toString(),
+                                    statusString
+                                ).catch(err => logger.error(`[Email] Failed to send status notification to ${signer.email}:`, err));
+                            }
+                        }
+
+                        // Every status change also gets an in-app notification, not just an
+                        // email — a party affected by a termination/cancellation/dispute could
+                        // otherwise miss it entirely if they don't check their inbox. ACTIVE is
+                        // skipped here since ContractFinalized (handled above) already covers it —
+                        // both events fire together when the last signature lands, and this loop
+                        // runs for every ContractStatusUpdated event regardless of which status.
+                        if (statusString !== 'ACTIVE') {
+                            const reasonText = statusString === 'TERMINATED'
+                                ? (contract.metadata.terminationInfo?.customReason || contract.metadata.terminationInfo?.justification || null)
+                                : statusString === 'DISPUTED'
+                                    ? (contract.metadata.disputeInfo?.customReason || contract.metadata.disputeInfo?.justification || null)
+                                    : null;
+                            const titles = {
+                                TERMINATED: 'Contrat résilié',
+                                CANCELLED: 'Contrat annulé',
+                                DISPUTED: 'Litige ouvert sur le contrat',
+                            };
+                            const title = titles[statusString] || 'Statut du contrat mis à jour';
+                            const baseMessage = titles[statusString]
+                                ? `Le contrat "${contract.title}" est maintenant ${statusString === 'TERMINATED' ? 'résilié' : statusString === 'CANCELLED' ? 'annulé' : 'en litige'}.`
+                                : `Le contrat "${contract.title}" a changé de statut : ${statusString}.`;
+                            const message = reasonText ? `${baseMessage} ${reasonText}` : baseMessage;
+
+                            for (const signer of contract.metadata.signers) {
+                                if (!signer.email) continue;
+                                try {
+                                    const notifyUser = await prisma.user.findUnique({ where: { email: signer.email } });
+                                    if (!notifyUser) continue;
+                                    await notificationService.create(notifyUser.id, {
+                                        type: statusString === 'TERMINATED' ? 'CONTRACT_TERMINATED' : 'GENERIC',
+                                        title,
+                                        message,
+                                        contractCacheId: contract.id,
+                                    });
+                                } catch (err) {
+                                    logger.error(`[Notification] Failed to notify ${signer.email} of status change:`, err);
+                                }
+                            }
                         }
                     }
+                } catch (err) {
+                    logger.error(`Error processing ContractStatusUpdated for tx ${event.transactionHash}:`, err);
                 }
             }
         };

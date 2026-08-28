@@ -37,9 +37,18 @@ exports.updateProfile = async (req, res, next) => {
         const userId = req.user.userId;
         const { profileData } = req.body;
 
+        // `data: { profileData }` alone would REPLACE the whole JSON column, not patch it —
+        // today profileData only ever holds `name`, so it happens to be harmless, but the
+        // settings form only ever sends `{ name }`. The moment any other field is added to
+        // this JSON blob (avatar, locale, preferences...), saving your name here would
+        // silently wipe it. Merging on top of the existing value is what "update the
+        // profile" is actually supposed to mean.
+        const existing = await prisma.user.findUnique({ where: { id: userId }, select: { profileData: true } });
+        const mergedProfileData = { ...(existing?.profileData || {}), ...(profileData || {}) };
+
         const updatedUser = await prisma.user.update({
             where: { id: userId },
-            data: { profileData },
+            data: { profileData: mergedProfileData },
         });
 
         const { passwordHash, ...userProfile } = updatedUser;

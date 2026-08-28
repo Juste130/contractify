@@ -3,6 +3,7 @@ const prisma = require('../models/prisma');
 const logger = require('../utils/logger');
 const emailService = require('../services/email');
 const escrowService = require('../services/escrow');
+const notificationService = require('../services/notification');
 
 const MAX_SIGNATORIES = 20;
 
@@ -245,14 +246,33 @@ exports.markDraftDeployed = async (req, res, next) => {
         await blockchainSyncService.syncContract(verified.contractId.toString(), userId);
 
         // Signing only becomes possible now (status PENDING_SIGNATURES) — this is the right
-        // moment to tell every signatory, including the creator, that it's their turn to sign.
-        for (const signatory of contract.signatories) {
+        // moment to tell every OTHER signatory that it's their turn to sign. The creator
+        // (role 0) is excluded: createContract() auto-signs them on-chain as part of
+        // deployment itself (see ContractManager.sol createContract — the creator is added
+        // as the first signer with hasSignedContract already true), so a "please sign"
+        // email to the very person who just deployed and already signed is just confusing.
+        const signatoriesToNotify = contract.signatories.filter((s) => s.role !== 0);
+        for (const signatory of signatoriesToNotify) {
             emailService.sendSignatureRequest(
                 signatory.email,
                 contract.title,
                 contract.id,
                 signatory.name || signatory.email
             ).catch(err => logger.error(`[Email] Failed to send sign request to ${signatory.email}:`, err));
+
+            // In-app notification alongside the email, for anyone with a platform account —
+            // without this, the only channel these events ever reached was the inbox.
+            prisma.user.findUnique({ where: { email: signatory.email } })
+                .then((notifyUser) => {
+                    if (!notifyUser) return;
+                    return notificationService.create(notifyUser.id, {
+                        type: 'GENERIC',
+                        title: 'Signature requise',
+                        message: `Le contrat "${contract.title}" est prêt : c'est à vous de le signer.`,
+                        contractCacheId: contract.id,
+                    });
+                })
+                .catch((err) => logger.error(`[Notification] Failed to notify ${signatory.email}:`, err));
         }
 
         res.json({ message: 'Contract marked as deployed', contract: updatedContract });
@@ -326,23 +346,39 @@ exports.resendSignatureRequest = async (req, res, next) => {
 };
 
 /**
+ * A signatory (added by the creator at draft time, matched by email — the same match
+ * hasContractAccess() uses to grant them view access to a single contract) had that access
+ * but no way to actually discover the contract's existence: the dashboard and "Mes contrats"
+ * list both filtered strictly on `userId` (the creator), so a signatory who wasn't the
+ * creator never saw it here at all — only via a direct link, e.g. from a notification email.
+ */
+function visibleToUserWhere(user) {
+    return {
+        OR: [
+            { userId: user.userId },
+            ...(user.email ? [{ signatories: { some: { email: user.email } } }] : []),
+        ],
+    };
+}
+
+/**
  * Get accurate contract counts for the current user, grouped by status,
  * plus how many have an IPFS document attached. Unlike /cached, this is
  * never limited to a single page, so dashboard stats reflect the true totals.
  */
 exports.getContractsSummary = async (req, res, next) => {
     try {
-        const userId = req.user.userId;
+        const visibleWhere = visibleToUserWhere(req.user);
 
         const [statusGroups, total, withIpfs] = await Promise.all([
             prisma.contractCache.groupBy({
                 by: ['status'],
-                where: { userId },
+                where: visibleWhere,
                 _count: { _all: true },
             }),
-            prisma.contractCache.count({ where: { userId } }),
+            prisma.contractCache.count({ where: visibleWhere }),
             prisma.contractCache.count({
-                where: { userId, AND: [{ ipfsHash: { not: null } }, { ipfsHash: { not: '' } }] },
+                where: { ...visibleWhere, AND: [{ ipfsHash: { not: null } }, { ipfsHash: { not: '' } }] },
             }),
         ]);
 
@@ -362,11 +398,9 @@ exports.getContractsSummary = async (req, res, next) => {
  */
 exports.getCachedContracts = async (req, res, next) => {
     try {
-        const userId = req.user.userId;
         const { page = 1, limit = 20, status } = req.query;
 
-        const where = { userId };
-        if (status) where.status = status;
+        const where = { ...visibleToUserWhere(req.user), ...(status ? { status } : {}) };
 
         const contracts = await prisma.contractCache.findMany({
             where,
