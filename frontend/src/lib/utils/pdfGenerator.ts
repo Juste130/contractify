@@ -32,12 +32,31 @@ export async function generateCertifiedPDF(data: PDFData) {
         }
     };
 
+    // jsPDF's splitTextToSize only breaks on whitespace — a single unbroken token longer
+    // than the printable width (a SHA-256 hash, an IPFS CID, a long URL) sails straight
+    // past the right margin instead of wrapping, which is exactly what caused visible
+    // overflow in the generated PDF. Force a breakable point into any such token before
+    // handing the text to splitTextToSize.
+    const breakLongTokens = (text: string, maxCharsPerChunk = 45) => {
+        return text
+            .split(" ")
+            .map((word) => {
+                if (word.length <= maxCharsPerChunk) return word;
+                const chunks = [];
+                for (let i = 0; i < word.length; i += maxCharsPerChunk) {
+                    chunks.push(word.slice(i, i + maxCharsPerChunk));
+                }
+                return chunks.join(" ");
+            })
+            .join(" ");
+    };
+
     // Helper for multi-line text
     const addText = (text: string, fontSize = 12, isBold = false, color = [0, 0, 0]) => {
         doc.setFontSize(fontSize);
         doc.setFont("helvetica", isBold ? "bold" : "normal");
         doc.setTextColor(color[0], color[1], color[2]);
-        const lines = doc.splitTextToSize(text, pageWidth - margin * 2);
+        const lines = doc.splitTextToSize(breakLongTokens(text), pageWidth - margin * 2);
         for (const line of lines) {
             checkPageBreak(fontSize * 0.5);
             doc.text(line, margin, yPos);
@@ -45,8 +64,16 @@ export async function generateCertifiedPDF(data: PDFData) {
         }
     };
 
-    // 1. Header
-    doc.setTextColor(156, 39, 176);
+    // 1. Header — was RGB(156,39,176) = #9C27B0, the app's secondary AI-accent purple, used
+    // here by mistake for the primary wordmark (that color means "AI" everywhere else in the
+    // app — the sparkle/AiBadge, the "Préférences IA" section — not the brand itself). The
+    // brand's actual accent is #FFC107 gold, but gold text directly on this white page would
+    // repeat the same near-illegible contrast problem already found and fixed in the email
+    // header (~1.6:1) — worse here on a document meant to be printed/read in grayscale. Ink
+    // (#212121, the app's own dark-text token) is what a certified document's letterhead
+    // should look like anyway: legible, printer-safe, and it's already the exact color used
+    // for the destination heading of the "Bientôt disponible"-free parts of ContracTify's own UI.
+    doc.setTextColor(33, 33, 33);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(22);
     doc.text("ContracTify", margin, yPos);
@@ -154,21 +181,18 @@ export async function generateCertifiedPDF(data: PDFData) {
     doc.line(margin, yPos, pageWidth - margin, yPos);
     yPos += 8;
 
-    doc.setFontSize(8);
-    doc.setTextColor(130, 130, 130);
-    doc.setFont("helvetica", "bold");
-    doc.text("CERTIFICAT D'INTÉGRITÉ NUMÉRIQUE", margin, yPos);
-    yPos += 5;
-    doc.setFont("helvetica", "normal");
-    doc.text(`Empreinte SHA-256 : ${data.sha256Hash}`, margin, yPos);
-    yPos += 4;
+    addText("CERTIFICAT D'INTÉGRITÉ NUMÉRIQUE", 8, true, [130, 130, 130]);
+    yPos += 1;
+    // The SHA-256 hash is a single 64-char unbroken token — exactly the case addText's
+    // breakLongTokens() exists for; a raw doc.text() call here (the previous code) had no
+    // width constraint at all and ran straight off the page edge.
+    addText(`Empreinte SHA-256 : ${data.sha256Hash}`, 8, false, [130, 130, 130]);
     if (data.contractId) {
-        doc.text(`Ancrage Blockchain : Polygon Amoy (ID: ${data.contractId})`, margin, yPos);
+        addText(`Ancrage Blockchain : Polygon Amoy (ID: ${data.contractId})`, 8, false, [130, 130, 130]);
     } else {
-        doc.text(`Ancrage Blockchain : En attente de déploiement`, margin, yPos);
+        addText(`Ancrage Blockchain : En attente de déploiement`, 8, false, [130, 130, 130]);
     }
-    yPos += 4;
-    doc.text(`Horodatage : ${new Date(data.createdAt).toLocaleString('fr-FR')}`, margin, yPos);
+    addText(`Horodatage : ${new Date(data.createdAt).toLocaleString('fr-FR')}`, 8, false, [130, 130, 130]);
 
     // QR Code
     try {

@@ -138,9 +138,16 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
     }
   }
 
-  const fetchDetails = async () => {
+  // `silent` skips the full-page loading state used for the initial load. Without it, ANY
+  // refresh (e.g. right after signing) flips `loading` true, which unmounts the entire page
+  // tree — including KycSignatureModal, wiping its "done" success-screen state. Since nothing
+  // resets `showKycModal` to false on a successful sign (the user is meant to close it
+  // themselves off the success screen), remounting the modal open-but-freshly-reset made it
+  // look like it "reopened to start signing again" right after a signature had just gone
+  // through — this is what that bug actually was.
+  const fetchDetails = async (opts: { silent?: boolean } = {}) => {
     try {
-      setLoading(true)
+      if (!opts.silent) setLoading(true)
       if (isNaN(Number(id))) {
         // C'est un brouillon (UUID)
         const response = await contractsApi.getDraftDetails(id)
@@ -151,10 +158,12 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
         setContract(response.contract)
       }
     } catch (err: any) {
-      setError("Impossible de charger les détails du contrat.")
+      if (!opts.silent) {
+        setError("Impossible de charger les détails du contrat.")
+      }
       console.error(err)
     } finally {
-      setLoading(false)
+      if (!opts.silent) setLoading(false)
     }
   }
 
@@ -192,9 +201,31 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
   }, [contract?.id])
 
   const handleSign = async () => {
+    // The smart contract only understands the numeric on-chain contractId — never the
+    // page's `id` prop directly, which can be the draft/cache row's UUID whenever this page
+    // was reached via a link built from that UUID (e.g. the notification bell links to
+    // `contractCacheId`, not the on-chain id). Passing a UUID into signContract() fails deep
+    // inside ethers trying to encode it as a uint256 ("invalid BigNumberish string"),
+    // surfacing only as a raw ethers error with no clear success/failure message.
+    if (!contract?.contractId) {
+      setError("Ce contrat n'est pas encore déployé sur la blockchain — impossible de signer.")
+      return
+    }
     try {
-      await signContract(id)
-      await fetchDetails() // Refresh data after signing
+      await signContract(String(contract.contractId))
+      // The transaction succeeding on-chain doesn't mean the DB cache already reflects it —
+      // that only happens once the background event listener's next poll catches it (every
+      // ~15s in healthy conditions, and not at all if that listener is stalled or the RPC is
+      // unreachable). Rather than just re-reading whatever's currently cached, force an
+      // immediate re-sync of this specific contract from chain so the signature that really
+      // did just happen is reflected right away instead of looking like it silently failed.
+      await contractsApi.syncContract(contract.contractId).catch((err) => {
+        console.warn('Immediate post-signature sync failed, falling back to cache:', err)
+      })
+      // Silent: the KYC modal is still open showing its "signé avec succès" screen — a
+      // full-page reload here would tear that down and, since nothing else closes the
+      // modal, bring it back freshly reset (looking like it reopened to sign again).
+      await fetchDetails({ silent: true })
     } catch (err) {
       // Error is handled by useContract and displayed if needed
     }
@@ -334,7 +365,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
       await terminateContract(String(contract.contractId), terminateReason, "", "", terminateJustification)
       setShowTerminateForm(false)
       setTerminateJustification("")
-      await fetchDetails()
+      await fetchDetails({ silent: true })
     } catch (err: any) {
       setIncidentActionError(err.message || "La résiliation a échoué.")
     } finally {
@@ -452,7 +483,8 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
     : signers.map((s: any, idx: number) => ({
         key: `chain-${idx}`,
         signatoryId: null,
-        name: s.address,
+        name: s.name || s.address,
+        email: s.email || undefined,
         walletAddress: s.address,
         role: s.role,
         isRegistered: true,
@@ -463,6 +495,13 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
 
   const signedCount = signerRows.filter(s => s.hasSigned).length
   const roleLabel = signatoryRoleLabel
+
+  // contractId (this on-chain contract's own id) and nftTokenId (the separate, globally
+  // incrementing ERC-721 token counter in ContractNFT.sol) are two unrelated ID spaces —
+  // using one as a fallback for the other queries a random, likely wrong or non-existent
+  // NFT. "0" (a real string in the synced metadata) means "not minted yet", same as absent.
+  const rawNftTokenId = contract.metadata?.nftTokenId
+  const mintedNftTokenId = rawNftTokenId && rawNftTokenId !== "0" ? rawNftTokenId : null
 
   return (
     <div className="flex min-h-screen bg-muted">
@@ -521,21 +560,15 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                 {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
                 PDF
               </Button>
-              {contract.metadata?.deploymentTxHash ? (
-                <Button variant="outline" size="sm" className="gap-2" asChild>
-                  <a href={`${process.env.NEXT_PUBLIC_BLOCK_EXPLORER}/tx/${contract.metadata.deploymentTxHash}`} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="w-4 h-4" />
-                    Explorer
-                  </a>
-                </Button>
-              ) : contract.metadata?.creator && (
-                <Button variant="outline" size="sm" className="gap-2" asChild>
-                  <a href={`${process.env.NEXT_PUBLIC_BLOCK_EXPLORER}/address/${contract.metadata.creator}`} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="w-4 h-4" />
-                    Explorer (créateur)
-                  </a>
-                </Button>
-              )}
+              {/* Opens the signed contract itself, full-window, in a new tab — nothing to do
+                  with the blockchain. "Explorer" was an ambiguous label in a Web3 app (reads
+                  as "block explorer"); renamed to say plainly what it does. */}
+              <Button variant="outline" size="sm" className="gap-2" asChild>
+                <a href={`/contract-view?id=${contract.contractId || contract.id}`} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="w-4 h-4" />
+                  Voir le contrat
+                </a>
+              </Button>
               {canSign && (
                 <Button
                   className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2 px-6"
@@ -733,10 +766,16 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                   Litiges et pauses
                 </h3>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setShowHoldForm(false); setShowDisputeForm((v) => !v) }}>
+                  {/* A litige is the most consequential action a signatory can take here — it
+                      blocks escrow release immediately — so it gets the same destructive/red
+                      treatment as "Résilier", instead of blending into a neutral "PDF"-style
+                      outline button that undersells what clicking it actually does. */}
+                  <Button size="sm" variant="outline" className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/5" onClick={() => { setShowHoldForm(false); setShowDisputeForm((v) => !v) }}>
                     <AlertCircle className="w-3.5 h-3.5" /> Signaler un litige
                   </Button>
-                  <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setShowDisputeForm(false); setShowHoldForm((v) => !v) }}>
+                  {/* A hold is mutual and takes no effect until accepted — a calmer amber
+                      tint signals "a real, distinct action" without the alarm of red. */}
+                  <Button size="sm" variant="outline" className="gap-1.5 text-amber-600 border-amber-500/30 hover:bg-amber-500/5 dark:text-amber-400" onClick={() => { setShowDisputeForm(false); setShowHoldForm((v) => !v) }}>
                     <PauseCircle className="w-3.5 h-3.5" /> Proposer une pause
                   </Button>
                 </div>
@@ -962,6 +1001,9 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-bold truncate" title={signer.name}>{signer.name}</p>
+                              {signer.email && signer.email !== signer.name && (
+                                <p className="text-[11px] text-muted-foreground truncate" title={signer.email}>{signer.email}</p>
+                              )}
                               <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
                                 {roleLabel(signer.role)}
                               </p>
@@ -976,13 +1018,6 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
 
                           {isCreator && signer.resendKind && signer.signatoryId && (
                             <div className="mt-2.5 pt-2.5 border-t border-border/60" style={{ minWidth: 0 }}>
-                              <span
-                                className="text-[10px] text-muted-foreground block mb-2"
-                                style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                                title={signer.email}
-                              >
-                                {signer.email}
-                              </span>
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -1069,14 +1104,22 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                       Ce contrat est immuable et ancré sur le réseau Polygon. Chaque signature est une transaction vérifiable.
                     </p>
                     <div className="flex flex-col gap-2">
-                      <NFTViewer
-                        tokenId={contract.metadata?.nftTokenId || String(contract.contractId || 1)}
-                        contractId={String(contract.contractId || contract.id)}
-                        title={contract.title}
-                        effectiveDate={contract.metadata?.effectiveDate ? new Date(contract.metadata.effectiveDate * 1000).toISOString() : undefined}
-                        ipfsUrl={contract.ipfsHash ? ipfsApi.getPublicUrl(contract.ipfsHash) : undefined}
-                        contractStatus={contract.status}
-                      />
+                      {mintedNftTokenId ? (
+                        <NFTViewer
+                          tokenId={mintedNftTokenId}
+                          contractId={String(contract.contractId || contract.id)}
+                          title={contract.title}
+                          effectiveDate={contract.metadata?.effectiveDate ? new Date(contract.metadata.effectiveDate * 1000).toISOString() : undefined}
+                          ipfsUrl={contract.ipfsHash ? ipfsApi.getPublicUrl(contract.ipfsHash) : undefined}
+                          contractStatus={contract.status}
+                        />
+                      ) : (
+                        <p className="text-[11px] text-muted-foreground italic">
+                          {contract.status === 'ACTIVE' || contract.status === 'COMPLETED'
+                            ? "Certificat NFT en cours de synchronisation..."
+                            : "Le certificat NFT sera disponible une fois toutes les signatures collectées."}
+                        </p>
+                      )}
                       <Button variant="outline" className="w-full text-xs gap-2" asChild>
                         <a href={`https://gateway.pinata.cloud/ipfs/${contract.ipfsHash}`} target="_blank" rel="noopener noreferrer">
                           <Download className="w-3 h-3" />

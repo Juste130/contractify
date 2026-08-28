@@ -25,6 +25,10 @@ export const CONTRACT_MANAGER_ABI = [
     'function owner() external view returns (address)',
     'function emergencyAdmin() external view returns (address)',
     'function getUserContracts(address user) external view returns (uint256[])',
+    // Read-only NFT proof lookup — lets the UI show genuine on-chain data (mint timestamp,
+    // active flag, signer addresses) instead of just re-displaying props the caller already
+    // had, which made "Détails du NFT" feel like nothing more than another link to IPFS.
+    'function getNFTProof(uint256 contractId) external view returns (string ipfsHash, uint256 timestamp, bool isActive, address[] signers)',
     'function getContractDetails(uint256 contractId) external view returns (tuple(uint256 id, address creator, uint40 createdAt, uint40 expiresAt, uint40 effectiveDate, uint8 status, bool allowTermination, bool allowDispute, tuple(uint8 reason, string customReason, string proofIpfsHash, tuple(string justification, uint40 timestamp, address updatedBy) justification) terminationInfo, tuple(uint8 reason, string customReason, string proofIpfsHash, tuple(string justification, uint40 timestamp, address updatedBy) justification) disputeInfo, uint88 escrowAmount, uint8 penaltyPercent, string sha256Hash, uint88 releasedAmount, uint256 nftTokenId, bool isEscrowDeposited, address escrowPayer) contractData, tuple(address signer, uint8 role, string customRole, bool hasSignedContract, uint40 signedAt)[] signers, bool allSigned, uint256 justificationCount, uint256 paymentCount)',
     'event ContractCreated(uint256 indexed contractId, address indexed creator, uint40 createdAt, address[] additionalSigners)',
     'event ContractFinalized(uint256 indexed contractId, uint256 nftTokenId, uint40 effectiveDate)',
@@ -37,6 +41,7 @@ export const CONTRACT_MANAGER_ABI = [
 export const CONTRACT_NFT_ABI = [
     'function ownerOf(uint256 tokenId) external view returns (address)',
     'function tokenURI(uint256 tokenId) external view returns (string)',
+    'function getContractProof(uint256 tokenId) external view returns (string ipfsHash, uint256 timestamp, bool isActive, address[] signers)',
 ];
 
 export const getContractManager = (signerOrProvider: ethers.Signer | ethers.Provider) => {

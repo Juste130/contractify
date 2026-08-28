@@ -1,9 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { ethers } from "ethers";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { ExternalLink, ShieldCheck, AlertTriangle } from "lucide-react";
+import { ExternalLink, ShieldCheck, AlertTriangle, Loader2, Copy, Check } from "lucide-react";
+import { getContractNFT } from "@/lib/web3/contracts";
 
 interface NFTCardProps {
   tokenId: string;
@@ -24,6 +26,17 @@ const STALE_STATUS_LABELS: Record<string, string> = {
   RESIGNED: "Ce contrat a fait l'objet d'une démission.",
 };
 
+interface OnChainProof {
+  owner: string;
+  timestamp: number;
+  isActive: boolean;
+  signers: string[];
+}
+
+function truncateAddress(addr: string): string {
+  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+}
+
 export function NFTCard({
   tokenId,
   contractId,
@@ -33,6 +46,51 @@ export function NFTCard({
   contractStatus,
 }: NFTCardProps) {
   const staleNotice = contractStatus ? STALE_STATUS_LABELS[contractStatus] : undefined;
+  const [proof, setProof] = useState<OnChainProof | null>(null)
+  const [proofError, setProofError] = useState(false)
+  const [loadingProof, setLoadingProof] = useState(true)
+  const [copied, setCopied] = useState(false)
+
+  // "Détails du NFT" used to just re-display props the parent already had, with the only
+  // functional element being a link back out to IPFS — nothing here actually proved this
+  // was a real, minted, on-chain NFT. This reads the certificate directly from the
+  // ContractNFT contract (owner, mint timestamp, active flag, registered signers).
+  useEffect(() => {
+    let cancelled = false
+    const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL
+    if (!rpcUrl || !tokenId) {
+      setLoadingProof(false)
+      setProofError(true)
+      return
+    }
+    ;(async () => {
+      try {
+        const provider = new ethers.JsonRpcProvider(rpcUrl)
+        const nft = getContractNFT(provider)
+        const [owner, [ipfsHash, timestamp, isActive, signers]] = await Promise.all([
+          nft.ownerOf(tokenId),
+          nft.getContractProof(tokenId),
+        ])
+        if (cancelled) return
+        setProof({ owner, timestamp: Number(timestamp), isActive, signers: [...signers] })
+      } catch (err) {
+        console.warn("Failed to fetch on-chain NFT proof:", err)
+        if (!cancelled) setProofError(true)
+      } finally {
+        if (!cancelled) setLoadingProof(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [tokenId])
+
+  const copyOwner = async () => {
+    if (!proof) return
+    try {
+      await navigator.clipboard.writeText(proof.owner)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch { /* ignore */ }
+  }
 
   return (
     <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm hover:shadow-md transition-shadow">
@@ -55,10 +113,49 @@ export function NFTCard({
       <h4 className="font-semibold text-base mb-2 line-clamp-1">{title}</h4>
 
       {effectiveDate && (
-        <p className="text-xs text-muted-foreground mb-4">
+        <p className="text-xs text-muted-foreground mb-3">
           Finalisé le : {new Date(effectiveDate).toLocaleDateString()}
         </p>
       )}
+
+      {/* Live on-chain proof — this is the actual "detail" the button promises */}
+      <div className="rounded-lg border border-border/60 bg-muted/30 p-3 mb-3">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">
+          Vérification on-chain
+        </p>
+        {loadingProof ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+            <Loader2 className="size-3.5 animate-spin" /> Lecture du certificat sur la blockchain...
+          </div>
+        ) : proofError || !proof ? (
+          <p className="text-[11px] text-muted-foreground">
+            Vérification on-chain indisponible pour le moment — le certificat existe, mais ses détails n'ont pas pu être lus depuis la blockchain à l'instant.
+          </p>
+        ) : (
+          <div className="space-y-1.5 text-[11px]">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">Propriétaire</span>
+              <button
+                type="button"
+                onClick={copyOwner}
+                className="flex items-center gap-1 font-mono text-foreground hover:text-primary transition-colors"
+                title={proof.owner}
+              >
+                {truncateAddress(proof.owner)}
+                {copied ? <Check className="size-3 text-green-600" /> : <Copy className="size-3" />}
+              </button>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">Ancré le</span>
+              <span className="text-foreground">{new Date(proof.timestamp * 1000).toLocaleString('fr-FR')}</span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">Signataires enregistrés</span>
+              <span className="text-foreground">{proof.signers.length}</span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {ipfsUrl && (
         <a href={ipfsUrl} target="_blank" rel="noopener noreferrer">

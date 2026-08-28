@@ -16,6 +16,7 @@ import {
   FileCheck2,
   PenLine,
   ChevronRight,
+  ChevronDown,
   AlertTriangle,
   Loader2,
   CheckCircle2,
@@ -93,6 +94,9 @@ export function KycSignatureModal({
   const [signing, setSigning] = useState(false)
   const [done, setDone] = useState(false)
   const [calculatedHash, setCalculatedHash] = useState<string>("")
+  // Raw hash strings are exactly the kind of detail that reassures a technical user and
+  // alarms/confuses everyone else — collapsed by default, one click away for the curious.
+  const [showHashDetails, setShowHashDetails] = useState(false)
 
   useEffect(() => {
     if (open && contractContent) {
@@ -109,6 +113,12 @@ export function KycSignatureModal({
     contractContent !== "CONTRAT_PDF_EXTERNE" &&
     calculatedHash !== "" &&
     calculatedHash !== originalHash
+
+  // A genuine integrity problem must never stay hidden behind a collapsed "for the curious"
+  // section — force it open the moment it's detected, regardless of the user's own toggle.
+  useEffect(() => {
+    if (hasHashMismatch) setShowHashDetails(true)
+  }, [hasHashMismatch])
 
   const handleNext = async () => {
     if (isLastStep) {
@@ -231,25 +241,40 @@ export function KycSignatureModal({
               {currentStep === 1 && (
                 <>
                   <div className="flex flex-col gap-2 p-3 rounded-lg bg-muted/40 border border-border/50 mb-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                      <p className="text-xs font-bold">Vérification de l'intégrité {contractContent !== "CONTRAT_PDF_EXTERNE" && "(SHA-256)"}</p>
-                    </div>
-                    {contractContent === "CONTRAT_PDF_EXTERNE" ? (
-                      <div className="text-[10px] font-mono break-all space-y-1">
-                        <p className="text-emerald-500 font-bold">Intégrité du fichier PDF garantie par IPFS</p>
-                        <p><span className="text-muted-foreground">CID (Hash) :</span> {originalHash || "N/A"}</p>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="text-[10px] font-mono break-all space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowHashDetails((v) => !v)}
+                      className="flex items-center justify-between gap-2 w-full text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <ShieldCheck className={`w-4 h-4 ${hasHashMismatch ? "text-destructive" : "text-emerald-500"}`} />
+                        <span className="text-xs font-bold">Vérification de l'intégrité</span>
+                        {!hasHashMismatch && (
+                          <span className="text-[10px] text-emerald-600 font-medium">✓ Conforme</span>
+                        )}
+                      </span>
+                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0">
+                        Détails techniques
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showHashDetails ? "rotate-180" : ""}`} />
+                      </span>
+                    </button>
+
+                    {hasHashMismatch && (
+                      <p className="text-[10px] text-destructive font-bold">⚠ Le texte affiché diffère de la version originale certifiée — la signature est bloquée tant que cet écart n'est pas résolu.</p>
+                    )}
+
+                    {showHashDetails && (
+                      contractContent === "CONTRAT_PDF_EXTERNE" ? (
+                        <div className="text-[10px] font-mono break-all space-y-1 pt-1 border-t border-border/40">
+                          <p className="text-emerald-500 font-bold">Intégrité du fichier PDF garantie par IPFS</p>
+                          <p><span className="text-muted-foreground">CID (Hash) :</span> {originalHash || "N/A"}</p>
+                        </div>
+                      ) : (
+                        <div className="text-[10px] font-mono break-all space-y-1 pt-1 border-t border-border/40">
                           <p><span className="text-muted-foreground">Texte affiché :</span> <span className={calculatedHash === originalHash ? "text-emerald-500" : "text-amber-500"}>{calculatedHash || "Calcul en cours..."}</span></p>
                           <p><span className="text-muted-foreground">Original (IPFS) :</span> {originalHash || "N/A"}</p>
                         </div>
-                        {hasHashMismatch && (
-                          <p className="text-[10px] text-destructive mt-1 font-bold">⚠ Le texte affiché diffère de la version originale certifiée — la signature est bloquée tant que cet écart n'est pas résolu.</p>
-                        )}
-                      </>
+                      )
                     )}
                   </div>
 
