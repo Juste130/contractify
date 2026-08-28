@@ -13,12 +13,14 @@ interface IContractNFT {
     ) external returns (uint256);
     
     function getContractProof(uint256 tokenId) external view returns (
-        string memory ipfsHash, 
-        uint256 timestamp, 
-        bool isActive, 
+        string memory ipfsHash,
+        uint256 timestamp,
+        bool isActive,
         address[] memory signers
     );
-    
+
+    function updateProofStatus(uint256 tokenId, bool active) external;
+
     function owner() external view returns (address);
 }
 
@@ -460,6 +462,7 @@ contract ContractManager is Ownable, ReentrancyGuard {
 
         _addJustification(contractId, justification);
         _notifyAllParticipants(contractId, "Contract terminated");
+        _deactivateProof(contractData.nftTokenId);
 
         emit ContractStatusUpdated(contractId, oldStatus, ContractStatus.Terminated, justification, msg.sender);
         emit ContractTerminated(contractId, reason, customReason, proofIpfsHash, justification, msg.sender);
@@ -499,6 +502,7 @@ contract ContractManager is Ownable, ReentrancyGuard {
 
         _addJustification(contractId, justification);
         _notifyAllParticipants(contractId, "Contract disputed");
+        _deactivateProof(contractData.nftTokenId);
 
         emit ContractStatusUpdated(contractId, oldStatus, ContractStatus.Disputed, justification, msg.sender);
         emit ContractDisputed(contractId, reason, customReason, proofIpfsHash, justification, msg.sender);
@@ -611,6 +615,7 @@ contract ContractManager is Ownable, ReentrancyGuard {
 
         _addJustification(contractId, "Escrow funds released");
         _notifyAllParticipants(contractId, "Escrow funds released successfully");
+        _deactivateProof(contractData.nftTokenId);
     }
 
     /**
@@ -639,6 +644,7 @@ contract ContractManager is Ownable, ReentrancyGuard {
 
         _addJustification(contractId, "Penalty applied and funds distributed");
         _notifyAllParticipants(contractId, "Penalty applied due to conditions met");
+        _deactivateProof(contractData.nftTokenId);
     }
 
      /**
@@ -661,6 +667,19 @@ contract ContractManager is Ownable, ReentrancyGuard {
 
         emit ContractStatusUpdated(contractId, oldStatus, ContractStatus.Active, justification, contractData.creator);
         emit ContractFinalized(contractId, nftTokenId, contractData.effectiveDate);
+    }
+
+    /**
+     * @dev Signale au ContractNFT que le contrat n'est plus en vigueur (résilié, en litige, ou
+     * clos via l'escrow) — sans quoi isActive restait figé à true depuis le mint, à vie, sur la
+     * preuve on-chain. Factorisé en une seule fonction (au lieu d'inliner l'appel externe à
+     * chaque site d'appel) car ces 4 sites dupliqués faisaient dépasser la limite de taille de
+     * contrat EIP-170 au déploiement.
+     */
+    function _deactivateProof(uint256 nftTokenId) internal {
+        if (nftTokenId > 0) {
+            contractNFT.updateProofStatus(nftTokenId, false);
+        }
     }
 
     /**

@@ -64,6 +64,30 @@ contract ContractNFT is ERC721, Ownable, ReentrancyGuard {
         ContractProof memory proof = contractProofs[tokenId];
         return (proof.ipfsHash, proof.timestamp, proof.isActive, contractSigners[tokenId]);
     }
+
+    /**
+     * @dev Keeps the on-chain proof honest once the underlying contract leaves the Active
+     * state (terminated, disputed, or completed via escrow release/penalty) — without this,
+     * isActive stayed permanently true from mint onward. Restricted to the owner (ContractManager),
+     * the same authority that mints the proof in the first place.
+     * @param tokenId The ID of the token
+     * @param active The contract's current in-force state
+     */
+    function updateProofStatus(uint256 tokenId, bool active) external onlyOwner {
+        require(_exists(tokenId), "Token does not exist");
+        contractProofs[tokenId].isActive = active;
+    }
+
+    /**
+     * @dev This proof is bound to whoever actually signed the contract — a transfer would let
+     * the NFT change hands independently of who is legally party to the underlying document,
+     * so every transfer other than the initial mint is rejected.
+     */
+    function _beforeTokenTransfer(address from, address to, uint256 tokenId, uint256 batchSize) internal virtual override {
+        super._beforeTokenTransfer(from, to, tokenId, batchSize);
+        require(from == address(0), "ContractNFT: proof is non-transferable");
+    }
+
     /**
      * @dev Override tokenURI to return IPFS link
      * @param tokenId The ID of the token

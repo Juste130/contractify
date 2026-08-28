@@ -205,24 +205,19 @@ describe("ContractNFT", function () {
       }
     });
 
-    it("Devrait permettre le transfert de NFT", async function () {
+    it("Ne devrait PAS permettre le transfert du NFT (preuve non transférable)", async function () {
+      // Le NFT est la preuve de qui a signé le contrat — le rendre transférable romprait ce
+      // lien. Seul le mint (from == address(0)) doit passer, tout transfert ultérieur revert.
       const user1Address = await user1.getAddress();
       const user2Address = await user2.getAddress();
 
-      // ✅ TEST TRANSFERT NFT AVEC ETHERS.JS
-      const tx = await contractNFT.connect(user1).transferFrom(
-        user1Address,
-        user2Address,
-        1
-      );
+      await expect(
+        contractNFT.connect(user1).transferFrom(user1Address, user2Address, 1)
+      ).to.be.revertedWith("ContractNFT: proof is non-transferable");
 
-      const receipt = await tx.wait();
-
-      expect(receipt?.status).to.equal(1);
-
-      // Vérifier le nouveau owner
-      const newOwner = await contractNFT.ownerOf(1);
-      expect(newOwner).to.equal(user2Address);
+      // Le owner reste inchangé
+      const owner1 = await contractNFT.ownerOf(1);
+      expect(owner1).to.equal(user1Address);
     });
   });
 
