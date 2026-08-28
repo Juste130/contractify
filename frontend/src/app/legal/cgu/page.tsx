@@ -50,14 +50,44 @@ export default function Page() {
         ContracTify peut suspendre l'accès à la plateforme en cas d'incident technique ou de
         sécurité affectant l'ensemble du service. Cette suspension est distincte de la résiliation
         d'un contrat individuel entre utilisateurs, qui reste régie par les clauses propres à ce
-        contrat.
+        contrat. Un utilisateur peut demander la clôture de son compte à tout moment ; les contrats
+        déjà signés et ancrés sur la blockchain restent consultables et opposables indépendamment
+        de la clôture du compte qui les a créés.
       </p>
 
-      <h2>6. Responsabilité</h2>
-      <p>À préciser avec un professionnel du droit avant publication définitive.</p>
+      <h2>6. Propriété du contenu généré</h2>
+      <p>
+        Le texte d'un contrat généré ou modifié par l'utilisateur via ContracTify lui appartient.
+        ContracTify ne revendique aucun droit sur le contenu des contrats créés par ses
+        utilisateurs, et ne les exploite pas à d'autres fins que la fourniture du service
+        (génération, signature, archivage, et amélioration technique du service lui-même).
+      </p>
 
-      <h2>7. Droit applicable</h2>
-      <p>À préciser selon les juridictions effectivement desservies par ContracTify.</p>
+      <h2>7. Limitation de responsabilité</h2>
+      <p>
+        ContracTify est un outil facilitant la création, la signature et l'archivage de contrats ;
+        il n'est pas partie aux contrats conclus entre ses utilisateurs et n'intervient pas dans
+        leur exécution. La portée exacte de cette limitation (cas d'exclusion, plafond éventuel,
+        articulation avec le droit de la consommation applicable) doit être validée par un
+        professionnel du droit avant publication définitive — ce paragraphe reste un point
+        d'attention prioritaire du brouillon.
+      </p>
+
+      <h2>8. Modification des présentes conditions</h2>
+      <p>
+        ContracTify peut faire évoluer ces conditions, notamment pour refléter de nouvelles
+        fonctionnalités (activation réelle de l'escrow, passage en réseau principal) ou une
+        évolution du cadre légal. La date de dernière mise à jour, en haut de cette page, permet
+        de suivre ces changements.
+      </p>
+
+      <h2>9. Droit applicable et juridiction</h2>
+      <p>
+        À préciser selon les juridictions effectivement desservies par ContracTify (France et
+        espace OHADA à ce jour) — un service multi-juridictions comme celui-ci doit clarifier avec
+        un professionnel du droit si une loi et une juridiction uniques s'appliquent à tous les
+        utilisateurs, ou si cela varie selon le pays du contrat concerné.
+      </p>
     </LegalPage>
   );
 }
