@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useAuthStore } from "@/hooks/useAuth";
+import { prettifyEmailPrefix } from "@/lib/utils/displayName";
 
 // Only ever send people to a path inside our own app — a redirect/callbackUrl value
 // come from a URL query string, so treating it as trustworthy without this check would
@@ -69,7 +70,12 @@ export function usePrivySync() {
 
                     if (!email) { setIsSyncing(false); return; }
 
-                    await privyLogin({ privyId: user.id, email, walletAddress, profileData: { name: user.google?.name || email.split('@')[0] } }, token);
+                    // Privy's email login collects no name at all (just email + OTP) — when
+                    // there's no Google name either, this is the only default we can offer;
+                    // prettified so it reads as a name ("Dev Banca") rather than a raw,
+                    // lowercase, dotted email local-part. The user can still set a real one
+                    // any time in Paramètres > Profil.
+                    await privyLogin({ privyId: user.id, email, walletAddress, profileData: { name: user.google?.name || prettifyEmailPrefix(email) } }, token);
                     router.replace(destination);
                 } catch (error) {
                     console.error("Error syncing with backend:", error);

@@ -33,24 +33,52 @@ class EmailService {
   }
 
   /**
-   * Every outgoing email shares this one branded shell (same dark/gold ContracTify header,
-   * same card treatment for a contract title, same call-to-action button, same footer) so
-   * an invitation, a signature request, and a status update all read as coming from the
-   * same product instead of a patchwork of ad-hoc HTML fragments.
+   * Every outgoing email shares this one branded shell — the same header (Le Sceau mark +
+   * wordmark, matching what the app itself now uses), the same card treatment for a
+   * contract title, the same call-to-action button, the same footer.
+   *
+   * Colors intentionally match the LIVE product's light UI (white cards, #212121 ink,
+   * #FFC107 gold accent — see globals.css) rather than the dark navy/indigo gradient this
+   * shell used before, which didn't correspond to any surface that actually exists in the
+   * app (the product is light by default; only the Privy login modal is dark). An email
+   * that looks like a different, darker "crypto SaaS" than the product someone actually
+   * uses is a worse first impression than one that looks like more of the same app.
+   *
+   * The header band stays dark (#212121) on purpose, not to chase the old look: #FFC107
+   * gold text needs a dark ground to read at all — on the app's own white card background,
+   * that exact combination (gold-on-white, ~1.6:1 contrast) is close to illegible, which is
+   * true of the in-app sidebar wordmark today too. Keeping the header dark sidesteps
+   * repeating that problem here rather than fixing it, since this file only owns email output.
    */
   _wrapEmail({ heading, bodyHtml, contractTitle, ctaLabel, ctaUrl, ctaColor = '#FFC107', ctaTextColor = '#212121', footerNote }) {
+    // Absolute URL: Le Sceau, served as a static asset by the frontend (public/mark-seal.svg)
+    // — the same file used for the Privy login modal logo, so the mark is identical wherever
+    // it appears. Email clients vary widely in SVG support (solid in Apple Mail, Gmail web/app,
+    // and modern Outlook.com; unsupported in classic Outlook desktop, which falls back to
+    // showing nothing for this <img>). That's why the wordmark right next to it is real text,
+    // not baked into the image — the brand name is legible even where the mark itself isn't.
+    const markUrl = `${config.frontendUrl}/mark-seal.svg`;
     return `
-      <div style="font-family: 'Inter', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #0f0f1a; color: #e0e0e0; border-radius: 16px; overflow: hidden;">
-        <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 40px 40px 30px; text-align: center;">
-          <h1 style="color: #FFC107; font-size: 28px; margin: 0 0 8px;">ContracTify</h1>
-          <p style="color: #888; margin: 0; font-size: 14px;">Contrats intelligents sur blockchain</p>
+      <div style="font-family: 'Inter', Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; color: #212121; border-radius: 16px; overflow: hidden; border: 1px solid #E5E2D6;">
+        <div style="background: #212121; padding: 32px 40px; text-align: center;">
+          <table role="presentation" align="center" style="margin: 0 auto; border-collapse: collapse;">
+            <tr>
+              <td style="padding-right: 12px; vertical-align: middle;">
+                <img src="${markUrl}" width="36" height="36" alt="" style="display: block;">
+              </td>
+              <td style="vertical-align: middle;">
+                <span style="color: #FFC107; font-size: 26px; font-weight: 700; letter-spacing: -0.01em;">ContracTify</span>
+              </td>
+            </tr>
+          </table>
+          <p style="color: #9B9689; margin: 10px 0 0; font-size: 13px;">Contrats intelligents, signés et ancrés sur la blockchain</p>
         </div>
         <div style="padding: 40px;">
-          <h2 style="color: #ffffff; font-size: 22px; margin: 0 0 16px;">${heading}</h2>
+          <h2 style="color: #212121; font-size: 21px; margin: 0 0 16px; font-weight: 700;">${heading}</h2>
           ${bodyHtml}
           ${contractTitle ? `
-          <div style="background: #1a1a2e; border: 1px solid #FFC10730; border-radius: 12px; padding: 20px; margin: 8px 0 28px;">
-            <p style="color: #FFC107; font-weight: bold; font-size: 16px; margin: 0;">${contractTitle}</p>
+          <div style="background: #FBF8EF; border: 1px solid #EEE6C8; border-left: 4px solid #FFC107; border-radius: 10px; padding: 18px 20px; margin: 8px 0 28px;">
+            <p style="color: #212121; font-weight: 700; font-size: 16px; margin: 0;">${contractTitle}</p>
           </div>` : ''}
           ${ctaUrl ? `
           <div style="text-align: center; margin-bottom: 32px;">
@@ -59,7 +87,7 @@ class EmailService {
               ${ctaLabel}
             </a>
           </div>` : ''}
-          <p style="color: #555; font-size: 12px; text-align: center; border-top: 1px solid #222; padding-top: 20px; margin: 0;">
+          <p style="color: #8A8776; font-size: 12px; text-align: center; border-top: 1px solid #EDE9DB; padding-top: 20px; margin: 0; line-height: 1.6;">
             ${footerNote || "Cet email a été envoyé automatiquement par ContracTify — si vous n'attendiez pas ce message, vous pouvez l'ignorer."}
           </p>
         </div>
@@ -73,9 +101,9 @@ class EmailService {
     const html = this._wrapEmail({
       heading: `Bienvenue ${safeName} !`,
       bodyHtml: `
-        <p style="color: #aaa; line-height: 1.7; margin-bottom: 16px;">Merci de vous être inscrit(e) sur ContracTify.</p>
-        <p style="color: #aaa; line-height: 1.7; margin-bottom: 16px;">Vous pouvez maintenant créer et gérer vos contrats de manière sécurisée sur la blockchain.</p>
-        <p style="color: #aaa; line-height: 1.7; margin-bottom: 28px;">Votre portefeuille numérique a été créé automatiquement et financé avec un peu de MATIC pour vos premières transactions.</p>
+        <p style="color: #4B4B42; line-height: 1.7; margin-bottom: 16px;">Merci de vous être inscrit(e) sur ContracTify.</p>
+        <p style="color: #4B4B42; line-height: 1.7; margin-bottom: 16px;">Vous pouvez maintenant créer et gérer vos contrats de manière sécurisée sur la blockchain.</p>
+        <p style="color: #4B4B42; line-height: 1.7; margin-bottom: 28px;">Votre portefeuille numérique a été créé automatiquement et financé avec un peu de MATIC pour vos premières transactions.</p>
       `,
     });
 
@@ -90,11 +118,11 @@ class EmailService {
     const html = this._wrapEmail({
       heading: `Bonjour ${safeName},`,
       bodyHtml: `
-        <p style="color: #aaa; line-height: 1.7; margin-bottom: 8px;">
+        <p style="color: #4B4B42; line-height: 1.7; margin-bottom: 8px;">
           Vous avez été invité(e) à signer le contrat suivant sur ContracTify :
         </p>
       `,
-      contractTitle: `${safeTitle}<p style="color: #666; font-size: 12px; margin: 8px 0 0; font-family: monospace;">Réf: ${draftId.slice(0, 8)}...</p>`,
+      contractTitle: `${safeTitle}<p style="color: #8A8776; font-size: 12px; margin: 8px 0 0; font-family: monospace;">Réf: ${draftId.slice(0, 8)}...</p>`,
       ctaLabel: 'Créer mon compte et signer',
       ctaUrl: signupUrl,
       footerNote: `
@@ -113,7 +141,7 @@ class EmailService {
     const html = this._wrapEmail({
       heading: `Bonjour ${safeName},`,
       bodyHtml: `
-        <p style="color: #aaa; line-height: 1.7; margin-bottom: 8px;">
+        <p style="color: #4B4B42; line-height: 1.7; margin-bottom: 8px;">
           Le contrat suivant a été déployé sur la blockchain et attend votre signature :
         </p>
       `,
@@ -131,7 +159,7 @@ class EmailService {
     const html = this._wrapEmail({
       heading: 'Votre contrat est actif !',
       bodyHtml: `
-        <p style="color: #aaa; line-height: 1.7; margin-bottom: 8px;">
+        <p style="color: #4B4B42; line-height: 1.7; margin-bottom: 8px;">
           Toutes les signatures ont été collectées. Le contrat suivant est maintenant actif sur la blockchain, et un NFT de preuve a été généré avec succès :
         </p>
       `,
@@ -151,8 +179,8 @@ class EmailService {
     const html = this._wrapEmail({
       heading: 'Statut du contrat mis à jour',
       bodyHtml: `
-        <p style="color: #aaa; line-height: 1.7; margin-bottom: 8px;">
-          Le contrat suivant a changé de statut : <strong style="color: #fff;">${safeStatus}</strong>
+        <p style="color: #4B4B42; line-height: 1.7; margin-bottom: 8px;">
+          Le contrat suivant a changé de statut : <strong style="color: #212121;">${safeStatus}</strong>
         </p>
       `,
       contractTitle: safeTitle,
@@ -167,7 +195,7 @@ class EmailService {
     const safeMessage = this.escapeHtml(message || '');
     const html = this._wrapEmail({
       heading: safeTitle,
-      bodyHtml: `<p style="color: #aaa; line-height: 1.7; margin-bottom: 8px;">${safeMessage}</p>`,
+      bodyHtml: `<p style="color: #4B4B42; line-height: 1.7; margin-bottom: 8px;">${safeMessage}</p>`,
       ctaLabel: contractCacheId ? 'Voir le contrat' : undefined,
       ctaUrl: contractCacheId ? `${config.frontendUrl}/contract-details?id=${contractCacheId}` : undefined,
     });

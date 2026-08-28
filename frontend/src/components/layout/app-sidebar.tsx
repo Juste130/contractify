@@ -29,12 +29,32 @@ import { useAuthStore } from "@/hooks/useAuth";
 import { useLogout } from "@/hooks/useLogout";
 import { NotificationBell } from "./notification-bell";
 import { cn } from "../ui/utils";
+import { getDisplayName } from "@/lib/utils/displayName";
+import { roleLabel as getRoleLabel } from "@/lib/user-roles";
 
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: "Administrateur",
-  USER: "Utilisateur",
-  VIEWER: "Observateur",
-};
+/**
+ * "Le Sceau" — reproduced at the exact geometry from the concept artifact (circle r=100 on
+ * a 240 viewBox, 12-dot pearled border at r=84, ring r=54/stroke-width=22 cut open on the
+ * right, closed by a seal-flourish dot). Shared between the collapsed-sidebar icon and the
+ * expanded logo lockup so both stay pixel-identical instead of drifting apart as two
+ * separately-maintained copies.
+ */
+function SealMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 240 240" className={className} xmlns="http://www.w3.org/2000/svg">
+      <circle cx="120" cy="120" r="100" fill="#FFC107" />
+      <circle cx="204" cy="120" r="5" fill="#15180F" /><circle cx="192.7" cy="162" r="5" fill="#15180F" />
+      <circle cx="162" cy="192.7" r="5" fill="#15180F" /><circle cx="120" cy="204" r="5" fill="#15180F" />
+      <circle cx="78" cy="192.7" r="5" fill="#15180F" /><circle cx="47.3" cy="162" r="5" fill="#15180F" />
+      <circle cx="36" cy="120" r="5" fill="#15180F" /><circle cx="47.3" cy="78" r="5" fill="#15180F" />
+      <circle cx="78" cy="47.3" r="5" fill="#15180F" /><circle cx="120" cy="36" r="5" fill="#15180F" />
+      <circle cx="162" cy="47.3" r="5" fill="#15180F" /><circle cx="192.7" cy="78" r="5" fill="#15180F" />
+      <circle cx="120" cy="120" r="54" fill="none" stroke="#15180F" strokeWidth="22" />
+      <rect x="110" y="75" width="95" height="90" fill="#FFC107" />
+      <circle cx="178" cy="155" r="8" fill="#15180F" />
+    </svg>
+  );
+}
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -44,8 +64,8 @@ export function AppSidebar() {
   const isAdmin = user?.role === "ADMIN";
 
   const userInitial = user?.email?.[0]?.toUpperCase() ?? "U";
-  const userLabel = user?.profileData?.name || user?.email || "Mon compte";
-  const roleLabel = user?.role ? (ROLE_LABELS[user.role] ?? user.role) : "";
+  const userLabel = user ? getDisplayName(user) : "Mon compte";
+  const roleLabel = getRoleLabel(user?.role);
 
   // Menu items pour utilisateurs normaux
   const userMenuItems = [
@@ -114,22 +134,31 @@ export function AppSidebar() {
       )}
     >
       {/* Logo */}
-      <div className="p-6 flex items-center justify-between">
+      <div className="p-6 flex items-center">
         {!isCollapsed ? (
-          <Link href="/">
-            <h2 className="text-[#FFC107]">ContracTify</h2>
+          // Lockup: mark precedes the wordmark, sized up from the collapsed state's 8×8
+          // (32px) to 10×10 (40px) so it reads as clearly the senior element next to the
+          // text rather than matching it 1:1. Can't apply that same larger size to the
+          // collapsed icon below — the collapsed rail is a fixed 80px (w-20) with 24px
+          // padding on each side (p-6), leaving exactly 32px of content width; anything
+          // past 32px would overflow that fixed-width rail. font-size/weight on the text
+          // were previously unset — Tailwind's preflight makes an unstyled <h2> inherit the
+          // body's normal 16px/400 (this project defines no heading scale in globals.css),
+          // so it rendered as plain body text, not a logotype.
+          <Link href="/" className="flex items-center gap-3">
+            <SealMark className="w-10 h-10 shrink-0" />
+            <h2 className="text-2xl font-bold tracking-tight leading-none text-[#FFC107]">ContracTify</h2>
           </Link>
         ) : (
           <Link href="/" className="mx-auto">
-            <div className="w-8 h-8 rounded-lg bg-[#FFC107] flex items-center justify-center">
-              <span className="text-[#212121] font-bold text-lg">C</span>
-            </div>
+            <SealMark className="w-8 h-8" />
           </Link>
         )}
       </div>
 
-      {/* Separator between the brand and the menu, framed by "<" and ">" */}
-      <div className="relative px-4 pb-4 flex items-center gap-2 text-border">
+      {/* Separator between the brand and the menu, framed by "<" and ">" — mt-2 gives the
+          logo lockup a bit more breathing room above it than the bare pb-4 on its own did. */}
+      <div className="relative px-4 pb-4 mt-2 flex items-center gap-2 text-border">
         <ChevronLeft className="w-3 h-3 shrink-0 opacity-50" />
         <div className="flex-1 h-px bg-border" />
         <ChevronRight className="w-3 h-3 shrink-0 opacity-50" />
@@ -224,13 +253,11 @@ export function AppSidebar() {
           <DropdownMenuContent align="end" side="right" className="w-56">
             <DropdownMenuLabel className="truncate">{user?.email ?? "Mon compte"}</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem asChild className="cursor-pointer">
-              <Link href="/settings" className="flex items-center gap-2 w-full">
-                <Settings className="w-4 h-4" />
-                Paramètres
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            {/* "Paramètres" removed from here — it pointed at the exact same /settings page
+                already one click away in the persistent sidebar nav above, permanently
+                visible on every screen. Duplicating it in this transient dropdown added
+                nothing: the dropdown's own job is account-scoped actions that AREN'T
+                already in the main nav (identity confirmation, sign out). */}
             <DropdownMenuItem
               onClick={() => { void logout(); }}
               className="cursor-pointer text-destructive focus:text-destructive"

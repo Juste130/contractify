@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useAuthStore } from "@/hooks/useAuth";
+import { prettifyEmailPrefix } from "@/lib/utils/displayName";
 
 /**
  * AuthInitializer — Synchronise la session Privy avec le backend au démarrage.
@@ -60,7 +61,9 @@ export function AuthInitializer() {
             email,
             walletAddress,
             profileData: {
-              name: user.google?.name || email.split('@')[0],
+              // Prettified so it reads as a name ("Dev Banca") rather than a raw, lowercase,
+              // dotted email local-part — the user can set a real one in Paramètres > Profil.
+              name: user.google?.name || prettifyEmailPrefix(email),
             },
           },
           token

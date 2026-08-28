@@ -50,7 +50,7 @@ export default function Providers({ children }: { children: ReactNode }) {
         appearance: {
           theme: 'dark',
           accentColor: '#676FFF',
-          logo: '/favicon.ico',
+          logo: '/mark-seal.svg',
         },
         mfa: {
           noPromptOnMfaRequired: false,

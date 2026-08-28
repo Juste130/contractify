@@ -14,6 +14,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { useWeb3 } from "@/contexts/web3-context";
 import { useLogout } from "@/hooks/useLogout";
 import { usersApi } from "@/lib/api/users";
+import { roleLabel } from "@/lib/user-roles";
 import {
   User,
   Brain,
@@ -42,14 +43,14 @@ export function SettingsPage() {
   const [selectedSection, setSelectedSection] = useState("profile");
   const { user, checkAuth } = useAuthStore();
   const { logout } = useLogout();
-  const { account, balance, chainId, connect, disconnect, isConnecting, isConnected } = useWeb3();
+  const { account, balance, chainId, isConnected } = useWeb3();
   const { notifySuccess, notifyError } = useNotifications();
   const [isUpdating, setIsUpdating] = useState(false);
   const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
 
   const sections = [
     { id: "profile", label: "Profil", icon: User },
-    { id: "wallet", label: "Wallet Web3", icon: Wallet },
+    { id: "wallet", label: "Portefeuille", icon: Wallet },
     { id: "ai", label: "Préférences IA", icon: Brain },
     { id: "security", label: "Sécurité", icon: Lock },
     { id: "notifications", label: "Notifications", icon: Bell },
@@ -141,7 +142,7 @@ export function SettingsPage() {
 
                     <div className="space-y-2">
                       <Label>Rôle</Label>
-                      <Input defaultValue={user?.role} disabled className="bg-muted opacity-60" />
+                      <Input key={user?.role} defaultValue={roleLabel(user?.role)} disabled className="bg-muted opacity-60" />
                     </div>
                   </div>
 
@@ -159,87 +160,89 @@ export function SettingsPage() {
               </Card>
             )}
 
-            {/* Wallet Section */}
+            {/* Wallet Section — this app auto-provisions an embedded, Privy-managed wallet
+                for every account at signup (see providers.tsx: embeddedWallets.createOnLogin
+                = 'users-without-wallets'), with gas covered by native sponsorship. There is
+                no separate MetaMask-style "connect a wallet" step, so the previous copy —
+                a "Connecter mon Wallet" CTA and "Aucun wallet connecté, vous devez connecter
+                un wallet comme MetaMask" — described a flow this app doesn't have. The only
+                two real states here are "already provisioned" (the normal case, shown as
+                soon as the session is authenticated) and "still being created" (a brief
+                transient moment right after signup), never "please go connect one yourself". */}
             {selectedSection === "wallet" && (
               <Card className="p-6">
-                <h2 className="mb-6">Wallet Web3</h2>
+                <h2 className="mb-6">Portefeuille</h2>
                 <p className="text-muted-foreground mb-8">
-                  Connectez votre wallet pour signer numériquement vos contrats sur la blockchain Polygon.
+                  Un portefeuille numérique sécurisé a été créé automatiquement pour votre compte — il sert à signer vos contrats sur la blockchain. Aucune action de votre part n'est nécessaire.
                 </p>
 
                 {isConnected ? (
                   <div className="space-y-6">
                     <div className="p-6 bg-muted rounded-xl border border-border">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
-                            <CheckCircle2 className="w-6 h-6 text-green-500" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-lg">Wallet Connecté</p>
-                            <p className="text-sm text-muted-foreground">{getChainName(chainId)}</p>
-                          </div>
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+                          <CheckCircle2 className="w-6 h-6 text-green-500" />
                         </div>
-                        <Button variant="outline" size="sm" onClick={disconnect} className="text-destructive hover:text-destructive">
-                          Déconnecter
-                        </Button>
+                        <div>
+                          <p className="font-medium text-lg">Portefeuille actif</p>
+                          <p className="text-sm text-muted-foreground">{getChainName(chainId)}</p>
+                        </div>
                       </div>
 
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between text-sm py-2 border-b border-border/50">
-                          <span className="text-muted-foreground">Adresse</span>
-                          <span className="font-mono bg-card px-2 py-1 rounded">{account}</span>
+                      <details className="group">
+                        <summary className="text-xs text-muted-foreground cursor-pointer select-none flex items-center gap-1.5 mb-2">
+                          Détails techniques
+                          <span className="transition-transform group-open:rotate-180">▾</span>
+                        </summary>
+                        <div className="space-y-3 pt-2 border-t border-border/50">
+                          <div className="flex items-center justify-between text-sm py-2 border-b border-border/50">
+                            <span className="text-muted-foreground">Adresse</span>
+                            <span className="font-mono text-xs bg-card px-2 py-1 rounded break-all">{account}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm py-2 border-b border-border/50">
+                            <span className="text-muted-foreground">Solde</span>
+                            <span className="font-bold">{balance ? parseFloat(balance).toFixed(4) : "0.0000"} MATIC</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm py-2">
+                            <span className="text-muted-foreground">Chain ID</span>
+                            <span>{chainId}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center justify-between text-sm py-2 border-b border-border/50">
-                          <span className="text-muted-foreground">Solde</span>
-                          <span className="font-bold">{balance ? parseFloat(balance).toFixed(4) : "0.0000"} MATIC</span>
-                        </div>
-                        <div className="flex items-center justify-between text-sm py-2">
-                          <span className="text-muted-foreground">Chain ID</span>
-                          <span>{chainId}</span>
-                        </div>
-                      </div>
+                      </details>
                     </div>
 
                     <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg flex items-start gap-4">
                       <Shield className="w-6 h-6 text-primary mt-1" />
                       <div>
-                        <p className="text-sm font-medium">Sécurité Blockchain</p>
+                        <p className="text-sm font-medium">Sécurité</p>
                         <p className="text-xs text-muted-foreground">
-                          Votre clé privée n'est jamais stockée sur nos serveurs. ContracTify utilise votre wallet local pour valider l'intégrité de vos documents.
+                          Votre clé privée n'est jamais stockée sur nos serveurs. Les frais de transaction sont pris en charge par ContracTify — vous n'avez jamais besoin d'acheter de cryptomonnaie.
                         </p>
                       </div>
                     </div>
                   </div>
                 ) : (
                   <div className="text-center py-12">
-                    <div className="w-20 h-20 rounded-full bg-[#FFC107]/10 flex items-center justify-center mx-auto mb-6">
-                      <Wallet className="w-10 h-10 text-[#FFC107]" />
-                    </div>
-                    <h3 className="mb-2">Aucun wallet connecté</h3>
-                    <p className="text-muted-foreground mb-8 max-w-sm mx-auto">
-                      Pour utiliser les fonctionnalités blockchain, vous devez connecter un wallet comme MetaMask.
+                    <Loader2 className="w-10 h-10 text-[#FFC107] animate-spin mx-auto mb-6" />
+                    <h3 className="mb-2">Préparation de votre portefeuille...</h3>
+                    <p className="text-muted-foreground max-w-sm mx-auto">
+                      Cela ne prend que quelques secondes. Si ce message persiste, essayez de rafraîchir la page.
                     </p>
-                    <Button
-                      onClick={connect}
-                      disabled={isConnecting}
-                      className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300] px-8 py-6 text-lg font-bold"
-                    >
-                      {isConnecting ? (
-                        <>
-                          <Loader2 className="mr-3 h-5 w-5 animate-spin" />
-                          Connexion...
-                        </>
-                      ) : (
-                        "Connecter mon Wallet"
-                      )}
-                    </Button>
                   </div>
                 )}
               </Card>
             )}
 
-            {/* AI Preferences Section */}
+            {/* AI Preferences Section — the two switches below used to be `defaultChecked`
+                with no `onCheckedChange` and no backend concept of a per-user AI
+                preference at all: every contract generation and every compliance check
+                always runs, unconditionally, for every user (see backend/services/ai.js /
+                controllers/ai.js — nothing there reads a per-user flag). Toggling them did
+                nothing beyond a visual flip that reset on reload. Rather than leave a
+                switch a user can flip with no effect (or silently wire up a preference the
+                backend still wouldn't honor), they're marked unimplemented — same honest
+                "Bientôt disponible" language already used for the model selector right
+                below, and elsewhere in the app (templates page, admin feature flags). */}
             {selectedSection === "ai" && (
               <Card className="p-6">
                 <div className="flex items-center gap-3 mb-6">
@@ -248,26 +251,32 @@ export function SettingsPage() {
                 </div>
 
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between opacity-60">
                     <div className="flex-1">
-                      <h4 className="mb-1">Suggestions automatiques</h4>
+                      <h4 className="mb-1 flex items-center gap-2">
+                        Suggestions automatiques
+                        <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-muted-foreground/10 text-muted-foreground">Bientôt disponible</span>
+                      </h4>
                       <p className="text-sm text-muted-foreground">
-                        L'IA propose des améliorations pendant la rédaction
+                        L'IA propose des améliorations pendant la rédaction. Actuellement toujours active pour tous les comptes — ce réglage ne fait encore rien.
                       </p>
                     </div>
-                    <Switch defaultChecked />
+                    <Switch checked disabled />
                   </div>
 
                   <Separator />
 
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between opacity-60">
                     <div className="flex-1">
-                      <h4 className="mb-1">Vérification juridique</h4>
+                      <h4 className="mb-1 flex items-center gap-2">
+                        Vérification juridique
+                        <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-muted-foreground/10 text-muted-foreground">Bientôt disponible</span>
+                      </h4>
                       <p className="text-sm text-muted-foreground">
-                        L'IA vérifie la conformité juridique des contrats
+                        L'IA vérifie la conformité juridique des contrats. Actuellement toujours active pour tous les comptes — ce réglage ne fait encore rien.
                       </p>
                     </div>
-                    <Switch defaultChecked />
+                    <Switch checked disabled />
                   </div>
 
                   <div className="space-y-2">
@@ -330,36 +339,42 @@ export function SettingsPage() {
               </Card>
             )}
 
-            {/* Notifications Section */}
+            {/* Notifications Section — both switches previously had no onCheckedChange and
+                the "Enregistrer" button below had no onClick at all: clicking it did
+                nothing, no request was ever sent, yet the button visually promised a save
+                exactly like the Profile section's real one does. Two different underlying
+                truths here, so two different honest treatments instead of one blanket
+                "coming soon": signature alerts are real and already working (in-app +
+                email, unconditionally, for every relevant party — see blockchain-sync.js /
+                contract.js) but not yet possible to opt out of per-user; the newsletter
+                toggle has no backend behind it at all (no marketing email system exists in
+                this codebase) and is the one that's genuinely unbuilt. */}
             {selectedSection === "notifications" && (
               <Card className="p-6">
                 <h2 className="mb-6">Notifications</h2>
 
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between opacity-60">
                     <div className="flex-1">
                       <h4 className="mb-1">Alertes de signature</h4>
                       <p className="text-sm text-muted-foreground">
-                        Être prévenu quand une partie signe un contrat
+                        Être prévenu quand une partie signe un contrat. Toujours actif — la désactivation individuelle n'est pas encore disponible.
                       </p>
                     </div>
-                    <Switch defaultChecked />
+                    <Switch checked disabled />
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between opacity-60">
                     <div className="flex-1">
-                      <h4 className="mb-1">Newsletters et Mises à jour</h4>
+                      <h4 className="mb-1 flex items-center gap-2">
+                        Newsletters et mises à jour
+                        <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-muted-foreground/10 text-muted-foreground">Bientôt disponible</span>
+                      </h4>
                       <p className="text-sm text-muted-foreground">
                         Recevoir nos actualités et nouveaux modèles
                       </p>
                     </div>
-                    <Switch />
+                    <Switch disabled />
                   </div>
-                </div>
-
-                <div className="flex justify-end mt-6">
-                  <Button className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300]">
-                    Enregistrer
-                  </Button>
                 </div>
               </Card>
             )}
