@@ -61,8 +61,8 @@ export function HowItWorksPage() {
     },
     {
       icon: Users,
-      title: "Collaboration simplifiée",
-      description: "Travaillez en équipe sur vos contrats avec des permissions personnalisables et un suivi en temps réel."
+      title: "Signature multi-parties",
+      description: "Ajoutez autant de signataires que nécessaire à un contrat et suivez en temps réel qui a signé, avec une notification à chaque étape."
     },
     {
       icon: TrendingUp,
@@ -74,8 +74,8 @@ export function HowItWorksPage() {
   const securityFeatures = [
     {
       icon: Lock,
-      title: "Chiffrement bout en bout",
-      description: "Vos données sont chiffrées avec le standard AES-256."
+      title: "Aucune clé stockée sur nos serveurs",
+      description: "Votre portefeuille numérique est géré de bout en bout par notre partenaire d'authentification (Privy) — votre clé privée ne transite jamais par nos serveurs."
     },
     {
       icon: Shield,

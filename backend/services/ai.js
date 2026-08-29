@@ -242,7 +242,15 @@ class AIService {
                 },
                 {
                     role: 'user',
-                    content: `Analyse ce contrat et identifie les problèmes de conformité et les suggestions d'amélioration :\n\n${contractText.substring(0, 3000)}`,
+                    // 9000 caractères (~2300 tokens) laissent largement la place à un contrat
+                    // complet généré par cette même IA (un contrat réel généré fait ~6150
+                    // caractères) tout en restant sous la limite TPM du palier Groq gratuit
+                    // (8000 tokens/minute, prompt + max_tokens compris — voir generateContract).
+                    // L'ancienne limite de 3000 tronquait silencieusement la moitié d'un
+                    // contrat normal (résiliation, juridiction, clause de signature jamais
+                    // vérifiées) alors que cette étape est présentée à l'utilisateur comme
+                    // obligatoire et complète.
+                    content: `Analyse ce contrat et identifie les problèmes de conformité et les suggestions d'amélioration :\n\n${contractText.substring(0, 9000)}`,
                 },
             ], { max_tokens: 2048, temperature: 0 });
 

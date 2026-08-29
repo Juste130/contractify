@@ -621,6 +621,10 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
         metadata: {
           content: content,
           sha256Hash,
+          // Jamais renseigné auparavant : la colonne "Type" du panneau admin ("Tous les
+          // contrats") affichait donc systématiquement "Standard" (son repli), quel que
+          // soit le contrat — CDI, Freelance, import PDF, tout se ressemblait.
+          type: templateLabel,
           isExternalPdf: selectedTemplate === "pdf_upload",
           parties: { partyA: formData.partyA, partyB: formData.partyB },
           country: formData.details.country,
@@ -1251,12 +1255,13 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                 {/* Séquestre (escrow) — argent réel, pas de blockchain */}
                 <Card className="p-6 bg-muted/30 border-0 shadow-none mb-6">
                   <div className="space-y-4">
-                    <h3 className="font-bold text-lg flex items-center gap-3">
+                    <h3 className="font-bold text-lg flex items-center gap-3 flex-wrap">
                       <Shield className="w-6 h-6 text-[#FFC107]" />
                       Séquestre — optionnel
+                      <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-muted-foreground/10 text-muted-foreground">Dépôt réel à venir</span>
                     </h3>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Si vous l'indiquez, ce montant en FCFA sera à déposer par vous (le créateur) via paiement en ligne — carte ou mobile money, aucun wallet crypto requis. Le paiement en ligne n'est pas encore activé sur la plateforme : vous pouvez déclarer ces conditions dès maintenant, le dépôt réel viendra plus tard. Une fois déposés, les fonds sont libérés automatiquement à l'échéance (les deux parties sont prévenues 72h, 48h et 24h avant), sauf si vous signalez un problème avant cette date. Laissez à 0 si ce contrat n'a pas besoin de séquestre.
+                      <strong className="text-foreground">Le paiement en ligne n'est pas encore activé sur la plateforme.</strong> Vous pouvez déclarer ces conditions dès maintenant — elles seront enregistrées avec le contrat — mais aucun argent ne sera réellement prélevé tant que cette fonctionnalité n'est pas disponible. Une fois activé : ce montant en FCFA sera à déposer par vous (le créateur) via paiement en ligne (carte ou mobile money, aucun wallet crypto requis), puis libéré automatiquement à l'échéance (les deux parties prévenues 72h, 48h et 24h avant), sauf si vous signalez un problème avant cette date. Laissez à 0 si ce contrat n'a pas besoin de séquestre.
                     </p>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                       <FieldGroup label="Montant du séquestre (FCFA)" error={validationErrors["details.escrowAmount"]}>

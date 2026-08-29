@@ -27,13 +27,23 @@ export function AdminSystemPage() {
     const isAdmin = user?.role === 'ADMIN';
 
     useEffect(() => {
+        // Deux appels distincts plutôt qu'un seul partagé : /health ne touche jamais la
+        // base (route Express pure, voir server.js), alors que /api/users passe par Prisma.
+        // Avec un seul appel commun, une base de données en panne faisait passer "API
+        // Backend" et "Base de données" hors ligne ensemble — impossible de savoir laquelle
+        // des deux avait vraiment un problème alors que l'écran suggère deux diagnostics
+        // séparés.
         const checkHealth = async () => {
             try {
-                await apiClient.get('/api/users?limit=1');
+                await apiClient.get('/health');
                 setApiStatus('online');
-                setDbStatus('online');
             } catch {
                 setApiStatus('offline');
+            }
+            try {
+                await apiClient.get('/api/users?limit=1');
+                setDbStatus('online');
+            } catch {
                 setDbStatus('offline');
             }
         };
