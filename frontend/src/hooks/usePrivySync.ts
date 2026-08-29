@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useAuthStore } from "@/hooks/useAuth";
-import { prettifyEmailPrefix } from "@/lib/utils/displayName";
+import { syncPrivySession } from "@/lib/utils/privySync";
 
 // Only ever send people to a path inside our own app — a redirect/callbackUrl value
 // come from a URL query string, so treating it as trustworthy without this check would
@@ -38,12 +38,6 @@ export function usePrivySync() {
     // a generic dashboard, no matter which of the two page ever forwarded them.
     const destination = safeInternalPath(searchParams.get("redirect") || searchParams.get("callbackUrl")) || "/dashboard";
 
-    useEffect(() => {
-        if (process.env.NODE_ENV === 'development') {
-            console.log('Privy State:', { ready, authenticated, isAuthenticated });
-        }
-    }, [ready, authenticated, isAuthenticated]);
-
     // Si déjà authentifié PARTOUT, rediriger vers la destination demandée (ou dashboard)
     useEffect(() => {
         if (ready && authenticated && user && isAuthenticated) {
@@ -51,32 +45,22 @@ export function usePrivySync() {
         }
     }, [ready, authenticated, user, isAuthenticated, router, destination]);
 
-    // Auto-sync si déjà authentifié via Privy mais pas backend
+    // Auto-sync si déjà authentifié via Privy mais pas backend. Le verrou anti-concurrence
+    // vit dans syncPrivySession() (partagé avec AuthInitializer, monté globalement et donc
+    // actif en même temps que ce hook sur /login et /signup) — syncInProgress ici n'évite
+    // que les ré-entrées de CETTE instance pendant l'attente, pas les deux mécanismes entre eux.
     useEffect(() => {
         const autoSync = async () => {
             if (ready && authenticated && user && !isAuthenticated && !syncInProgress.current) {
                 syncInProgress.current = true;
+                setIsSyncing(true);
                 try {
-                    setIsSyncing(true);
-
-                    const token = await getAccessToken();
-                    if (!token) { setIsSyncing(false); return; }
-
-                    const email = user.email?.address || user.google?.email;
-                    // No smart wallet to prioritize: useWallets() only returns embedded/external
-                    // EOA wallets. Gas is covered by Privy's native sponsorship on this same EOA.
-                    const eoaWallet = wallets.find(w => w.walletClientType === 'privy') || wallets[0];
-                    const walletAddress = eoaWallet?.address || user.wallet?.address;
-
-                    if (!email) { setIsSyncing(false); return; }
-
-                    // Privy's email login collects no name at all (just email + OTP) — when
-                    // there's no Google name either, this is the only default we can offer;
-                    // prettified so it reads as a name ("Dev Banca") rather than a raw,
-                    // lowercase, dotted email local-part. The user can still set a real one
-                    // any time in Paramètres > Profil.
-                    await privyLogin({ privyId: user.id, email, walletAddress, profileData: { name: user.google?.name || prettifyEmailPrefix(email) } }, token);
-                    router.replace(destination);
+                    const synced = await syncPrivySession({ user, wallets, getAccessToken, privyLogin });
+                    if (synced) {
+                        router.replace(destination);
+                    } else {
+                        setIsSyncing(false);
+                    }
                 } catch (error) {
                     console.error("Error syncing with backend:", error);
                     setIsSyncing(false);
@@ -90,7 +74,7 @@ export function usePrivySync() {
         // `wallets` retiré des dépendances : ce tableau change plusieurs fois pendant
         // la création du wallet embarqué et redéclenchait cet effet en rafale.
         // `wallets` est lu depuis la closure au moment de l'exécution, ce qui suffit ici.
-    }, [ready, authenticated, user, isAuthenticated, privyLogin, router, destination]);
+    }, [ready, authenticated, user, isAuthenticated, privyLogin, router, destination, getAccessToken]);
 
     const handleLogin = () => {
         if (ready && !authenticated) {

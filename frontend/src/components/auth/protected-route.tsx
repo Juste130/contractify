@@ -5,7 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/hooks/useAuth';
 import { Spinner } from '../ui/spinner';
 
-const PUBLIC_PATHS = ['/', '/login', '/signup', '/how-it-works', '/reset-password'];
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/how-it-works'];
 // Prefix-matched rather than exact: /verify/[id] is a dynamic route, and every id under it
 // must be reachable without an account — that's the entire point of the QR code printed on
 // a downloaded certificate (a third party scanning it has no ContracTify login).

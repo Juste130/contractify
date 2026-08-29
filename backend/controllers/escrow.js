@@ -75,7 +75,7 @@ exports.releaseNow = async (req, res, next) => {
         const escrow = await escrowService.releaseNow(contract.id, req.user.userId);
         res.json({ message: 'Séquestre libéré', escrow });
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        next(err);
     }
 };
 
@@ -93,6 +93,6 @@ exports.blockRelease = async (req, res, next) => {
         const escrow = await escrowService.blockRelease(contract.id, req.user.userId, reason);
         res.json({ message: 'Libération bloquée', escrow });
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        next(err);
     }
 };

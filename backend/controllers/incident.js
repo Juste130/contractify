@@ -46,7 +46,7 @@ exports.raiseDispute = async (req, res, next) => {
         });
         res.status(201).json({ message: 'Litige ouvert', incident });
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        next(err);
     }
 };
 
@@ -61,7 +61,7 @@ exports.proposeHold = async (req, res, next) => {
         });
         res.status(201).json({ message: 'Pause proposée', incident });
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        next(err);
     }
 };
 
@@ -76,7 +76,7 @@ exports.respondToHold = async (req, res, next) => {
         const incident = await incidentService.respondToHold(incidentId, req.user.userId, accept);
         res.json({ message: accept ? 'Pause acceptée' : 'Pause refusée', incident });
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        next(err);
     }
 };
 
@@ -89,7 +89,24 @@ exports.withdrawIncident = async (req, res, next) => {
         const incident = await incidentService.withdraw(incidentId, req.user.userId);
         res.json({ message: 'Incident retiré', incident });
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        next(err);
+    }
+};
+
+/**
+ * All incidents still awaiting mediation, across every contract — backs the admin
+ * "Litiges" screen. There was previously no way to even see this queue: resolveIncident
+ * existed but had no listing to work from.
+ */
+exports.listOpenIncidents = async (req, res, next) => {
+    try {
+        if (req.user.role !== 'ADMIN') {
+            return res.status(403).json({ error: 'Réservé aux administrateurs.' });
+        }
+        const incidents = await incidentService.listOpen();
+        res.json({ incidents });
+    } catch (error) {
+        next(error);
     }
 };
 
@@ -105,6 +122,6 @@ exports.resolveIncident = async (req, res, next) => {
         const incident = await incidentService.resolve(incidentId, req.user.userId, resolution);
         res.json({ message: 'Incident résolu', incident });
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        next(err);
     }
 };

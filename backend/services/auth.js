@@ -72,39 +72,54 @@ class AuthService {
                     // Créer un nouvel utilisateur avec Privy
                     const assignedRole = shouldBeAdmin ? UserRole.ADMIN : UserRole.USER;
 
-                    const created = await prisma.$transaction(async (tx) => {
-                        const u = await tx.user.create({
-                            data: {
-                                email,
-                                privyId,
-                                role: assignedRole,
-                                profileData,
-                            },
-                        });
-
-                        if (walletAddress) {
-                            await tx.userWallet.create({
+                    try {
+                        const created = await prisma.$transaction(async (tx) => {
+                            const u = await tx.user.create({
                                 data: {
-                                    userId: u.id,
-                                    publicAddress: walletAddress,
-                                    encryptedPrivateKey: null,
-                                    encryptionIv: null,
-                                    encryptionAuthTag: null,
-                                    encryptionSalt: null,
-                                    isAdminWallet: shouldBeAdmin,
+                                    email,
+                                    privyId,
+                                    role: assignedRole,
+                                    profileData,
                                 },
                             });
+
+                            if (walletAddress) {
+                                await tx.userWallet.create({
+                                    data: {
+                                        userId: u.id,
+                                        publicAddress: walletAddress,
+                                        encryptedPrivateKey: null,
+                                        encryptionIv: null,
+                                        encryptionAuthTag: null,
+                                        encryptionSalt: null,
+                                        isAdminWallet: shouldBeAdmin,
+                                    },
+                                });
+                            }
+
+                            return u;
+                        });
+
+                        user = created;
+
+                        if (shouldBeAdmin) {
+                            logger.info(`[Auth] Nouveau compte ADMIN créé via Privy: ${email}`);
+                        } else {
+                            await emailService.sendWelcomeEmail(email, profileData?.name || email.split('@')[0]);
                         }
-
-                        return u;
-                    });
-
-                    user = created;
-
-                    if (shouldBeAdmin) {
-                        logger.info(`[Auth] Nouveau compte ADMIN créé via Privy: ${email}`);
-                    } else {
-                        await emailService.sendWelcomeEmail(email, profileData?.name || email.split('@')[0]);
+                    } catch (createError) {
+                        // P2002 = violation de contrainte unique sur `email` — deux requêtes
+                        // concurrentes pour le même nouvel utilisateur (deux onglets, un double
+                        // appel client) ont toutes les deux passé le `findUnique` ci-dessus avant
+                        // que l'une des deux ne crée la ligne. Plutôt que de faire échouer cette
+                        // connexion, on récupère l'utilisateur que l'autre requête vient de créer.
+                        if (createError.code === 'P2002') {
+                            const raceWinner = await prisma.user.findUnique({ where: { email } });
+                            if (!raceWinner) throw createError;
+                            user = raceWinner;
+                        } else {
+                            throw createError;
+                        }
                     }
                 }
             } else {
