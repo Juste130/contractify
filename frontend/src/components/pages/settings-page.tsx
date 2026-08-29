@@ -41,7 +41,7 @@ function getChainName(id: number | null) {
 
 export function SettingsPage() {
   const [selectedSection, setSelectedSection] = useState("profile");
-  const { user, checkAuth } = useAuthStore();
+  const { user, setUser } = useAuthStore();
   const { logout } = useLogout();
   const { account, balance, chainId, isConnected } = useWeb3();
   const { notifySuccess, notifyError } = useNotifications();
@@ -63,8 +63,8 @@ export function SettingsPage() {
     try {
       const formData = new FormData(e.currentTarget as HTMLFormElement);
       const name = formData.get('name') as string;
-      await usersApi.updateProfile({ name });
-      await checkAuth(); // Refresh user data
+      const { user: updatedUser } = await usersApi.updateProfile({ name });
+      setUser(updatedUser); // Mise à jour silencieuse, sans passer par le spinner plein écran de checkAuth()
       setMessage({ text: "Profil mis à jour avec succès !", type: 'success' });
       notifySuccess("Profil mis à jour", "Vos informations ont été enregistrées avec succès.");
     } catch (err: any) {

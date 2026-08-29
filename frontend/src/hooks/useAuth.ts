@@ -13,6 +13,7 @@ interface AuthState {
     logout: () => Promise<void>;
     checkAuth: () => Promise<void>;
     privyLogin: (data: { privyId?: string; email: string; walletAddress?: string; profileData?: any }, token: string) => Promise<void>;
+    setUser: (user: User) => void;
     clearError: () => void;
 }
 
@@ -88,6 +89,12 @@ export const useAuthStore = create<AuthState>()(
                     throw error;
                 }
             },
+
+            // Met à jour l'utilisateur sans passer par isLoading : contrairement à
+            // checkAuth(), qui déclenche le spinner plein écran de ProtectedRoute,
+            // ceci sert aux mises à jour silencieuses (ex. formulaire de profil) où
+            // l'appel API a déjà renvoyé l'utilisateur à jour.
+            setUser: (user: User) => set({ user }),
 
             clearError: () => set({ error: null }),
         }),
