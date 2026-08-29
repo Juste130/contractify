@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useAuthStore } from "@/hooks/useAuth";
-import { syncPrivySession } from "@/lib/utils/privySync";
+import { syncPrivySession, privySessionMatchesStore } from "@/lib/utils/privySync";
 
 // Only ever send people to a path inside our own app — a redirect/callbackUrl value
 // come from a URL query string, so treating it as trustworthy without this check would
@@ -28,9 +28,15 @@ export function usePrivySync() {
     const { wallets } = useWallets();
     const router = useRouter();
     const searchParams = useSearchParams();
-    const { privyLogin, isAuthenticated } = useAuthStore();
+    const { privyLogin, isAuthenticated, user: storeUser } = useAuthStore();
     const [isSyncing, setIsSyncing] = useState(false);
     const syncInProgress = useRef(false);
+
+    // "isAuthenticated" alone isn't enough: it can be stale-true from a PREVIOUS
+    // person's session in this same browser if they switch Privy identity without our
+    // store getting a chance to clear first. Comparing emails catches that — see
+    // privySessionMatchesStore for the full story.
+    const sessionMatches = privySessionMatchesStore(user, storeUser?.email);
 
     // /signup links use "redirect" (see sendDraftInvitationEmail), /login uses
     // "callbackUrl" (see ProtectedRoute/AdminGuard) — both are honored here so an
@@ -38,20 +44,25 @@ export function usePrivySync() {
     // a generic dashboard, no matter which of the two page ever forwarded them.
     const destination = safeInternalPath(searchParams.get("redirect") || searchParams.get("callbackUrl")) || "/dashboard";
 
-    // Si déjà authentifié PARTOUT, rediriger vers la destination demandée (ou dashboard)
+    // Si déjà authentifié PARTOUT (et que c'est bien la MÊME personne des deux côtés),
+    // rediriger vers la destination demandée (ou dashboard). Sans le check sessionMatches,
+    // un isAuthenticated resté vrai pour la session PRECEDENTE (ex. l'admin) enverrait
+    // silencieusement une nouvelle identité Privy droit dans l'ancienne session backend.
     useEffect(() => {
-        if (ready && authenticated && user && isAuthenticated) {
+        if (ready && authenticated && user && isAuthenticated && sessionMatches) {
             router.replace(destination);
         }
-    }, [ready, authenticated, user, isAuthenticated, router, destination]);
+    }, [ready, authenticated, user, isAuthenticated, sessionMatches, router, destination]);
 
-    // Auto-sync si déjà authentifié via Privy mais pas backend. Le verrou anti-concurrence
-    // vit dans syncPrivySession() (partagé avec AuthInitializer, monté globalement et donc
-    // actif en même temps que ce hook sur /login et /signup) — syncInProgress ici n'évite
-    // que les ré-entrées de CETTE instance pendant l'attente, pas les deux mécanismes entre eux.
+    // Auto-sync si déjà authentifié via Privy mais pas backend — OU si le backend pense
+    // encore être authentifié comme quelqu'un d'autre (sessionMatches === false). Le verrou
+    // anti-concurrence vit dans syncPrivySession() (partagé avec AuthInitializer, monté
+    // globalement et donc actif en même temps que ce hook sur /login et /signup) —
+    // syncInProgress ici n'évite que les ré-entrées de CETTE instance pendant l'attente,
+    // pas les deux mécanismes entre eux.
     useEffect(() => {
         const autoSync = async () => {
-            if (ready && authenticated && user && !isAuthenticated && !syncInProgress.current) {
+            if (ready && authenticated && user && (!isAuthenticated || !sessionMatches) && !syncInProgress.current) {
                 syncInProgress.current = true;
                 setIsSyncing(true);
                 try {
@@ -74,7 +85,7 @@ export function usePrivySync() {
         // `wallets` retiré des dépendances : ce tableau change plusieurs fois pendant
         // la création du wallet embarqué et redéclenchait cet effet en rafale.
         // `wallets` est lu depuis la closure au moment de l'exécution, ce qui suffit ici.
-    }, [ready, authenticated, user, isAuthenticated, privyLogin, router, destination, getAccessToken]);
+    }, [ready, authenticated, user, isAuthenticated, sessionMatches, privyLogin, router, destination, getAccessToken]);
 
     const handleLogin = () => {
         if (ready && !authenticated) {

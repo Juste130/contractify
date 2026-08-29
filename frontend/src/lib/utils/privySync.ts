@@ -34,6 +34,30 @@ interface SyncPrivySessionArgs {
     ) => Promise<void>;
 }
 
+export function getPrivyEmail(user: PrivyUserLike | null | undefined): string | undefined {
+    return user?.email?.address || user?.google?.email || undefined;
+}
+
+/**
+ * Whether the currently Privy-authenticated identity actually matches the account our
+ * store believes is signed in. This is the check that was MISSING before: both
+ * AuthInitializer and usePrivySync only ever asked "does our store already say
+ * isAuthenticated?" — never "does it say authenticated as the SAME person Privy is
+ * showing right now?". If a user logs out and back in as someone else in the same
+ * browser (or switches Privy identity without our Zustand store having a chance to
+ * clear first), `isAuthenticated` can stay stale-true from the PREVIOUS person's
+ * session: the sync effect below would then skip re-syncing entirely (gated on
+ * `!isAuthenticated`), and the "already synced, redirect" effect would send the new
+ * Privy identity straight into the OLD person's still-live backend session — wrong
+ * profile, wrong role, wrong permissions, silently. Comparing emails catches exactly
+ * that case and forces a fresh sync instead of trusting the stale flag.
+ */
+export function privySessionMatchesStore(privyUser: PrivyUserLike | null | undefined, storeUserEmail: string | null | undefined): boolean {
+    const privyEmail = getPrivyEmail(privyUser);
+    if (!privyEmail || !storeUserEmail) return true; // nothing to compare yet — not a detected mismatch
+    return privyEmail.toLowerCase() === storeUserEmail.toLowerCase();
+}
+
 /** Returns true if a sync actually ran (and presumably succeeded), false if skipped
  *  (already in flight elsewhere, no token, or no email — none of these are errors to
  *  surface, the caller just tries again on its next render). */
@@ -44,7 +68,7 @@ export async function syncPrivySession({ user, wallets, getAccessToken, privyLog
         const token = await getAccessToken();
         if (!token) return false;
 
-        const email = user.email?.address || user.google?.email;
+        const email = getPrivyEmail(user);
         if (!email) return false;
 
         // No smart wallet to prioritize: useWallets() only returns embedded/external EOA
