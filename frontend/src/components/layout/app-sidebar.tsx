@@ -10,6 +10,7 @@ import {
   BarChart3,
   UserCog,
   Shield,
+  Gavel,
   LogOut,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "../ui/avatar";
@@ -56,6 +57,7 @@ export function AppSidebar() {
   const adminMenuItems = [
     { id: "admin-users", label: "Gestion utilisateurs", icon: UserCog, href: "/admin/users" },
     { id: "admin-contracts", label: "Tous les contrats", icon: FileText, href: "/admin/contracts" },
+    { id: "admin-incidents", label: "Litiges", icon: Gavel, href: "/admin/incidents" },
     { id: "admin-analytics", label: "Analytics", icon: BarChart3, href: "/admin/analytics" },
     { id: "admin-system", label: "Système", icon: Shield, href: "/admin/system" },
   ];

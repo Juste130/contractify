@@ -153,6 +153,21 @@ class IncidentService {
     }
 
     /**
+     * Every incident still awaiting mediation, across every contract — what the admin
+     * "Litiges" screen lists. Includes HOLD proposals still OPEN (awaiting the other
+     * party's response) alongside genuinely active ones (OPEN disputes, ACCEPTED_ACTIVE
+     * holds) so an admin can see the full unresolved queue, not just what's blocking
+     * escrow right now (that narrower set is what hasOpenIncident checks).
+     */
+    async listOpen() {
+        return prisma.contractIncident.findMany({
+            where: { status: { in: ['OPEN', 'ACCEPTED_ACTIVE'] } },
+            include: { contract: { select: { id: true, contractId: true, title: true } } },
+            orderBy: { createdAt: 'asc' },
+        });
+    }
+
+    /**
      * Un litige ouvert, ou une pause acceptée, doit bloquer toute libération d'escrow
      * (manuelle ou automatique) même si l'incident ne concerne pas directement le
      * paiement (ex: litige de propriété intellectuelle) — le principe est qu'aucun

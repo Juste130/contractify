@@ -22,7 +22,21 @@ export interface Incident {
     updatedAt: string;
 }
 
+export interface AdminIncident extends Incident {
+    contract: { id: string; contractId: number | null; title: string };
+}
+
 export const incidentsApi = {
+    /** Every incident still awaiting mediation, across every contract (admin only). */
+    async listOpen(): Promise<{ incidents: AdminIncident[] }> {
+        try {
+            const response = await apiClient.get('/api/contracts/admin/incidents');
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
     async list(contractId: string): Promise<{ incidents: Incident[] }> {
         try {
             const response = await apiClient.get(`/api/contracts/${contractId}/incidents`);

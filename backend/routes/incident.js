@@ -4,6 +4,16 @@ const incidentController = require('../controllers/incident');
 const { authenticate } = require('../middleware/auth');
 
 /**
+ * @route   GET /api/contracts/admin/incidents
+ * @desc    List every incident still awaiting mediation, across all contracts (admin only)
+ * @access  Private/Admin
+ *
+ * Registered before /:id/incidents below: that route would otherwise treat "admin" as a
+ * contract id and shadow this one, since both are GET on a 2-segment path.
+ */
+router.get('/admin/incidents', authenticate, incidentController.listOpenIncidents);
+
+/**
  * @route   GET /api/contracts/:id/incidents
  * @desc    List disputes/holds raised on a contract
  * @access  Private (any participant)
