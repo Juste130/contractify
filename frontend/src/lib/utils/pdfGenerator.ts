@@ -40,6 +40,43 @@ export async function generateCertifiedPDF(data: PDFData) {
         }
     };
 
+    // jsPDF's standard fonts (Helvetica here) only support WinAnsiEncoding — a fixed
+    // 256-ish-glyph table. When `to8bitStream` (jsPDF internals) meets ANY character
+    // outside that table, it doesn't just drop or mis-measure that one glyph: it silently
+    // re-encodes the ENTIRE string as 2-bytes-per-character UCS-2BE, which a single-byte
+    // standard font then renders as garbage — every character shows with a phantom
+    // "ghost" character before it (the widened, spaced-out look) and, since the doubled
+    // byte count blows past the width jsPDF wrapped the line for, the tail of the line
+    // renders past the page's right edge and is invisible — silent, total content loss for
+    // the rest of that line. Confirmed by regenerating a real AI contract and tracing the
+    // exact culprits: U+2011 (non-breaking hyphen, used in "cinquante‑cinq") and U+202F
+    // (narrow no-break space, used before "%") — both valid, common French typography that
+    // the AI (and a human pasting from Word) can easily produce, and neither is in
+    // WinAnsiEncoding. Anything outside the confirmed-safe set (ASCII + Latin-1 Supplement,
+    // plus WinAnsi's specific upper-range typographic slots — smart quotes, en/em dash,
+    // ellipsis, bullet, œ/Œ, trademark — all of which DID render correctly in testing) is
+    // replaced here, rather than waiting to discover the next character that breaks this.
+    const WINANSI_SAFE_EXTRAS = new Set([
+        0x20ac, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160,
+        0x2039, 0x0152, 0x017d, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014,
+        0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x017e, 0x0178,
+    ]);
+    // \u escapes throughout -- these are invisible/near-invisible characters,
+    // spelling them out literally in source would be unreadable and impossible to review/diff.
+    const HYPHEN_LIKE = /[\u2010\u2011\u2012]/g; // hyphen, non-breaking hyphen, figure dash
+    const SPACE_LIKE = /[\u2000-\u200A\u202F\u205F\u3000\uFEFF]/g; // en/em/thin/narrow-nbsp/ideographic space, BOM
+    const ZERO_WIDTH = /[\u200B\u200C\u200D]/g; // zero-width space/non-joiner/joiner -- meant to be invisible, drop entirely
+    const sanitizeForPdf = (text: string) => {
+        return Array.from(
+            text.replace(HYPHEN_LIKE, "-").replace(SPACE_LIKE, " ").replace(ZERO_WIDTH, "")
+        )
+            .map((ch) => {
+                const code = ch.codePointAt(0) || 0;
+                return code <= 0xff || WINANSI_SAFE_EXTRAS.has(code) ? ch : " ";
+            })
+            .join("");
+    };
+
     // jsPDF's splitTextToSize only breaks on whitespace — a single unbroken token longer
     // than the printable width (a SHA-256 hash, an IPFS CID, a long URL) sails straight
     // past the right margin instead of wrapping, which is exactly what caused visible
@@ -64,7 +101,7 @@ export async function generateCertifiedPDF(data: PDFData) {
         doc.setFontSize(fontSize);
         doc.setFont("helvetica", isBold ? "bold" : "normal");
         doc.setTextColor(color[0], color[1], color[2]);
-        const lines = doc.splitTextToSize(breakLongTokens(text), pageWidth - margin * 2);
+        const lines = doc.splitTextToSize(breakLongTokens(sanitizeForPdf(text)), pageWidth - margin * 2);
         for (const line of lines) {
             checkPageBreak(fontSize * 0.5);
             doc.text(line, margin, yPos);
