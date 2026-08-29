@@ -6,7 +6,7 @@ const notificationService = require('./notification');
 const logger = require('../utils/logger');
 const { config } = require('../config');
 const { UserRole } = require('@prisma/client');
-const { UnauthorizedError } = require('../utils/errors');
+const { UnauthorizedError, ForbiddenError } = require('../utils/errors');
 
 /**
  * Vérifie si un email fait partie de la whitelist des administrateurs.
@@ -260,6 +260,16 @@ class AuthService {
                 throw new UnauthorizedError('User not found');
             }
 
+            // A suspended account must not be able to mint a fresh access token just
+            // because its refresh token is still technically valid — otherwise
+            // "Suspendre" only ever slows a user down until their next refresh, never
+            // actually stops them. Revoke the refresh token too, so this isn't a one-time
+            // check they can simply retry past.
+            if (!user.isActive) {
+                await prisma.refreshToken.update({ where: { tokenHash }, data: { revoked: true } });
+                throw new ForbiddenError('Ce compte a été suspendu');
+            }
+
             // Rotation: create new refresh token, persist it, revoke old one
             const newRefreshToken = this.generateRefreshToken(user.id);
             const saved = await this.saveRefreshToken(user.id, newRefreshToken);
@@ -274,11 +284,12 @@ class AuthService {
             return { token, refreshToken: newRefreshToken };
         } catch (error) {
             logger.error('Error refreshing token:', error);
-            // Preserve a typed error thrown above (e.g. UnauthorizedError) instead of
-            // stomping it into a generic one — only wrap truly unexpected failures (jwt.verify
-            // throwing its own error, a DB error) into the same 401, since either way the
-            // client's refresh token isn't usable.
-            throw error instanceof UnauthorizedError ? error : new UnauthorizedError('Invalid refresh token');
+            // Preserve a typed error thrown above (e.g. UnauthorizedError, ForbiddenError)
+            // instead of stomping it into a generic one — only wrap truly unexpected
+            // failures (jwt.verify throwing its own error, a DB error) into the same 401,
+            // since either way the client's refresh token isn't usable.
+            if (error instanceof UnauthorizedError || error instanceof ForbiddenError) throw error;
+            throw new UnauthorizedError('Invalid refresh token');
         }
     }
 

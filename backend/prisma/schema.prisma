@@ -36,8 +36,31 @@ model User {
 
   refreshTokens RefreshToken[]
   notifications Notification[]
+  invitationsSent Invitation[]
 
   @@map("users")
+}
+
+// ==================== INVITATIONS ====================
+//
+// Lets any authenticated user invite someone who doesn't have a ContracTify account yet,
+// by email — from the dashboard (invite a future counterparty) or from the admin users
+// panel. There's no acceptance workflow to track: Privy handles signup itself, so
+// "accepted" is simply "a User with this email now exists" — this table only exists to
+// throttle repeat invites to the same address and give the inviter a record of who they
+// already invited.
+
+model Invitation {
+  id          String   @id @default(uuid())
+  email       String
+  invitedById String   @map("invited_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  invitedBy User @relation(fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([invitedById])
+  @@map("invitations")
 }
 
 model UserWallet {

@@ -1,8 +1,14 @@
 const authService = require('../services/auth');
 const logger = require('../utils/logger');
+const prisma = require('../models/prisma');
 const { UserRole } = require('@prisma/client');
 
-const authenticate = (req, res, next) => {
+// Async and DB-backed on purpose: an access token's signature being valid only proves it
+// was ISSUED while the account was in good standing — it says nothing about whether an
+// admin suspended that account a minute later. Without this lookup, `isActive: false`
+// (the "Suspendre" action in the admin panel) had zero effect: the holder of an
+// already-issued token kept full access until it happened to expire naturally.
+const authenticate = async (req, res, next) => {
     try {
         // Look for token in cookies first, then Authorization header
         let token = req.cookies.accessToken;
@@ -19,6 +25,15 @@ const authenticate = (req, res, next) => {
         }
 
         const payload = authService.verifyToken(token);
+
+        const user = await prisma.user.findUnique({
+            where: { id: payload.userId },
+            select: { isActive: true },
+        });
+
+        if (!user || !user.isActive) {
+            return res.status(403).json({ error: 'Ce compte a été suspendu' });
+        }
 
         req.user = payload;
         next();

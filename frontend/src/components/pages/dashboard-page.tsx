@@ -16,6 +16,8 @@ import { formatDistanceToNow } from 'date-fns/formatDistanceToNow';
 import { fr } from 'date-fns/locale';
 import { getDisplayName } from "@/lib/utils/displayName";
 import { getEffectiveStatus, getStatusBadgeVariant } from "@/lib/contract-status";
+import { InviteUserDialog } from "@/components/shared/invite-user-dialog";
+import { UserPlus } from "lucide-react";
 
 // Statuts qui nécessitent encore une action de l'utilisateur (inscription des
 // signataires, déploiement, ou signature) — cohérent avec le badge "En attente"
@@ -232,6 +234,14 @@ export function DashboardPage() {
                       Paramètres du compte
                     </Button>
                   </Link>
+                  <InviteUserDialog
+                    trigger={
+                      <Button variant="outline" className="w-full justify-start">
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Inviter un collaborateur
+                      </Button>
+                    }
+                  />
                 </div>
               </Card>
             </div>

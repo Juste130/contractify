@@ -183,8 +183,10 @@ export const contractsApi = {
         page?: number;
         limit?: number;
         status?: string;
+        email?: string;
+        search?: string;
     }): Promise<{
-        contracts: Contract[];
+        contracts: (Contract & { user?: { id: string; email: string; role: string } })[];
         pagination: {
             page: number;
             limit: number;
@@ -196,6 +198,46 @@ export const contractsApi = {
             const response = await apiClient.get('/api/contracts/admin/all', {
                 params,
             });
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
+    /**
+     * Public, unauthenticated verification lookup — what the QR code on a downloaded
+     * certificate points to. Accepts either the on-chain numeric contractId or the draft
+     * UUID. Deliberately returns only what's needed to verify authenticity, never the
+     * contract's actual content or a signatory's contact details.
+     */
+    async getPublicVerification(id: string | number): Promise<{
+        title: string;
+        status: string;
+        createdAt: string;
+        contractId: number | null;
+        ipfsHash: string | null;
+        sha256Hash: string | null;
+        isExternalPdf: boolean;
+        signatories: { name: string | null; hasSigned: boolean }[];
+    }> {
+        try {
+            const response = await apiClient.get(`/api/contracts/verify/${id}`);
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
+    /**
+     * Platform-wide contract counts by status, not truncated by pagination (admin only)
+     */
+    async getAdminContractsSummary(): Promise<{
+        total: number;
+        byStatus: Record<string, number>;
+        thisMonth: number;
+    }> {
+        try {
+            const response = await apiClient.get('/api/contracts/admin/summary');
             return response.data;
         } catch (error) {
             throw new Error(handleApiError(error));

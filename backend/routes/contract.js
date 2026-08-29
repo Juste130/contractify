@@ -74,10 +74,25 @@ router.get('/search', authenticate, contractController.searchContracts);
 router.get('/:contractId', authenticate, contractController.getContractDetails);
 
 /**
+ * @route   GET /api/contracts/verify/:id
+ * @desc    Public, unauthenticated verification lookup (title, status, hash, signatories'
+ *          names + signed status only) — what the QR code on a downloaded certificate points to
+ * @access  Public
+ */
+router.get('/verify/:id', contractController.getPublicVerification);
+
+/**
  * @route   GET /api/contracts/admin/all
  * @desc    Get all contracts (admin only)
  * @access  Private/Admin
  */
 router.get('/admin/all', authenticate, requireAdmin, contractController.getAllContracts);
+
+/**
+ * @route   GET /api/contracts/admin/summary
+ * @desc    Platform-wide contract counts by status, not truncated by pagination (admin only)
+ * @access  Private/Admin
+ */
+router.get('/admin/summary', authenticate, requireAdmin, contractController.getAdminContractsSummary);
 
 module.exports = router;

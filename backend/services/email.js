@@ -135,6 +135,27 @@ class EmailService {
     await this.sendEmail(to, subject, html);
   }
 
+  async sendInvitationEmail(to, inviterName) {
+    const safeInviter = this.escapeHtml(inviterName || '');
+    const subject = `${safeInviter} vous invite à rejoindre ContracTify`;
+    const signupUrl = `${config.frontendUrl}/signup`;
+    const html = this._wrapEmail({
+      heading: 'Vous êtes invité(e) sur ContracTify',
+      bodyHtml: `
+        <p style="color: #4B4B42; line-height: 1.7; margin-bottom: 16px;">
+          <strong style="color: #212121;">${safeInviter}</strong> vous invite à créer un compte sur ContracTify pour échanger et signer des contrats en toute confiance.
+        </p>
+        <p style="color: #4B4B42; line-height: 1.7; margin-bottom: 16px;">
+          La création de compte est gratuite et immédiate — un portefeuille numérique sécurisé vous sera automatiquement attribué pour signer vos contrats sur la blockchain.
+        </p>
+      `,
+      ctaLabel: 'Créer mon compte',
+      ctaUrl: signupUrl,
+      footerNote: "Cet email vous a été envoyé car quelqu'un vous a invité(e) sur ContracTify. Si vous ne connaissez pas cette personne, vous pouvez ignorer ce message.",
+    });
+    await this.sendEmail(to, subject, html);
+  }
+
   async sendSignatureRequest(to, contractTitle, contractId, signerName) {
     const safeName = this.escapeHtml(signerName || '');
     const safeTitle = this.escapeHtml(contractTitle || '');

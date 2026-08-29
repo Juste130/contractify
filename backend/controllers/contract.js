@@ -525,14 +525,61 @@ exports.getContractDetails = async (req, res, next) => {
 exports.hasContractAccess = hasContractAccess;
 
 /**
+ * Public, unauthenticated verification lookup — this is what the QR code printed on every
+ * downloaded certificate points to. A third party (a bank, a court, a business partner)
+ * scanning it has no ContracTify account, so this deliberately returns only what's needed
+ * to verify authenticity: title, status, integrity hash/CID, blockchain anchor, and
+ * signatories reduced to name + signed status — never the contract's actual content, a
+ * signatory's email, or anything else that would leak private information to anyone who
+ * merely has the link.
+ */
+exports.getPublicVerification = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const numericId = Number(id);
+
+        const contract = Number.isInteger(numericId) && String(numericId) === id
+            ? await prisma.contractCache.findUnique({ where: { contractId: numericId }, include: { signatories: true } })
+            : await prisma.contractCache.findUnique({ where: { id }, include: { signatories: true } });
+
+        if (!contract) return res.status(404).json({ error: 'Contract not found' });
+
+        const signedAddresses = new Set(
+            (contract.metadata?.signers || [])
+                .filter((s) => s.hasSigned)
+                .map((s) => s.address?.toLowerCase())
+                .filter(Boolean)
+        );
+
+        res.json({
+            title: contract.title,
+            status: contract.status,
+            createdAt: contract.createdAt,
+            contractId: contract.contractId,
+            ipfsHash: contract.ipfsHash,
+            sha256Hash: contract.metadata?.sha256Hash || null,
+            isExternalPdf: !!contract.metadata?.isExternalPdf,
+            signatories: contract.signatories.map((s) => ({
+                name: s.name || null,
+                hasSigned: s.walletAddress ? signedAddresses.has(s.walletAddress.toLowerCase()) : false,
+            })),
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
  * Get all contracts (admin only)
  */
 exports.getAllContracts = async (req, res, next) => {
     try {
-        const { page = 1, limit = 20, status } = req.query;
+        const { page = 1, limit = 20, status, email, search } = req.query;
 
         const where = {};
         if (status) where.status = status;
+        if (email) where.user = { email: { equals: email, mode: 'insensitive' } };
+        if (search) where.title = { contains: search, mode: 'insensitive' };
 
         const contracts = await prisma.contractCache.findMany({
             where,
@@ -561,6 +608,35 @@ exports.getAllContracts = async (req, res, next) => {
                 pages: Math.ceil(total / parseInt(limit)),
             },
         });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Platform-wide contract counts for the admin dashboard, grouped by status, plus how many
+ * were created this calendar month. Unlike the paginated /admin/all list, these are exact
+ * totals — never truncated by a page size — so the admin "Tous les contrats" stat cards
+ * stay correct regardless of how many contracts exist.
+ */
+exports.getAdminContractsSummary = async (req, res, next) => {
+    try {
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+
+        const [statusGroups, total, thisMonth] = await Promise.all([
+            prisma.contractCache.groupBy({ by: ['status'], _count: { _all: true } }),
+            prisma.contractCache.count(),
+            prisma.contractCache.count({ where: { createdAt: { gte: startOfMonth } } }),
+        ]);
+
+        const byStatus = statusGroups.reduce((acc, row) => {
+            acc[row.status] = row._count._all;
+            return acc;
+        }, {});
+
+        res.json({ total, byStatus, thisMonth });
     } catch (error) {
         next(error);
     }

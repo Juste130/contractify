@@ -37,9 +37,21 @@ const authLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+// Invitation rate limiter — the endpoint already throttles repeat invites to the SAME
+// email (see inviteUser), but this caps how many DIFFERENT addresses one account can
+// spam invitations to.
+const inviteLimiter = rateLimit({
+    windowMs: config.rateLimit.windowMs,
+    max: config.rateLimit.inviteMaxRequests,
+    message: 'Too many invitations sent, please try again later',
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 module.exports = {
     generalLimiter,
     aiLimiter,
     walletLimiter,
     authLimiter,
+    inviteLimiter,
 };
