@@ -30,8 +30,21 @@ apiClient.interceptors.response.use(
     async (error: AxiosError) => {
         const originalRequest = error.config as any;
 
+        // Les endpoints d'auth eux-memes ne doivent JAMAIS passer par ce mecanisme.
+        // Un 401 sur /api/auth/privy signifie "ce jeton Privy n'a pas ete verifie" — la
+        // bonne reaction est de reessayer avec un jeton Privy FRAIS (gere par
+        // syncPrivySession, qui reappelle getAccessToken()), pas de rafraichir une session
+        // backend totalement differente et sans rapport. C'est exactement ce bug qui a
+        // provoque un vrai incident : une premiere tentative de connexion Privy pour un
+        // NOUVEAU compte echouait avec 401 (jeton pas encore propage cote SDK Privy), ce
+        // bloc rafraichissait silencieusement l'ANCIENNE session encore active (celle d'un
+        // autre compte, jamais deconnectee), et l'app continuait de servir des donnees de
+        // cette ancienne session pendant les secondes ou la vraie tentative etait rejouee —
+        // affichant le mauvais profil/role le temps que la nouvelle connexion aboutisse.
+        const isAuthEndpoint = typeof originalRequest?.url === 'string' && originalRequest.url.startsWith('/api/auth/');
+
         // Si erreur 401 et pas déjà en train de retry
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
             originalRequest._retry = true;
 
             try {

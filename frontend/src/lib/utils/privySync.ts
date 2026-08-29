@@ -58,16 +58,24 @@ export function privySessionMatchesStore(privyUser: PrivyUserLike | null | undef
     return privyEmail.toLowerCase() === storeUserEmail.toLowerCase();
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /** Returns true if a sync actually ran (and presumably succeeded), false if skipped
- *  (already in flight elsewhere, no token, or no email — none of these are errors to
- *  surface, the caller just tries again on its next render). */
+ *  (already in flight elsewhere, or no email — not errors to surface, the caller just
+ *  tries again on its next render). Propagates a genuine failure after retries.
+ *
+ * Retries once on a token/verification failure, fetching a FRESH token each attempt:
+ * right after a brand-new Privy login (fresh OTP, no prior session in this browser),
+ * `getAccessToken()` can transiently hand back a token the Privy SDK hasn't fully
+ * propagated server-side yet — verifyAuthToken then rejects it with a generic error
+ * ("Cannot read properties of undefined (reading 'id')"), confirmed from a real incident.
+ * A short backoff and a fresh token resolve it; no retry helps a real invalid token, so
+ * this stays capped at one extra attempt rather than looping indefinitely.
+ */
 export async function syncPrivySession({ user, wallets, getAccessToken, privyLogin }: SyncPrivySessionArgs): Promise<boolean> {
     if (inFlight) return false;
     inFlight = true;
     try {
-        const token = await getAccessToken();
-        if (!token) return false;
-
         const email = getPrivyEmail(user);
         if (!email) return false;
 
@@ -80,11 +88,20 @@ export async function syncPrivySession({ user, wallets, getAccessToken, privyLog
         // Google name either, this is the only default we can offer; prettified so it reads
         // as a name ("Dev Banca") rather than a raw, lowercase, dotted email local-part. The
         // user can still set a real one any time in Paramètres > Profil.
-        await privyLogin(
-            { privyId: user.id, email, walletAddress, profileData: { name: user.google?.name || prettifyEmailPrefix(email) } },
-            token
-        );
-        return true;
+        const profileData = { name: user.google?.name || prettifyEmailPrefix(email) };
+
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            const token = await getAccessToken();
+            if (!token) return false;
+            try {
+                await privyLogin({ privyId: user.id, email, walletAddress, profileData }, token);
+                return true;
+            } catch (err) {
+                if (attempt === 2) throw err;
+                await sleep(800);
+            }
+        }
+        return false;
     } finally {
         inFlight = false;
     }
