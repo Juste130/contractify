@@ -11,11 +11,9 @@ describe("ContractNFT", function () {
   let user2: any;
 
   beforeEach(async function () {
-    // ✅ RÉCUPÉRATION DES SIGNERS AVEC ETHERS.JS
     const signers = await ethers.getSigners();
     [owner, user1, user2] = signers;
 
-    // ✅ DÉPLOIEMENT AVEC ETHERS.JS
     // Déployer ContractNFT
     const ContractNFT = await ethers.getContractFactory("ContractNFT");
     contractNFT = await ContractNFT.connect(owner).deploy();
@@ -27,7 +25,7 @@ describe("ContractNFT", function () {
     contractManager = await ContractManager.connect(owner).deploy(nftAddress);
     await contractManager.waitForDeployment();
 
-    // ✅ TRANSFERT OWNERSHIP
+    // ContractManager doit être owner de ContractNFT pour pouvoir mint
     const managerAddress = await contractManager.getAddress();
     const transferTx = await contractNFT.connect(owner).transferOwnership(managerAddress);
     await transferTx.wait();
@@ -35,7 +33,6 @@ describe("ContractNFT", function () {
 
   describe("Fonctionnalités de Base", function () {
     it("Devrait avoir le bon nom et symbole", async function () {
-      // ✅ LECTURE AVEC ETHERS.JS
       const name = await contractNFT.name();
       const symbol = await contractNFT.symbol();
 
@@ -44,7 +41,6 @@ describe("ContractNFT", function () {
     });
 
     it("Devrait mint un NFT via ContractManager", async function () {
-      // ✅ MINT AVEC ETHERS.JS
       const managerAddress = await contractManager.getAddress();
       const user1Address = await user1.getAddress();
       const user2Address = await user2.getAddress();
@@ -64,7 +60,6 @@ describe("ContractNFT", function () {
 
       await tx.wait();
 
-      // ✅ VÉRIFICATIONS AVEC ETHERS.JS
       const ownerOf = await contractNFT.ownerOf(1);
       const balance = await contractNFT.balanceOf(user1Address);
 
@@ -99,7 +94,6 @@ describe("ContractNFT", function () {
       const tx = await contractManager.connect(user2).signContract(1); // ID 1 car reset au beforeEach
       await tx.wait();
 
-      // ✅ RÉCUPÉRATION PREUVE AVEC ETHERS.JS
       const proof = await contractNFT.getContractProof(1);
 
       expect(proof[0]).to.equal("QmTestHash123"); // ipfsHash
@@ -112,7 +106,6 @@ describe("ContractNFT", function () {
     it("Devrait échouer si non-owner tente de mint", async function () {
       const user1Address = await user1.getAddress();
 
-      // ✅ TEST ERREUR AVEC ETHERS.JS
       await expect(
         contractNFT.connect(user1).mintContractNFT(
           user1Address,
@@ -123,7 +116,6 @@ describe("ContractNFT", function () {
     });
 
     it("Devrait échouer pour un token inexistant", async function () {
-      // ✅ TEST TOKEN INEXISTANT AVEC ETHERS.JS
       await expect(
         contractNFT.getContractProof(999)
       ).to.be.reverted;
@@ -132,7 +124,6 @@ describe("ContractNFT", function () {
 
   describe("Transfert d'Ownership", function () {
     it("Devrait transférer l'ownership à ContractManager", async function () {
-      // ✅ VÉRIFICATION OWNERSHIP AVEC ETHERS.JS
       const currentOwner = await contractNFT.owner();
       const managerAddress = await contractManager.getAddress();
 
@@ -143,7 +134,6 @@ describe("ContractNFT", function () {
       const user1Address = await user1.getAddress();
       const expiresAt = Math.floor(Date.now() / 1000) + 86400;
 
-      // ✅ TEST FONCTIONNALITÉ COMPLÈTE AVEC ETHERS.JS
       const tx = await contractManager.connect(owner).createContract(
         "QmOwnershipTest",
         "sha256OwnershipTest",
@@ -158,7 +148,6 @@ describe("ContractNFT", function () {
 
       const receipt = await tx.wait();
 
-      // ✅ VÉRIFICATION QUE LA TRANSACTION A RÉUSSI
       expect(receipt?.status).to.equal(1);
 
       // Vérifier qu'un contrat a bien été créé
@@ -187,14 +176,12 @@ describe("ContractNFT", function () {
     });
 
     it("Devrait supporter l'interface ERC721", async function () {
-      // ✅ VÉRIFICATION INTERFACE ERC721 AVEC ETHERS.JS
       const supportsInterface = await contractNFT.supportsInterface("0x80ac58cd"); // Interface ID ERC721
 
       expect(supportsInterface).to.be.true;
     });
 
     it("Devrait retourner le token URI", async function () {
-      // ✅ VÉRIFICATION TOKEN URI (si implémenté)
       try {
         const tokenURI = await contractNFT.tokenURI(1);
         // Si la fonction existe, vérifier qu'elle retourne quelque chose
