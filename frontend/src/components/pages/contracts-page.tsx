@@ -58,15 +58,30 @@ export function ContractsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
 
-  // Fetched once, unfiltered by status — filtering happens entirely client-side below so
-  // every grouped category (not just the 3 the API's exact-match status param could express)
-  // works, and so every chip's count can be computed from the same data the "all" view sees.
-  const { data: contractsData, isLoading, error } = useQuery({
-    queryKey: ['contracts', 'cached'],
-    queryFn: () => contractsApi.getCachedContracts({ limit: 50 }),
+  // Unfiltered by status, paged through in full — filtering and the chip counts both happen
+  // client-side below, across every grouped category (not just what the API's exact-match
+  // status param could express), so they need the complete set, not a truncated first page.
+  // This was previously capped at a flat `limit: 50`: any contract beyond that was silently
+  // invisible, and the chip counts (computed from that same truncated array) quietly went
+  // wrong past 50 too. A personal "my contracts" list is bounded by one account's real usage
+  // (unlike the platform-wide admin list), so paging through it in full — capped at 20 pages /
+  // 2000 contracts as a sanity ceiling, not a expected real limit — stays cheap and correct
+  // without needing new server-side filtering.
+  const { data: contracts = [], isLoading, error } = useQuery({
+    queryKey: ['contracts', 'cached', 'all'],
+    queryFn: async () => {
+      const first = await contractsApi.getCachedContracts({ page: 1, limit: 100 });
+      const all = [...first.contracts];
+      const totalPages = Math.min(first.pagination.pages || 1, 20);
+      if (totalPages > 1) {
+        const rest = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, i) => contractsApi.getCachedContracts({ page: i + 2, limit: 100 }))
+        );
+        for (const r of rest) all.push(...r.contracts);
+      }
+      return all;
+    },
   });
-
-  const contracts = contractsData?.contracts || [];
 
   const statusCounts = contracts.reduce<Record<string, number>>((acc, c) => {
     const key = getStatusBadgeVariant(getEffectiveStatus(c));

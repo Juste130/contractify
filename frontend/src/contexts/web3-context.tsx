@@ -104,7 +104,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     // sponsor: true routes this through Privy's native gas sponsorship ("App pays" mode,
     // configured in the Privy Dashboard) instead of a plain ethers signer.sendTransaction —
     // the wallet never needs to hold MATIC, Privy's own infrastructure covers the gas.
-    console.log('[Privy EOA] Sending sponsored transaction via EOA:', eoaAddress)
     const { hash } = await privySendTransaction(
       {
         to,
@@ -113,7 +112,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       },
       { sponsor: true, address: eoaWallet.address }
     )
-    console.log('[Privy EOA] Transaction sent:', hash)
     return { hash }
   }, [eoaWallet, eoaAddress, privySendTransaction])
 
