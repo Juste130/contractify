@@ -30,6 +30,9 @@ interface KycSignatureModalProps {
   contractTitle: string
   contractContent?: string
   originalHash?: string
+  /** CID of the file on IPFS — only meaningful (and only shown) for an imported PDF, where
+   *  `originalHash` is a real SHA-256 of the file's bytes and this is a separate identifier. */
+  ipfsCid?: string
   signerName?: string
   signerEmail?: string
   /** Country of execution, used to cite the right country's e-signature law instead of
@@ -85,6 +88,7 @@ export function KycSignatureModal({
   contractTitle,
   contractContent,
   originalHash,
+  ipfsCid,
   signerName,
   signerEmail,
   country,
@@ -266,8 +270,9 @@ export function KycSignatureModal({
                     {showHashDetails && (
                       contractContent === "CONTRAT_PDF_EXTERNE" ? (
                         <div className="text-[10px] font-mono break-all space-y-1 pt-1 border-t border-border/40">
-                          <p className="text-emerald-500 font-bold">Intégrité du fichier PDF garantie par IPFS</p>
-                          <p><span className="text-muted-foreground">CID (Hash) :</span> {originalHash || "N/A"}</p>
+                          <p className="text-emerald-500 font-bold">Intégrité du fichier PDF garantie par empreinte SHA-256 et IPFS</p>
+                          <p><span className="text-muted-foreground">Empreinte SHA-256 :</span> {originalHash || "N/A"}</p>
+                          <p><span className="text-muted-foreground">Identifiant IPFS (CID) :</span> {ipfsCid || "N/A"}</p>
                         </div>
                       ) : (
                         <div className="text-[10px] font-mono break-all space-y-1 pt-1 border-t border-border/40">

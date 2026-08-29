@@ -78,6 +78,17 @@ async function computeSHA256(text: string): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// A real SHA-256 of the uploaded file's bytes, distinct from its IPFS CID (a different kind
+// of content identifier, not a raw hex digest) — computed so an imported PDF gets the same
+// kind of independently-verifiable fingerprint as an AI-generated one, instead of reusing
+// the CID under a misleading "sha256Hash" label.
+async function computeFileSHA256(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function isValidEthAddress(addr: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(addr);
 }
@@ -182,6 +193,15 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
   });
 
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [isAnalyzingPdf, setIsAnalyzingPdf] = useState(false);
+  const [importAnalysis, setImportAnalysis] = useState<{
+    parties: { name: string; email: string }[];
+    looksLikeContract: boolean | null;
+    mentionsExistingSignature: boolean;
+    signatureExcerpt: string | null;
+    hasDigitalSignature: boolean;
+  } | null>(null);
+  const [acknowledgeImportWarning, setAcknowledgeImportWarning] = useState(false);
 
   const [contractText, setContractText] = useState("");
   const [signatories, setSignatories] = useState<Signatory[]>([]);
@@ -278,7 +298,10 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
         setError("Veuillez sélectionner un fichier PDF.");
         return false;
       }
-      return true;
+      if (importWarningActive && !acknowledgeImportWarning) {
+        setError("Veuillez confirmer avoir pris connaissance de l'avertissement ci-dessus avant de continuer.");
+        return false;
+      }
     }
     const errors: ValidationErrors = {};
     if (!formData.partyA.name.trim()) errors["partyA.name"] = "Le nom de la Partie A est requis.";
@@ -293,10 +316,15 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
       if (!formData.partyB.rccm?.trim()) errors["partyB.rccm"] = "Le RCCM est requis pour une entreprise.";
       if (!formData.partyB.legalRepName?.trim()) errors["partyB.legalRepName"] = "Le représentant légal est requis pour une entreprise.";
     }
-    if (!formData.details.description.trim()) errors["details.description"] = "La description / objet du contrat est requis.";
-    if (!formData.details.city.trim()) errors["details.city"] = "La ville de signature / exécution est requise.";
-    if (Number(formData.details.escrowAmount) > 0 && !formData.details.escrowDeadline) {
-      errors["details.escrowDeadline"] = "Une échéance est requise si un séquestre est demandé.";
+    // Description/ville/séquestre n'existent pas sur le formulaire d'import (voir le rendu
+    // du step 2 : cette section entière est masquée pour "pdf_upload") — les valider ici
+    // bloquerait indéfiniment un import sur des champs que l'utilisateur n'a jamais vus.
+    if (selectedTemplate !== "pdf_upload") {
+      if (!formData.details.description.trim()) errors["details.description"] = "La description / objet du contrat est requis.";
+      if (!formData.details.city.trim()) errors["details.city"] = "La ville de signature / exécution est requise.";
+      if (Number(formData.details.escrowAmount) > 0 && !formData.details.escrowDeadline) {
+        errors["details.escrowDeadline"] = "Une échéance est requise si un séquestre est demandé.";
+      }
     }
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
@@ -335,6 +363,18 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
     setGenerationFailed(false);
 
     if (selectedTemplate === "pdf_upload") {
+      // Mêmes règles que le flux IA : les parties nommées à l'étape précédente deviennent
+      // automatiquement signataires (rôle Co-Signataire), pour garantir que les personnes
+      // désignées dans le formulaire sont bien celles qui signeront réellement.
+      setSignatories((prev) => {
+        const next = [...prev];
+        for (const p of [formData.partyA, formData.partyB]) {
+          if (p.email && !next.some((s) => s.email === p.email)) {
+            next.push({ name: p.name, email: p.email, role: 1 });
+          }
+        }
+        return next;
+      });
       setCurrentStep(4);
       return;
     }
@@ -451,6 +491,43 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
     }
   };
 
+  // Fires right when a PDF is selected, well before final submission — the goal is to have
+  // suggestions ready by the time the user reaches the Partie A/B fields on this same step.
+  // Best-effort only: a scanned PDF with no text layer, or any failure, just leaves
+  // importAnalysis null and the form behaves exactly as it did before this feature existed.
+  const handlePdfSelected = async (file: File | null) => {
+    setUploadedFile(file);
+    setImportAnalysis(null);
+    setAcknowledgeImportWarning(false);
+    if (!file) return;
+    setIsAnalyzingPdf(true);
+    try {
+      const result = await aiApi.analyzeImportedPdf(file);
+      setImportAnalysis(result);
+      // Pré-remplit Partie A / Partie B seulement si l'utilisateur n'a rien saisi
+      // lui-même — une suggestion ne doit jamais écraser une valeur déjà entrée.
+      const [suggestedA, suggestedB] = result.parties;
+      if (suggestedA && !formData.partyA.name && !formData.partyA.email) {
+        updateFormData("partyA", "name", suggestedA.name);
+        if (suggestedA.email) updateFormData("partyA", "email", suggestedA.email);
+      }
+      if (suggestedB && !formData.partyB.name && !formData.partyB.email) {
+        updateFormData("partyB", "name", suggestedB.name);
+        if (suggestedB.email) updateFormData("partyB", "email", suggestedB.email);
+      }
+    } catch {
+      // Silencieux — l'import reste possible sans ces suggestions, en saisie manuelle.
+    } finally {
+      setIsAnalyzingPdf(false);
+    }
+  };
+
+  const importWarningActive = !!importAnalysis && (
+    importAnalysis.looksLikeContract === false ||
+    importAnalysis.mentionsExistingSignature ||
+    importAnalysis.hasDigitalSignature
+  );
+
   const handleAddSignatory = () => {
     if (!newSignatory.email) {
       setValidationErrors((e) => ({ ...e, newSignatory: "L'email est requis pour notifier le signataire." }));
@@ -508,10 +585,14 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
       let content = "";
 
       if (selectedTemplate === "pdf_upload" && uploadedFile) {
-        // Upload the PDF directly to IPFS
+        // A real SHA-256 of the file's own bytes — computed before upload so it's
+        // available even if the IPFS call were to fail — distinct from the IPFS CID
+        // (`ipfsHash` below), which is a different kind of content identifier, not a raw
+        // hex digest. Storing both means an imported contract gets the same kind of
+        // independently-verifiable fingerprint as an AI-generated one.
+        sha256Hash = await computeFileSHA256(uploadedFile);
         const uploadResult = await ipfsApi.uploadDocument(uploadedFile);
         ipfsHash = uploadResult.cid;
-        sha256Hash = ipfsHash; // For external files, CID serves as integrity proof temporarily
         content = "CONTRAT_PDF_EXTERNE";
       } else {
         // AI Generated Contract
@@ -550,6 +631,17 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
             deadline: formData.details.escrowDeadline || null,
             penaltyPercent: formData.details.penaltyPercent || "0",
           },
+          // Kept for audit trail only — never re-used to make a decision on the platform's
+          // behalf, it was already surfaced to the user as a dismissible suggestion/warning
+          // at import time.
+          ...(selectedTemplate === "pdf_upload" && importAnalysis ? {
+            importAnalysis: {
+              looksLikeContract: importAnalysis.looksLikeContract,
+              mentionsExistingSignature: importAnalysis.mentionsExistingSignature,
+              hasDigitalSignature: importAnalysis.hasDigitalSignature,
+              acknowledgedWarning: acknowledgeImportWarning,
+            },
+          } : {}),
         },
         signatories: signatories
       });
@@ -765,13 +857,50 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                      <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                      <p className="text-sm font-medium mb-2">Glissez-déposez votre contrat PDF ici</p>
                      <p className="text-xs text-muted-foreground mb-4">Formats acceptés : .pdf (Max 10Mo)</p>
-                     <Input type="file" accept=".pdf" className="max-w-xs mx-auto" onChange={(e) => setUploadedFile(e.target.files?.[0] || null)} />
+                     <Input type="file" accept=".pdf" className="max-w-xs mx-auto" onChange={(e) => handlePdfSelected(e.target.files?.[0] || null)} />
                    </div>
                    {uploadedFile && (
                      <div className="mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-xl flex items-center justify-center gap-2 text-green-700 dark:text-green-400">
                        <CheckCircle2 className="w-5 h-5" />
                        <span className="font-semibold text-sm">{uploadedFile.name}</span>
                      </div>
+                   )}
+                   {isAnalyzingPdf && (
+                     <p className="text-xs text-muted-foreground flex items-center justify-center gap-2">
+                       <Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyse du document en cours — recherche des parties, vérification qu'il s'agit bien d'un contrat non signé...
+                     </p>
+                   )}
+                   {importAnalysis && !isAnalyzingPdf && (
+                     <>
+                       {importAnalysis.parties.length > 0 && (
+                         <p className="text-xs text-[#4CAF50] flex items-center justify-center gap-1.5">
+                           <CheckCircle2 className="w-3.5 h-3.5" /> {importAnalysis.parties.length} partie(s) détectée(s) et pré-remplie(s) ci-dessous — vérifiez et corrigez si besoin.
+                         </p>
+                       )}
+                       {importWarningActive && (
+                         <div className="text-left p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl flex items-start gap-3">
+                           <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                           <div className="space-y-2">
+                             {importAnalysis.looksLikeContract === false && (
+                               <p className="text-xs text-muted-foreground">Ce document ne ressemble pas à un contrat classique d'après une lecture automatique — vous pouvez continuer si c'est normal pour votre cas.</p>
+                             )}
+                             {importAnalysis.hasDigitalSignature && (
+                               <p className="text-xs text-muted-foreground"><strong className="text-foreground">Signature électronique détectée</strong> dans le fichier PDF — ce document semble déjà signé numériquement (hors ContracTify).</p>
+                             )}
+                             {importAnalysis.mentionsExistingSignature && !importAnalysis.hasDigitalSignature && (
+                               <p className="text-xs text-muted-foreground">Le texte du document semble indiquer qu'il a déjà été signé{importAnalysis.signatureExcerpt ? ` (« ${importAnalysis.signatureExcerpt} »)` : ""} — à vérifier vous-même.</p>
+                             )}
+                             {(importAnalysis.hasDigitalSignature || importAnalysis.mentionsExistingSignature) && (
+                               <p className="text-xs text-muted-foreground">Si ce contrat est déjà conclu, ContracTify peut simplement l'ancrer comme preuve — faire re-signer les parties ici créerait une nouvelle date de signature, distincte de celle déjà indiquée sur le document.</p>
+                             )}
+                             <label className="flex items-center gap-2 cursor-pointer pt-1">
+                               <Checkbox checked={acknowledgeImportWarning} onCheckedChange={(v) => setAcknowledgeImportWarning(!!v)} />
+                               <span className="text-xs font-medium">J'ai pris connaissance de ce point et je souhaite continuer.</span>
+                             </label>
+                           </div>
+                         </div>
+                       )}
+                     </>
                    )}
                 </div>
               )}

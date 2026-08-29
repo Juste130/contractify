@@ -6,9 +6,13 @@ import { useAuthStore } from '@/hooks/useAuth';
 import { Spinner } from '../ui/spinner';
 
 const PUBLIC_PATHS = ['/', '/login', '/signup', '/how-it-works', '/reset-password'];
+// Prefix-matched rather than exact: /verify/[id] is a dynamic route, and every id under it
+// must be reachable without an account — that's the entire point of the QR code printed on
+// a downloaded certificate (a third party scanning it has no ContracTify login).
+const PUBLIC_PATH_PREFIXES = ['/verify/'];
 
 function isPublicPath(pathname: string) {
-    return PUBLIC_PATHS.includes(pathname);
+    return PUBLIC_PATHS.includes(pathname) || PUBLIC_PATH_PREFIXES.some((p) => pathname.startsWith(p));
 }
 
 interface ProtectedRouteProps {

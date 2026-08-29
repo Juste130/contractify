@@ -129,7 +129,9 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
         },
         signatories: signersForPdf,
         status: contract.status,
-        createdAt: contract.createdAt
+        createdAt: contract.createdAt,
+        isExternalPdf: !!contract.metadata?.isExternalPdf,
+        ipfsUrl: contract.ipfsHash ? ipfsApi.getPublicUrl(contract.ipfsHash) : undefined,
       });
     } catch (err) {
       console.error("Erreur génération PDF:", err);
@@ -1164,6 +1166,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
           contractTitle={contract.title}
           contractContent={contract.metadata?.content || ""}
           originalHash={contract.metadata?.sha256Hash || ""}
+          ipfsCid={contract.ipfsHash || ""}
           signerName={contract.metadata?.signers?.find((s: any) => s.address?.toLowerCase() === account?.toLowerCase())?.name || account || "Signataire"}
           signerEmail={contract.metadata?.signers?.find((s: any) => s.address?.toLowerCase() === account?.toLowerCase())?.email}
           country={contract.metadata?.country}

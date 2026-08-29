@@ -112,4 +112,33 @@ export const aiApi = {
             throw new Error(handleApiError(error));
         }
     },
+
+    /**
+     * Best-effort analysis of an imported PDF before it's saved: extracted parties (name +
+     * email, only when the email genuinely appears in the document), whether it looks like
+     * a contract, and whether it appears already signed. Every field here is a suggestion
+     * for the UI to surface and let the user confirm or dismiss — never a fact to act on
+     * silently. Gracefully returns neutral values for a scanned PDF with no text layer.
+     */
+    async analyzeImportedPdf(file: File): Promise<{
+        parties: { name: string; email: string }[];
+        looksLikeContract: boolean | null;
+        looksLikeContractConfidence: "high" | "medium" | "low";
+        mentionsExistingSignature: boolean;
+        signatureConfidence: "high" | "medium" | "low";
+        signatureExcerpt: string | null;
+        hasDigitalSignature: boolean;
+        hasExtractedText: boolean;
+    }> {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const response = await apiClient.post('/api/ai/analyze-imported-pdf', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
 };

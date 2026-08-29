@@ -292,6 +292,74 @@ class AIService {
         }
     }
 
+    // ─── Analyse d'un document importé (PDF) ────────────────────────────────────
+    /**
+     * Best-effort, jamais bloquant : à partir du texte extrait d'un PDF importé, tente de
+     * repérer les parties nommées (nom + email, seulement si l'email apparaît vraiment dans
+     * le texte — jamais inventé), si le document ressemble à un contrat, et s'il semble déjà
+     * signé. Chaque signal porte son propre niveau de confiance ; c'est à l'appelant de le
+     * présenter comme une suggestion à confirmer, jamais comme un fait établi. N'importe
+     * quelle échec (texte vide, PDF scanné sans couche de texte, erreur réseau) renvoie des
+     * valeurs neutres plutôt que de faire échouer tout l'import.
+     */
+    async analyzeImportedContract(extractedText) {
+        const empty = {
+            parties: [],
+            looksLikeContract: null,
+            looksLikeContractConfidence: 'low',
+            mentionsExistingSignature: false,
+            signatureConfidence: 'low',
+            signatureExcerpt: null,
+        };
+        if (!extractedText || !extractedText.trim()) return empty;
+
+        try {
+            const text = await this._chat([
+                {
+                    role: 'system',
+                    content: 'Tu analyses le texte extrait d\'un document PDF importé sur une plateforme de contrats. Réponds UNIQUEMENT avec un objet JSON strict, sans texte autour, sans markdown, exactement dans cette forme : {"parties": [{"name": "<nom complet>", "email": "<email>"}], "looksLikeContract": true|false, "looksLikeContractConfidence": "high"|"medium"|"low", "mentionsExistingSignature": true|false, "signatureConfidence": "high"|"medium"|"low", "signatureExcerpt": "<courte phrase du texte qui l\'indique, ou null>"}. Règle stricte : n\'invente JAMAIS un email qui n\'apparaît pas mot pour mot dans le texte fourni — si un nom de partie est identifiable mais sans email associé dans le texte, mets email à une chaîne vide. Limite la liste "parties" aux personnes ou entités clairement identifiées comme parties au contrat (pas les témoins, pas les tiers mentionnés en passant), au maximum 4.',
+                },
+                {
+                    role: 'user',
+                    content: `Texte extrait du document (peut être tronqué ou partiellement illisible) :\n\n${extractedText.substring(0, 6000)}`,
+                },
+            ], { max_tokens: 1024, temperature: 0 });
+
+            const parsed = JSON.parse(text.replace(/```json|```/gi, '').trim());
+            const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            const parties = Array.isArray(parsed.parties)
+                ? parsed.parties
+                    .filter((p) => p && typeof p.name === 'string' && p.name.trim())
+                    .slice(0, 4)
+                    .map((p) => ({
+                        name: p.name.trim(),
+                        // Deuxième garde-fou côté serveur, au cas où le modèle n'aurait pas
+                        // respecté la consigne : un email halluciné qui ne figure pas dans le
+                        // texte source est pire qu'aucun email (invitation envoyée à la
+                        // mauvaise personne) — mieux vaut le rejeter et laisser un champ vide
+                        // que de le faire remonter.
+                        email: typeof p.email === 'string' && emailPattern.test(p.email.trim()) && extractedText.includes(p.email.trim())
+                            ? p.email.trim()
+                            : '',
+                    }))
+                : [];
+
+            const confidenceOrDefault = (v) => ['high', 'medium', 'low'].includes(v) ? v : 'low';
+
+            return {
+                parties,
+                looksLikeContract: typeof parsed.looksLikeContract === 'boolean' ? parsed.looksLikeContract : null,
+                looksLikeContractConfidence: confidenceOrDefault(parsed.looksLikeContractConfidence),
+                mentionsExistingSignature: parsed.mentionsExistingSignature === true,
+                signatureConfidence: confidenceOrDefault(parsed.signatureConfidence),
+                signatureExcerpt: typeof parsed.signatureExcerpt === 'string' && parsed.signatureExcerpt.trim() ? parsed.signatureExcerpt.trim().slice(0, 200) : null,
+            };
+        } catch (error) {
+            logger.error('Error analyzing imported contract:', error);
+            return empty;
+        }
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────────
 
     buildContractPrompt(templateType, partyAData, partyBData, additionalClauses, context) {

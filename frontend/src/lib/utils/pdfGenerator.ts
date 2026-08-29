@@ -13,6 +13,14 @@ interface PDFData {
     signatories: any[];
     status: string;
     createdAt: string;
+    /** True for an imported document (vs. AI-generated) — see the branch below: an
+     *  imported PDF's actual content is never reproduced here (reformatting a third-party
+     *  legal document risks introducing a discrepancy with what was actually signed), and
+     *  the "sha256Hash" field for one is really an IPFS CID, not a raw hex digest — both
+     *  need different handling from the AI-generated case. */
+    isExternalPdf?: boolean;
+    /** Direct link to the original imported file on IPFS — only meaningful when isExternalPdf. */
+    ipfsUrl?: string;
 }
 
 export async function generateCertifiedPDF(data: PDFData) {
@@ -80,7 +88,11 @@ export async function generateCertifiedPDF(data: PDFData) {
     doc.setTextColor(100, 100, 100);
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
-    doc.text("Document certifié par technologie Blockchain", pageWidth - margin - 75, yPos);
+    doc.text(
+        data.isExternalPdf ? "Certificat de signature — technologie Blockchain" : "Document certifié par technologie Blockchain",
+        pageWidth - margin - (data.isExternalPdf ? 95 : 75),
+        yPos
+    );
     yPos += 12;
     doc.setDrawColor(230, 230, 230);
     doc.line(margin, yPos, pageWidth - margin, yPos);
@@ -90,11 +102,24 @@ export async function generateCertifiedPDF(data: PDFData) {
     addText(data.title.toUpperCase(), 16, true, [30, 30, 30]);
     yPos += 6;
 
-    // 3. Render contract content — the AI now writes plain text (see backend/services/ai.js):
-    // first non-empty line = document title, "Article N / Chapitre / Préambule / Annexe"
-    // lines = section headers. Legacy #/##/### Markdown is still recognized for contracts
-    // generated before this change.
-    if (data.content) {
+    // 3. Body — an imported PDF's actual content is deliberately NEVER reproduced here.
+    // Reformatting a third-party legal document into this renderer's own layout risks
+    // introducing a discrepancy between what this certificate shows and what was actually
+    // signed (the original file, byte for byte). Instead, this is a genuine certificate:
+    // it points to the original document rather than attempting to recreate it.
+    if (data.isExternalPdf) {
+        addText("Ce certificat atteste la signature électronique du document importé suivant :", 10, false, [60, 60, 60]);
+        yPos += 4;
+        checkPageBreak(10);
+        addText(data.title, 12, true, [30, 30, 30]);
+        yPos += 6;
+        addText("Le document original, tel qu'importé, reste disponible intégralement via son identifiant IPFS ci-dessous — ce certificat n'en est pas une copie ni un résumé.", 9, false, [90, 90, 90]);
+        if (data.ipfsUrl) {
+            yPos += 4;
+            checkPageBreak(10);
+            addText(data.ipfsUrl, 9, false, [33, 150, 243]);
+        }
+    } else if (data.content) {
         const lines = data.content.split('\n');
         const sectionHeaderRe = /^(article\s+\d+|chapitre\b|titre\s+[ivx\d]|préambule\b|annexe\s*\d*)/i;
         let titleConsumed = false;
@@ -183,10 +208,17 @@ export async function generateCertifiedPDF(data: PDFData) {
 
     addText("CERTIFICAT D'INTÉGRITÉ NUMÉRIQUE", 8, true, [130, 130, 130]);
     yPos += 1;
-    // The SHA-256 hash is a single 64-char unbroken token — exactly the case addText's
+    // The hash/CID is a single long unbroken token — exactly the case addText's
     // breakLongTokens() exists for; a raw doc.text() call here (the previous code) had no
     // width constraint at all and ran straight off the page edge.
-    addText(`Empreinte SHA-256 : ${data.sha256Hash}`, 8, false, [130, 130, 130]);
+    //
+    // For an imported PDF, `sha256Hash` actually holds the IPFS CID (a different kind of
+    // content identifier, not a raw hex SHA-256 digest) — labeling it "SHA-256" here would
+    // mislead anyone trying to verify it by literally hashing the file themselves.
+    addText(
+        data.isExternalPdf ? `Identifiant IPFS (CID) : ${data.sha256Hash}` : `Empreinte SHA-256 : ${data.sha256Hash}`,
+        8, false, [130, 130, 130]
+    );
     if (data.contractId) {
         addText(`Ancrage Blockchain : Polygon Amoy (ID: ${data.contractId})`, 8, false, [130, 130, 130]);
     } else {
@@ -194,11 +226,17 @@ export async function generateCertifiedPDF(data: PDFData) {
     }
     addText(`Horodatage : ${new Date(data.createdAt).toLocaleString('fr-FR')}`, 8, false, [130, 130, 130]);
     yPos += 4;
-    addText("Ce contrat a été rédigé avec l'assistance d'une intelligence artificielle. Il ne constitue pas un avis juridique.", 7, false, [150, 150, 150]);
+    // Factually true only for an AI-generated contract — an imported document was never
+    // drafted by the platform's AI, saying otherwise here would be a false statement on a
+    // legal certificate.
+    if (!data.isExternalPdf) {
+        addText("Ce contrat a été rédigé avec l'assistance d'une intelligence artificielle. Il ne constitue pas un avis juridique.", 7, false, [150, 150, 150]);
+    }
 
-    // QR Code
+    // QR Code — points to the public, unauthenticated verification page (no ContracTify
+    // account needed to scan and confirm this certificate), not the private contract page.
     try {
-        const verifyUrl = `${window.location.origin}/contract-details/${data.contractId || data.draftId}`;
+        const verifyUrl = `${window.location.origin}/verify/${data.contractId || data.draftId}`;
         const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, width: 80 });
         doc.addImage(qrDataUrl, "PNG", pageWidth - margin - 28, yPos - 16, 28, 28);
     } catch (e) {
