@@ -27,6 +27,8 @@ contract ContractNFT is ERC721, Ownable, ReentrancyGuard {
         string ipfsHash,
         address[] signers
     );
+    event ContractProofStatusUpdated(uint256 indexed tokenId, bool isActive);
+
     constructor() ERC721("ContractNFTProof", "CNFTP") {}
 
     /**
@@ -76,6 +78,7 @@ contract ContractNFT is ERC721, Ownable, ReentrancyGuard {
     function updateProofStatus(uint256 tokenId, bool active) external onlyOwner {
         require(_exists(tokenId), "Token does not exist");
         contractProofs[tokenId].isActive = active;
+        emit ContractProofStatusUpdated(tokenId, active);
     }
 
     /**

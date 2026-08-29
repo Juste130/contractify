@@ -18,23 +18,18 @@ describe("Système de Gestion de Contrats NFT", function () {
   const expiresAt = Math.floor(Date.now() / 1000) + ONE_DAY;
 
   beforeEach(async function () {
-    // ✅ RÉCUPÉRATION DES SIGNERS AVEC ETHERS.JS
     const signers = await ethers.getSigners();
     [owner, creator, signer1, signer2, nonParticipant] = signers;
 
-    // ✅ DÉPLOIEMENT AVEC ETHERS.JS
-    // Déployer ContractNFT
     const ContractNFT = await ethers.getContractFactory("ContractNFT");
     contractNFT = await ContractNFT.deploy();
     await contractNFT.waitForDeployment();
 
-    // Déployer ContractManager
     const nftAddress = await contractNFT.getAddress();
     const ContractManager = await ethers.getContractFactory("ContractManager");
     contractManager = await ContractManager.deploy(nftAddress);
     await contractManager.waitForDeployment();
 
-    // ✅ TRANSFERT OWNERSHIP
     const managerAddress = await contractManager.getAddress();
     const transferTx = await contractNFT.transferOwnership(managerAddress);
     await transferTx.wait();
@@ -76,7 +71,6 @@ describe("Système de Gestion de Contrats NFT", function () {
         }
       ];
 
-      // ✅ CRÉATION AVEC ETHERS.JS
       const tx = await contractManager.connect(creator).createContract(
         "QmTestHash123",
         "sha256TestHash123",
@@ -89,7 +83,6 @@ describe("Système de Gestion de Contrats NFT", function () {
         "Création du contrat de développement"
       );
 
-      // ✅ VÉRIFICATION
       const receipt = await tx.wait();
 
       // Vérifier l'événement
@@ -560,6 +553,39 @@ describe("Système de Gestion de Contrats NFT", function () {
           value: ethers.parseEther("0.5"),
         })
       ).to.be.revertedWith("Incorrect escrow amount");
+    });
+
+    it("Devrait échouer le dépôt d'escrow sur un contrat sans montant déclaré", async function () {
+      // Un contrat créé avec escrowAmount = 0 n'a pas de séquestre à déposer. Sans le
+      // require dédié, un dépôt à value: 0 passerait la vérification "Incorrect escrow
+      // amount" (0 == 0) et marquerait isEscrowDeposited à true sans qu'un centime ne
+      // change de mains — assez pour débloquer terminateContract frauduleusement.
+      const signersWithRoles = [
+        {
+          signer: await signer1.getAddress(),
+          role: 1,
+          customRole: "",
+          hasSignedContract: false,
+          signedAt: 0
+        }
+      ];
+
+      await contractManager.connect(creator).createContract(
+        "QmNoEscrowTest",
+        "sha256NoEscrowTest",
+        signersWithRoles,
+        expiresAt,
+        true,
+        true,
+        0, // Pas d'escrow déclaré
+        10,
+        "Test sans escrow"
+      );
+      await contractManager.connect(signer1).signContract(2);
+
+      await expect(
+        contractManager.connect(signer1).depositEscrow(2, { value: 0 })
+      ).to.be.revertedWith("No escrow declared for this contract");
     });
 
     it("Devrait permettre à l'escrowPayer de libérer les fonds au créateur", async function () {

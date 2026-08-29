@@ -4,7 +4,8 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-// ✅ INTERFACE POUR CONTRACTNFT
+// Interface vers ContractNFT — ce contrat en est le owner et est seul habilité à minter
+// ou à mettre à jour le statut d'une preuve (voir deploy.ts pour le transfert de propriété).
 interface IContractNFT {
     function mintContractNFT(
         address to, 
@@ -36,7 +37,8 @@ contract ContractManager is Ownable, ReentrancyGuard {
     address public emergencyAdmin;
     uint8 private _authorizedPauserCount;
 
-    // ✅ SYSTÈME DE PAUSE ROBUSTE
+    // Pause d'urgence — voir addAuthorizedPauser/removeAuthorizedPauser plus bas pour les
+    // règles d'autorisation, et emergencyPause/resumeContractPlatform pour leur usage.
     bool public paused;
     uint40 public pausedAt;
     uint40 public constant MAX_PAUSE_DURATION = 30 days;
@@ -295,6 +297,10 @@ contract ContractManager is Ownable, ReentrancyGuard {
      * @param escrowAmount Montant total du contrat placé en séquestre
      * @param penaltyPercent Pourcentage de pénalité en cas de litige
      * @param initialJustification Justification initiale
+     *
+     * nonReentrant : quand aucun signataire additionnel n'est requis, cette fonction
+     * finalise le contrat elle-meme (_finalizeContract), qui fait un appel externe (mint du
+     * NFT) — meme raison que sur signContract.
      */
     function createContract(
         string calldata ipfsHash,
@@ -306,7 +312,7 @@ contract ContractManager is Ownable, ReentrancyGuard {
         uint88 escrowAmount,
         uint8 penaltyPercent,
         string calldata initialJustification
-    ) external whenNotPaused validJustification(initialJustification) returns (uint256) {
+    ) external nonReentrant whenNotPaused validJustification(initialJustification) returns (uint256) {
         require(!ipfsHashUsed[ipfsHash], "IPFS hash already used");
         require(expiresAt > uint40(block.timestamp), "Invalid expiration time");
         require(penaltyPercent <= 100, "Penalty cannot exceed 100%");
@@ -378,13 +384,17 @@ contract ContractManager is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Signature d'un contrat par un participant
+     * @dev Signature d'un contrat par un participant. nonReentrant car la derniere
+     * signature declenche _finalizeContract, qui fait un appel externe (mint du NFT sur
+     * ContractNFT) — cohérent avec depositEscrow/releaseEscrow/applyPenalty, qui protegent
+     * deja leurs propres appels externes de la meme facon.
      */
-    function signContract(uint256 contractId) 
-        external 
+    function signContract(uint256 contractId)
+        external
+        nonReentrant
         whenNotPaused
-        validContractId(contractId) 
-        onlyParticipant(contractId) 
+        validContractId(contractId)
+        onlyParticipant(contractId)
     {
         ContractData storage contractData = contracts[contractId];
         require(contractData.status == ContractStatus.PendingSignatures, "Invalid status");
@@ -595,6 +605,17 @@ contract ContractManager is Ownable, ReentrancyGuard {
         ContractData storage contractData = contracts[contractId];
         require(contractData.status == ContractStatus.Active, "Contract must be active");
         require(!contractData.isEscrowDeposited, "Escrow already deposited");
+        // Sans ce garde-fou, un contrat sans escrow declare (escrowAmount == 0 — le cas de
+        // tous les contrats crees par l'app aujourd'hui, l'escrow reel etant gere hors-chaine,
+        // voir ContractCache/ContractEscrow cote backend) pouvait etre "deposé" a cout nul par
+        // n'importe quel participant : msg.value == 0 == escrowAmount passe trivialement. Ca
+        // ne deplace aucun fonds, mais ca marque isEscrowDeposited a true et designe
+        // l'appelant comme escrowPayer, ce qui bloque ensuite terminateContract (qui exige
+        // "Release or penalize escrow before terminating") tant que ce participant precis n'a
+        // pas agi — un vecteur de blocage exploitable independamment de toute intention
+        // malveillante (il suffit d'appeler la fonction directement, ex. via l'interface
+        // Etherscan du contrat).
+        require(contractData.escrowAmount > 0, "No escrow declared for this contract");
         require(msg.value == contractData.escrowAmount, "Incorrect escrow amount");
 
         contractData.isEscrowDeposited = true;
@@ -665,7 +686,8 @@ contract ContractManager is Ownable, ReentrancyGuard {
         contractData.status = ContractStatus.Active;
         contractData.effectiveDate = uint40(block.timestamp);
 
-        // ✅ CRÉATION DU NFT SEULEMENT ICI - APRÈS TOUTES LES SIGNATURES, ET APRÈS MISE À JOUR DE L'ÉTAT (pattern CEI)
+        // Création du NFT seulement ici, après toutes les signatures et après la mise à
+        // jour de l'état ci-dessus (pattern Checks-Effects-Interactions)
         uint256 nftTokenId = _mintContractNFT(contractId);
         contractData.nftTokenId = nftTokenId;
 
@@ -703,7 +725,8 @@ contract ContractManager is Ownable, ReentrancyGuard {
             signerAddresses[i] = signers[i].signer;
         }
 
-        // ✅ APPEL À CONTRACTNFT POUR CRÉER LE NFT
+        // Appel externe vers ContractNFT pour créer la preuve — après mise à jour de l'état
+        // du contrat dans _finalizeContract (pattern Checks-Effects-Interactions).
         uint256 tokenId = contractNFT.mintContractNFT(
             contractData.creator,           // Propriétaire du NFT
             contractIpfsHashes[contractId], // Hash IPFS du document
@@ -940,7 +963,9 @@ contract ContractManager is Ownable, ReentrancyGuard {
         whenPaused
         validJustification(reason)
     {
-        // ✅ ANTI-ABUS : Pause trop courte impossible
+        // Empêche un owner malveillant de mettre en pause puis de reprendre aussitôt pour
+        // gêner les utilisateurs par a-coups — l'emergencyAdmin reste exempté de ce délai
+        // minimum pour pouvoir réagir vite à un vrai incident.
         require(
             block.timestamp >= pausedAt + 1 hours || 
             msg.sender == emergencyAdmin,
@@ -992,7 +1017,8 @@ contract ContractManager is Ownable, ReentrancyGuard {
         require(!authorizedPausers[pauser], "Already authorized");
         require(pauser != owner() && pauser != emergencyAdmin, "Cannot add owner/emergencyAdmin as pauser");
         
-        // ✅ LIMITATION STRICTE : maximum 3 pausers
+        // Plafonné volontairement bas — chaque pauser supplémentaire est un compte de plus
+        // capable de geler toute la plateforme, pas une fonctionnalité à distribuer largement.
         require(_authorizedPauserCount < MAX_PAUSERS, "Maximum pausers reached");
         
         authorizedPausers[pauser] = true;
