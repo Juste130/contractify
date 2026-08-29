@@ -273,7 +273,7 @@ export function DashboardPage() {
                     {attentionItems.map((contract) => {
                       const isDisputed = getEffectiveStatus(contract) === 'DISPUTED';
                       return (
-                        <Link href={`/contracts/${contract.contractId ?? contract.id}`} key={contract.id}>
+                        <Link href={`/contract-details?id=${contract.contractId ?? contract.id}`} key={contract.id}>
                           <div
                             className={`flex items-center gap-4 p-4 rounded-lg hover:bg-muted/80 cursor-pointer transition-colors ${
                               isDisputed ? "bg-destructive/5 border-l-4 border-destructive" : "bg-muted"

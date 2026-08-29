@@ -48,7 +48,7 @@ export function ContractCard({
         Créé le {new Date(createdAt).toLocaleDateString()} • {signersCount} signataire(s)
       </p>
 
-      <Link href={`/contracts/${id}`}>
+      <Link href={`/contract-details?id=${id}`}>
         <Button variant="outline" size="sm" className="w-full justify-between">
           Voir les détails
           <ArrowRight className="size-4" />
