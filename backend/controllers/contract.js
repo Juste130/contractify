@@ -551,12 +551,21 @@ exports.getPublicVerification = async (req, res, next) => {
                 .filter(Boolean)
         );
 
+        // Deliberately NOT ipfsHash: a CID isn't an opaque identifier, it's the actual
+        // retrieval key for the full document on any public IPFS gateway
+        // (gateway.pinata.cloud/ipfs/{cid}) — for an import, the entire original PDF; for
+        // an AI-generated contract, its full rendered text. Including it here would let
+        // anyone who merely has the verification link (no account, no access check)
+        // reconstruct direct access to the private contract in one step, defeating the
+        // "never leak the contract's actual content" guarantee this endpoint promises.
+        // sha256Hash is a real digest either way (post-fix, even for an import — see
+        // computeFileSHA256 in create-contract-page.tsx) — sufficient to prove integrity
+        // without being a retrieval mechanism itself.
         res.json({
             title: contract.title,
             status: contract.status,
             createdAt: contract.createdAt,
             contractId: contract.contractId,
-            ipfsHash: contract.ipfsHash,
             sha256Hash: contract.metadata?.sha256Hash || null,
             isExternalPdf: !!contract.metadata?.isExternalPdf,
             signatories: contract.signatories.map((s) => ({

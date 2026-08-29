@@ -19,7 +19,6 @@ interface VerificationData {
   status: string;
   createdAt: string;
   contractId: number | null;
-  ipfsHash: string | null;
   sha256Hash: string | null;
   isExternalPdf: boolean;
   signatories: { name: string | null; hasSigned: boolean }[];
@@ -85,14 +84,12 @@ export function PublicVerifyPage({ id }: PublicVerifyPageProps) {
                 </div>
               </div>
 
-              {data.ipfsHash && (
-                <div className="text-sm">
-                  <p className="text-muted-foreground mb-1">{data.isExternalPdf ? "Identifiant IPFS (CID)" : "Document (IPFS)"}</p>
-                  <p className="font-mono text-xs bg-muted px-2 py-1.5 rounded break-all">{data.ipfsHash}</p>
-                </div>
-              )}
-
-              {!data.isExternalPdf && data.sha256Hash && (
+              {/* Le CID IPFS n'est volontairement pas affiché ici : c'est la clé d'accès
+                  directe au document complet (original importé ou texte intégral), pas un
+                  simple identifiant. Cette page est publique et sans compte — seule
+                  l'empreinte SHA-256 (une preuve d'intégrité, pas un moyen d'accès) y
+                  figure. Le CID reste consultable depuis la page de détail authentifiée. */}
+              {data.sha256Hash && (
                 <div className="text-sm">
                   <p className="text-muted-foreground mb-1">Empreinte SHA-256</p>
                   <p className="font-mono text-xs bg-muted px-2 py-1.5 rounded break-all">{data.sha256Hash}</p>

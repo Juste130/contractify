@@ -28,14 +28,20 @@ const authenticate = async (req, res, next) => {
 
         const user = await prisma.user.findUnique({
             where: { id: payload.userId },
-            select: { isActive: true },
+            select: { isActive: true, role: true },
         });
 
         if (!user || !user.isActive) {
             return res.status(403).json({ error: 'Ce compte a été suspendu' });
         }
 
-        req.user = payload;
+        // Same reasoning as isActive above, for role: the JWT's `role` claim is frozen at
+        // the moment it was issued. Without overwriting it here, an admin demoted via
+        // updateUserRole keeps requireAdmin access on every already-issued token until it
+        // expires — the demotion has no immediate effect, exactly the gap already closed
+        // for suspension. req.user.role is set from the DB read just above, never trusted
+        // from the token itself.
+        req.user = { ...payload, role: user.role };
         next();
     } catch (error) {
         logger.error('Authentication error:', error);

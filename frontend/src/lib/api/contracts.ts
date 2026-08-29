@@ -215,7 +215,6 @@ export const contractsApi = {
         status: string;
         createdAt: string;
         contractId: number | null;
-        ipfsHash: string | null;
         sha256Hash: string | null;
         isExternalPdf: boolean;
         signatories: { name: string | null; hasSigned: boolean }[];
