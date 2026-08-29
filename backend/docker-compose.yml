@@ -20,21 +20,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis Cache
-  redis:
-    image: redis:7-alpine
-    container_name: contractify-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # Backend API (optional - uncomment to run backend in Docker)
   # backend:
   #   build:
@@ -47,11 +32,8 @@ services:
   #   environment:
   #     NODE_ENV: development
   #     DATABASE_URL: postgresql://postgres:password@postgres:5432/contractify
-  #     REDIS_URL: redis://redis:6379
   #   depends_on:
   #     postgres:
-  #       condition: service_healthy
-  #     redis:
   #       condition: service_healthy
   #   volumes:
   #     - .:/app
@@ -59,4 +41,9 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
+# Redis retire : provisionne ici mais jamais utilise nulle part dans le code (le
+# rate-limiter tourne en memoire du process, escrow-scheduler.js a delibrement evite
+# Redis pour son verrou). Une infra fantome dans ce fichier induit en erreur un nouveau
+# developpeur qui croirait Redis necessaire pour faire tourner l'app. A reintroduire
+# explicitement si un vrai besoin de store partage apparait (scaling horizontal du
+# rate-limiting, par exemple).

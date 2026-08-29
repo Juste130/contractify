@@ -8,6 +8,21 @@ const config = {
     port: parseInt(process.env.PORT || '3001', 10),
     apiBaseUrl: process.env.API_BASE_URL || 'http://localhost:3001',
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+    // Express's `trust proxy` setting — without it, behind any reverse proxy (Render,
+    // Heroku, nginx, an ALB...) express-rate-limit reads the wrong IP for every request:
+    // either every user gets counted as the same single IP (the proxy's), or v7 outright
+    // rejects requests carrying X-Forwarded-For. `1` (trust exactly one hop) is the
+    // standard safe default for a single reverse proxy in front of this app; set
+    // TRUST_PROXY=0 locally/direct, or a higher hop count for a multi-proxy topology.
+    // Accepts a number ("1", "2"...), a boolean ("true"/"false"), or an Express-recognized
+    // string value (e.g. "loopback") passed through as-is.
+    trustProxy: (() => {
+        const raw = process.env.TRUST_PROXY;
+        if (raw === undefined) return 1;
+        if (raw === 'true') return true;
+        if (raw === 'false') return false;
+        return /^\d+$/.test(raw) ? parseInt(raw, 10) : raw;
+    })(),
 
     // Database
     databaseUrl: process.env.DATABASE_URL,

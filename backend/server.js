@@ -23,6 +23,10 @@ const analyticsRoutes = require('./routes/analytics');
 
 const app = express();
 
+// Doit etre defini avant tout middleware qui lit req.ip (express-rate-limit en particulier)
+// — voir config/index.js pour le detail de ce que ca corrige.
+app.set('trust proxy', config.trustProxy);
+
 // Middleware
 app.use(helmet({
     crossOriginResourcePolicy: {policy: "cross-origin"}

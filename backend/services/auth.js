@@ -27,7 +27,7 @@ class AuthService {
     // maison) ont été retirés — Privy gère désormais entièrement l'authentification, la
     // création de wallet et le financement MATIC. Seul `privyAuth` reste le point d'entrée.
 
-    async privyAuth(privyId, email, walletAddress, profileData) {
+    async privyAuth(privyId, email, walletAddress, profileData, requestMeta = {}) {
         try {
             // Déterminer si cet email est dans la whitelist admin (variable serveur uniquement)
             const shouldBeAdmin = isAdminEmail(email);
@@ -173,7 +173,7 @@ class AuthService {
             const token = this.generateToken(user.id, user.email, user.role);
             const refreshToken = this.generateRefreshToken(user.id);
 
-            await this.saveRefreshToken(user.id, refreshToken);
+            await this.saveRefreshToken(user.id, refreshToken, requestMeta);
 
             logger.info(`User authenticated via Privy: ${email} [role=${user.role}]`);
 
@@ -255,7 +255,7 @@ class AuthService {
         }
     }
 
-    async refreshAccessToken(refreshToken) {
+    async refreshAccessToken(refreshToken, requestMeta = {}) {
         try {
             const payload = jwt.verify(refreshToken, config.jwt.refreshSecret);
 
@@ -287,7 +287,7 @@ class AuthService {
 
             // Rotation: create new refresh token, persist it, revoke old one
             const newRefreshToken = this.generateRefreshToken(user.id);
-            const saved = await this.saveRefreshToken(user.id, newRefreshToken);
+            const saved = await this.saveRefreshToken(user.id, newRefreshToken, requestMeta);
 
             await prisma.refreshToken.update({
                 where: { tokenHash },
