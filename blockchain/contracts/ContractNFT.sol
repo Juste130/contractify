@@ -4,6 +4,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
 
 /**
  * @title ContractNFT
@@ -22,14 +23,61 @@ contract ContractNFT is ERC721, Ownable, ReentrancyGuard {
     mapping(string  => bool) private ipfsHashExists;
     mapping(uint256 => address[]) private contractSigners;
 
+    // tokenURI() used to point straight at ipfs://<contractProofs[tokenId].ipfsHash> — the
+    // document itself, not ERC-721 metadata. No wallet, marketplace or block explorer can
+    // render a PDF/text file as an NFT, so the token never showed anything. tokenURI() now
+    // points at an off-chain metadata endpoint instead, which returns a proper
+    // {name, description, image, attributes} JSON and generates a certificate image — while
+    // the document's own IPFS hash (and its proof value) is untouched, still readable via
+    // getContractProof() and still the value verified against the contract's sha256Hash.
+    //
+    // metadataAdmin is deliberately separate from owner() — owner() becomes the
+    // ContractManager contract once ownership is transferred (see deploy script), which has
+    // no function that relays an arbitrary admin call here. Without a separate admin, the
+    // base URI could only ever be set once, in the constructor, with no way to fix a typo or
+    // follow a domain change without a full redeploy.
+    address public metadataAdmin;
+    string private _baseTokenURI;
+
     event ContractNFTMinted(
         uint256 indexed tokenId,
         string ipfsHash,
         address[] signers
     );
     event ContractProofStatusUpdated(uint256 indexed tokenId, bool isActive);
+    event BaseTokenURIUpdated(string newBaseTokenURI);
+    event MetadataAdminUpdated(address indexed newAdmin);
 
-    constructor() ERC721("ContractNFTProof", "CNFTP") {}
+    modifier onlyMetadataAdmin() {
+        require(msg.sender == metadataAdmin, "ContractNFT: caller is not the metadata admin");
+        _;
+    }
+
+    constructor(string memory baseTokenURI_) ERC721("ContractNFTProof", "CNFTP") {
+        metadataAdmin = msg.sender;
+        _baseTokenURI = baseTokenURI_;
+    }
+
+    /**
+     * @dev Repoints tokenURI() at a new metadata backend — e.g. after a domain change —
+     * without requiring a redeploy of this contract.
+     * @param newBaseTokenURI Full prefix metadata requests are built from, expected to end in
+     * a trailing slash (e.g. "https://api.contractify.io/api/nft/") so that appending the
+     * token id alone yields a valid URL.
+     */
+    function setBaseTokenURI(string calldata newBaseTokenURI) external onlyMetadataAdmin {
+        _baseTokenURI = newBaseTokenURI;
+        emit BaseTokenURIUpdated(newBaseTokenURI);
+    }
+
+    /**
+     * @dev Hands off the metadata admin role, e.g. from a deployer EOA to a multisig.
+     */
+    function setMetadataAdmin(address newAdmin) external onlyMetadataAdmin {
+        require(newAdmin != address(0), "ContractNFT: zero address");
+        metadataAdmin = newAdmin;
+        emit MetadataAdminUpdated(newAdmin);
+    }
 
     /**
      * @dev Mint a new Contract NFT
@@ -92,13 +140,14 @@ contract ContractNFT is ERC721, Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Override tokenURI to return IPFS link
+     * @dev Points to the off-chain metadata endpoint for this token (see the comment above
+     * _baseTokenURI). The underlying document's own IPFS hash is unaffected — it stays
+     * available via getContractProof() and is what the metadata endpoint links back to.
      * @param tokenId The ID of the token
      * @return The token URI
      */
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         require(_exists(tokenId), "ERC721Metadata: URI query for nonexistent token");
-        ContractProof memory proof = contractProofs[tokenId];
-        return string(abi.encodePacked("ipfs://", proof.ipfsHash));
+        return string(abi.encodePacked(_baseTokenURI, Strings.toString(tokenId)));
     }
 }

@@ -3,9 +3,17 @@ import hre from "hardhat";
 async function main() {
   console.log("Déploiement des contrats...");
 
+  // Le contrat de preuve NFT sert des métadonnées ERC-721 (nom, description, image générée)
+  // depuis ce point d'API plutôt que de pointer directement vers le document sur IPFS — voir
+  // le commentaire sur _baseTokenURI dans ContractNFT.sol. Doit se terminer par un "/" pour
+  // que l'ajout du tokenId donne une URL valide. Repointable après coup via
+  // setBaseTokenURI() sans redéploiement si le domaine change.
+  const nftMetadataBaseUri = process.env.NFT_METADATA_BASE_URI || `${process.env.API_BASE_URL || "http://localhost:5000"}/api/nft/`;
+  console.log("Base URI des métadonnées NFT:", nftMetadataBaseUri);
+
   // Déployer ContractNFT
   const ContractNFT = await hre.ethers.getContractFactory("ContractNFT");
-  const contractNFT = await ContractNFT.deploy();
+  const contractNFT = await ContractNFT.deploy(nftMetadataBaseUri);
   await contractNFT.waitForDeployment();
   const nftAddress = await contractNFT.getAddress();
   console.log("ContractNFT déployé à:", nftAddress);

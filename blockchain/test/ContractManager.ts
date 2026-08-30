@@ -22,7 +22,7 @@ describe("Système de Gestion de Contrats NFT", function () {
     [owner, creator, signer1, signer2, nonParticipant] = signers;
 
     const ContractNFT = await ethers.getContractFactory("ContractNFT");
-    contractNFT = await ContractNFT.deploy();
+    contractNFT = await ContractNFT.deploy("http://localhost:5000/api/nft/");
     await contractNFT.waitForDeployment();
 
     const nftAddress = await contractNFT.getAddress();

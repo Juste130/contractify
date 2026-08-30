@@ -16,7 +16,7 @@ describe("ContractNFT", function () {
 
     // Déployer ContractNFT
     const ContractNFT = await ethers.getContractFactory("ContractNFT");
-    contractNFT = await ContractNFT.connect(owner).deploy();
+    contractNFT = await ContractNFT.connect(owner).deploy("http://localhost:5000/api/nft/");
     await contractNFT.waitForDeployment();
 
     // Déployer ContractManager
@@ -263,6 +263,54 @@ describe("ContractNFT", function () {
 
       const proof = await contractNFT.getContractProof(1);
       expect(proof[2]).to.be.true; // isActive
+    });
+  });
+
+  describe("Métadonnées (tokenURI)", function () {
+    it("Devrait construire le tokenURI à partir du base URI et de l'ID du token", async function () {
+      const user1Address = await user1.getAddress();
+      await contractManager.connect(user1).createContract(
+        "QmMetadataTest",
+        "sha256MetadataTest",
+        [],
+        Math.floor(Date.now() / 1000) + 86400,
+        true, true, 0, 10, "Metadata test"
+      );
+
+      expect(await contractNFT.tokenURI(1)).to.equal("http://localhost:5000/api/nft/1");
+    });
+
+    it("Devrait permettre au metadataAdmin de changer le base URI", async function () {
+      await contractManager.connect(user1).createContract(
+        "QmMetadataTest2",
+        "sha256MetadataTest2",
+        [],
+        Math.floor(Date.now() / 1000) + 86400,
+        true, true, 0, 10, "Metadata test 2"
+      );
+
+      // owner() est ContractManager depuis le transfert d'ownership du beforeEach — le
+      // metadataAdmin reste le déployeur (owner ici, cf. constructeur), un rôle
+      // volontairement distinct pour ne pas dépendre d'un passthrough côté ContractManager.
+      await contractNFT.connect(owner).setBaseTokenURI("https://cdn.contractify.io/api/nft/");
+      expect(await contractNFT.tokenURI(1)).to.equal("https://cdn.contractify.io/api/nft/1");
+    });
+
+    it("Devrait refuser le changement de base URI à quelqu'un d'autre que le metadataAdmin", async function () {
+      await expect(
+        contractNFT.connect(user1).setBaseTokenURI("https://evil.example/")
+      ).to.be.revertedWith("ContractNFT: caller is not the metadata admin");
+    });
+
+    it("Devrait permettre de transférer le rôle metadataAdmin", async function () {
+      const user1Address = await user1.getAddress();
+      await contractNFT.connect(owner).setMetadataAdmin(user1Address);
+      expect(await contractNFT.metadataAdmin()).to.equal(user1Address);
+
+      // L'ancien admin (owner) ne peut plus rien changer une fois le rôle transféré.
+      await expect(
+        contractNFT.connect(owner).setBaseTokenURI("https://should-fail.example/")
+      ).to.be.revertedWith("ContractNFT: caller is not the metadata admin");
     });
   });
 });
