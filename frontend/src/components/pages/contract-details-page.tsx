@@ -120,7 +120,17 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
       await generateCertifiedPDF({
         title: contract.title,
         content: contract.metadata?.content || "",
-        sha256Hash: contract.metadata?.sha256Hash || contract.ipfsHash || "Non généré",
+        // pdfGenerator's "sha256Hash" field is deliberately overloaded: for un contrat
+        // importé, il doit contenir le CID IPFS du PDF original (c'est ce que le certificat
+        // affiche sous "Identifiant IPFS (CID)"), pas l'empreinte SHA-256 réelle du fichier —
+        // celle-ci existe bien dans metadata.sha256Hash mais n'a rien d'un CID. L'ancien
+        // `metadata?.sha256Hash || contract.ipfsHash` prenait presque toujours la branche de
+        // gauche (le hash existe toujours pour un import), donc le certificat affichait un
+        // hex SHA-256 sous une étiquette "CID" — une valeur inutilisable pour retrouver le
+        // document sur IPFS.
+        sha256Hash: contract.metadata?.isExternalPdf
+          ? (contract.ipfsHash || "Non généré")
+          : (contract.metadata?.sha256Hash || "Non généré"),
         contractId: typeof contract.id === 'number' ? contract.id : undefined,
         draftId: typeof contract.id === 'string' ? contract.id : undefined,
         parties: {
@@ -1123,7 +1133,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                         </p>
                       )}
                       <Button variant="outline" className="w-full text-xs gap-2" asChild>
-                        <a href={`https://gateway.pinata.cloud/ipfs/${contract.ipfsHash}`} target="_blank" rel="noopener noreferrer">
+                        <a href={ipfsApi.getPublicUrl(contract.ipfsHash || '')} target="_blank" rel="noopener noreferrer">
                           <Download className="w-3 h-3" />
                           Voir sur IPFS
                         </a>

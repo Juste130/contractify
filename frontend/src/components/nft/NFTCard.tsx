@@ -37,6 +37,11 @@ function truncateAddress(addr: string): string {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
 
+/** Same backend the rest of the app already talks to (frontend/src/lib/api/client.ts) — this
+ *  is what tokenURI() on ContractNFT.sol now points external wallets/explorers at too, so the
+ *  in-app card and any outside viewer end up showing the exact same certificate image. */
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
 export function NFTCard({
   tokenId,
   contractId,
@@ -109,6 +114,18 @@ export function NFTCard({
           </p>
         </div>
       )}
+
+      {/* The certificate image itself — same one any external wallet/explorer now sees via
+          tokenURI(), generated server-side from the same on-chain proof read below. */}
+      <div className="mb-3 rounded-lg overflow-hidden border border-border/60 bg-muted/30">
+        {/* eslint-disable-next-line @next/next/no-img-element -- server-generated SVG, not an optimizable local asset */}
+        <img
+          src={`${API_URL}/api/nft/${tokenId}/image.svg`}
+          alt={`Certificat NFT #${tokenId}`}
+          className="w-full aspect-square object-cover"
+          loading="lazy"
+        />
+      </div>
 
       <h4 className="font-semibold text-base mb-2 line-clamp-1">{title}</h4>
 

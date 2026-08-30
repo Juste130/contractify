@@ -32,8 +32,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — .env.example is the template documenting which NEXT_PUBLIC_* vars exist and
+# must stay tracked (backend/.env.example already is); without this exception it silently
+# matched the blanket .env* pattern below and was never actually version-controlled.
 .env*
+!.env.example
 
 # vercel
 .vercel
