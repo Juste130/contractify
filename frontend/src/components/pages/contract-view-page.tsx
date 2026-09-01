@@ -91,7 +91,8 @@ export function ContractViewPage({ id }: ContractViewPageProps) {
           {contract.metadata?.isExternalPdf ? (
             <div className="w-full h-[85vh] bg-gray-100">
               <PdfPreviewFrame
-                url={ipfsApi.getPublicUrl(contract.ipfsHash)}
+                url={ipfsApi.getProxyUrl(contract.ipfsHash)}
+                fallbackUrl={ipfsApi.getPublicUrl(contract.ipfsHash)}
                 title="Contrat PDF"
                 className="w-full h-full border-0"
               />

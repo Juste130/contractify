@@ -7,25 +7,28 @@ interface PdfPreviewFrameProps {
   url: string
   title: string
   className?: string
+  /** Where the "open the document" fallback link points if the fetch fails — the direct
+   *  external gateway URL, since that link is a real cross-origin navigation the user
+   *  triggers by choice, not something this component fetches itself. Defaults to `url`. */
+  fallbackUrl?: string
 }
 
 /**
- * Renders a PDF served from an external IPFS gateway inside an iframe — without ever
- * navigating the iframe directly to that external URL. A plain `<iframe src="https://
- * gateway...">` is a genuine cross-origin navigation, and a gateway is free to send
- * X-Frame-Options / CSP `frame-ancestors` headers refusing to be framed at all — Chrome then
- * shows its own "this content was blocked" page instead of the document, and no `sandbox`
- * value on our own iframe can do anything about a header the third-party gateway decided to
- * send (this is what kept happening even after adding `allow-downloads` for the separate,
- * unrelated Content-Disposition issue).
+ * Renders a PDF inside an iframe by fetching it first and handing the iframe a local `blob:`
+ * URL, rather than pointing the iframe's `src` straight at wherever `url` actually lives.
  *
- * Instead: fetch the file's bytes with plain `fetch()` — a same-origin-initiated request,
- * not a framed navigation, so anti-framing headers never come into play — and hand the
- * iframe a local `blob:` URL built from the response. If the fetch itself fails (CORS not
- * enabled on the gateway, network error, gateway down), fall back to a direct external link
- * rather than a silent blank block.
+ * `url` is expected to be this app's own `/api/ipfs/proxy/:cid` endpoint (see
+ * `ipfsApi.getProxyUrl`) — same origin, authenticated, and its response headers are fully
+ * ours to control. Fetching (rather than a direct `<iframe src>`) is still worth doing even
+ * for a same-origin URL: it lets the failure case be an explicit, actionable fallback link
+ * instead of a silently blank iframe. It also means this component keeps working unchanged
+ * if `url` ever pointed at a genuinely external gateway again — a plain `<iframe src="https://
+ * gateway...">` is a real cross-origin navigation, and a gateway is free to send
+ * X-Frame-Options/CSP `frame-ancestors` headers refusing to be framed at all (Chrome's own
+ * "this content was blocked" page, which no `sandbox` value can override) — a risk `fetch()`
+ * itself never carries, since it isn't a framed navigation.
  */
-export function PdfPreviewFrame({ url, title, className }: PdfPreviewFrameProps) {
+export function PdfPreviewFrame({ url, title, className, fallbackUrl }: PdfPreviewFrameProps) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
 
@@ -35,7 +38,10 @@ export function PdfPreviewFrame({ url, title, className }: PdfPreviewFrameProps)
     setStatus("loading")
     setBlobUrl(null)
 
-    fetch(url)
+    // `credentials: "include"`: the proxy endpoint is authenticated (httpOnly session
+    // cookie) — without this, a cross-origin fetch to the API sends no cookie at all and
+    // every request would 401.
+    fetch(url, { credentials: "include" })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.blob()
@@ -72,7 +78,7 @@ export function PdfPreviewFrame({ url, title, className }: PdfPreviewFrameProps)
           L'aperçu n'a pas pu être chargé directement ici. Le document reste accessible en l'ouvrant directement.
         </p>
         <a
-          href={url}
+          href={fallbackUrl || url}
           target="_blank"
           rel="noopener noreferrer"
           className="text-sm font-medium text-primary underline inline-flex items-center gap-1.5"
