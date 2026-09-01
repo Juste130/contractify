@@ -1,5 +1,6 @@
 const ipfsService = require('../services/ipfs');
 const logger = require('../utils/logger');
+const { isLikelyPdf } = require('../utils/pdf-signature');
 
 /**
  * Upload document to IPFS
@@ -12,6 +13,15 @@ exports.uploadDocument = async (req, res, next) => {
 
         const { originalname, mimetype, buffer } = req.file;
         const uploadedBy = req.user.userId;
+
+        // The route's multer fileFilter only checked the client-declared Content-Type
+        // (trivially spoofable) — a file claiming to be a PDF gets its actual bytes checked
+        // here too, before it's pinned to IPFS and served back through an unsandboxed
+        // iframe (contract-details-page.tsx / contract-view-page.tsx).
+        const baseType = mimetype.split(';')[0].trim();
+        if (baseType === 'application/pdf' && !isLikelyPdf(buffer)) {
+            return res.status(400).json({ error: 'Le fichier fourni ne semble pas être un PDF valide.' });
+        }
 
         const result = await ipfsService.uploadDocument(
             buffer,

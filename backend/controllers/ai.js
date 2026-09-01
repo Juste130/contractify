@@ -2,6 +2,7 @@ const aiService = require('../services/ai');
 const logger = require('../utils/logger');
 const { PDFParse } = require('pdf-parse');
 const { BadRequestError } = require('../utils/errors');
+const { isLikelyPdf } = require('../utils/pdf-signature');
 
 // A digitally-signed PDF (Adobe Sign, DocuSign, Acrobat...) embeds a signature dictionary
 // whose /ByteRange entry is mandated by the PDF spec (ISO 32000) — searching the raw bytes
@@ -149,6 +150,12 @@ exports.analyzeImportedPdf = async (req, res, next) => {
     try {
         if (!req.file) {
             throw new BadRequestError('No file provided');
+        }
+        // The route's multer fileFilter only checked the client-declared Content-Type
+        // (spoofable) — this verifies the file's actual bytes before it's parsed or, later,
+        // pinned to IPFS and served back through an iframe.
+        if (!isLikelyPdf(req.file.buffer)) {
+            throw new BadRequestError('Le fichier fourni ne semble pas être un PDF valide.');
         }
 
         const hasDigitalSignature = hasEmbeddedDigitalSignature(req.file.buffer);
