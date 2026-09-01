@@ -8,6 +8,14 @@ interface AuthState {
     isAuthenticated: boolean;
     isLoading: boolean;
     error: string | null;
+    // True once THIS session has verified the session live with the backend (via checkAuth
+    // or privyLogin) — deliberately NOT persisted (see partialize below). `isAuthenticated`
+    // alone can't tell ProtectedRoute apart "verified live a moment ago" from "just what
+    // localStorage said on a cold load" (which is exactly the stale-flag case its own
+    // one-check-per-load guard exists to catch — see protected-route.tsx). This lets
+    // ProtectedRoute skip a redundant re-check right after a fresh Privy login without
+    // reopening that bug: on every fresh page load this always starts false again.
+    sessionVerified: boolean;
 
     // Actions
     logout: () => Promise<void>;
@@ -29,6 +37,7 @@ export const useAuthStore = create<AuthState>()(
             // for the one render before the checkAuth() effect had a chance to flip this.
             isLoading: true,
             error: null,
+            sessionVerified: false,
 
             logout: async () => {
                 set({ isLoading: true });
@@ -37,7 +46,8 @@ export const useAuthStore = create<AuthState>()(
                     set({
                         user: null,
                         isAuthenticated: false,
-                        isLoading: false
+                        isLoading: false,
+                        sessionVerified: false
                     });
                     // Rediriger vers Home ou Login possible ici ou dans le composant
                 } catch {
@@ -45,7 +55,8 @@ export const useAuthStore = create<AuthState>()(
                     set({
                         user: null,
                         isAuthenticated: false,
-                        isLoading: false
+                        isLoading: false,
+                        sessionVerified: false
                     });
                 }
             },
@@ -57,7 +68,8 @@ export const useAuthStore = create<AuthState>()(
                     set({
                         user: response.user as any,
                         isAuthenticated: true,
-                        isLoading: false
+                        isLoading: false,
+                        sessionVerified: true
                     });
                 } catch (error) {
                     // Si la session backend expire mais Privy est toujours connecté
@@ -67,6 +79,7 @@ export const useAuthStore = create<AuthState>()(
                         user: null,
                         isAuthenticated: false,
                         isLoading: false,
+                        sessionVerified: false,
                         error: 'Votre session a expiré. Veuillez vous reconnecter.'
                     });
                 }
@@ -79,7 +92,8 @@ export const useAuthStore = create<AuthState>()(
                     set({
                         user: response.user as any,
                         isAuthenticated: true,
-                        isLoading: false
+                        isLoading: false,
+                        sessionVerified: true
                     });
                 } catch (error: any) {
                     set({

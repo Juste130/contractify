@@ -21,7 +21,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRouteProps) {
-    const { user, isAuthenticated, isLoading, checkAuth } = useAuthStore();
+    const { user, isAuthenticated, isLoading, checkAuth, sessionVerified } = useAuthStore();
     const router = useRouter();
     const pathname = usePathname();
     const hasChecked = useRef(false);
@@ -32,12 +32,22 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
     // (Le retrait de "!isAuthenticated" de cette condition est LE correctif qui
     // empêche la boucle login <-> dashboard : sans lui, un flag "isAuthenticated:true"
     // périmé en localStorage empêchait toute revérification côté serveur.)
+    //
+    // `sessionVerified` (jamais persisté — voir useAuth.ts) distingue ce cas d'un autre :
+    // arriver ici juste après un login Privy réussi sur /login, qui vient TOUT JUSTE de
+    // vérifier la session en direct auprès du backend (privyLogin) une fraction de seconde
+    // plus tôt. Comme /login est un chemin public, cet effet ne s'était encore jamais
+    // déclenché — sans ce garde-fou, il rappelait checkAuth() une deuxième fois pour rien
+    // (même utilisateur, même réponse), remettant isLoading à true et réaffichant un plein
+    // écran de chargement juste après celui du login. Sur un chargement d'app à froid,
+    // sessionVerified redémarre toujours à false, donc la revérification a bien lieu comme
+    // avant.
     useEffect(() => {
         if (!hasChecked.current && !isPublicPath(pathname)) {
             hasChecked.current = true;
-            checkAuth();
+            if (!sessionVerified) checkAuth();
         }
-    }, [checkAuth, pathname]);
+    }, [checkAuth, pathname, sessionVerified]);
 
     // Redirect logic
     useEffect(() => {
