@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const contractController = require('../controllers/contract');
 const { authenticate, requireAdmin } = require('../middleware/auth');
+const { resendLimiter } = require('../middleware/rate-limit');
 
 /**
  * @route   POST /api/contracts/draft
@@ -29,7 +30,7 @@ router.post('/draft/:id/deploy', authenticate, contractController.markDraftDeplo
  * @desc    Resend an invitation/signature request email to a signatory who hasn't signed yet
  * @access  Private
  */
-router.post('/:id/resend-signature', authenticate, contractController.resendSignatureRequest);
+router.post('/:id/resend-signature', authenticate, resendLimiter, contractController.resendSignatureRequest);
 
 /**
  * @route   GET /api/contracts/cached

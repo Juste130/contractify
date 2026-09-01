@@ -48,10 +48,24 @@ const inviteLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+// Signature-reminder rate limiter — scoped per authenticated user (not per IP): a contract
+// creator can legitimately share an IP with teammates, but shouldn't be able to spam a
+// signatory's inbox in a loop from their own account. Falls back to req.ip only if somehow
+// unauthenticated (the route itself requires `authenticate` first, so this is defensive).
+const resendLimiter = rateLimit({
+    windowMs: config.rateLimit.resendWindowMs,
+    max: config.rateLimit.resendMaxRequests,
+    message: 'Too many signature reminders sent, please wait before retrying',
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.user?.userId || req.ip,
+});
+
 module.exports = {
     generalLimiter,
     aiLimiter,
     walletLimiter,
     authLimiter,
     inviteLimiter,
+    resendLimiter,
 };

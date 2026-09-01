@@ -82,6 +82,8 @@ const config = {
         walletMaxRequests: parseInt(process.env.RATE_LIMIT_WALLET_MAX_REQUESTS || '5', 10),
         authMaxRequests: parseInt(process.env.RATE_LIMIT_AUTH_MAX_REQUESTS || '20', 10),
         inviteMaxRequests: parseInt(process.env.RATE_LIMIT_INVITE_MAX_REQUESTS || '10', 10),
+        resendWindowMs: parseInt(process.env.RATE_LIMIT_RESEND_WINDOW_MS || '300000', 10), // 5 min
+        resendMaxRequests: parseInt(process.env.RATE_LIMIT_RESEND_MAX_REQUESTS || '5', 10),
     },
 
     // Logging
