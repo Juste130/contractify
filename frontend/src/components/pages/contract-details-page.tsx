@@ -142,6 +142,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
         createdAt: contract.createdAt,
         isExternalPdf: !!contract.metadata?.isExternalPdf,
         ipfsUrl: contract.ipfsHash ? ipfsApi.getPublicUrl(contract.ipfsHash) : undefined,
+        priorSignatureDetected: !!(contract.metadata?.importAnalysis?.hasDigitalSignature || contract.metadata?.importAnalysis?.mentionsExistingSignature),
       });
     } catch (err) {
       console.error("Erreur génération PDF:", err);
@@ -906,10 +907,19 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
 
                 {contract.metadata?.isExternalPdf ? (
                   <div className="w-full h-[800px] bg-gray-100">
-                    <iframe 
-                      src={ipfsApi.getPublicUrl(contract.ipfsHash)} 
-                      className="w-full h-full border-0" 
+                    <iframe
+                      src={ipfsApi.getPublicUrl(contract.ipfsHash)}
+                      className="w-full h-full border-0"
                       title="Contrat PDF"
+                      // Deliberately no `allow-scripts`/`allow-same-origin` together (that
+                      // combination lets a sandboxed document strip its own sandbox), and the
+                      // browser's built-in PDF renderer needs neither — it's out-of-process,
+                      // not page script. `allow-downloads` IS required though: Pinata's IPFS
+                      // gateway serves pinned files with `Content-Disposition: attachment` —
+                      // Chrome treats displaying that inline as a download, which a fully
+                      // empty sandbox silently blocks (surfaced as "this content was blocked"
+                      // instead of the document).
+                      sandbox="allow-downloads"
                     />
                   </div>
                 ) : (
@@ -1177,9 +1187,11 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
           contractContent={contract.metadata?.content || ""}
           originalHash={contract.metadata?.sha256Hash || ""}
           ipfsCid={contract.ipfsHash || ""}
+          ipfsUrl={contract.ipfsHash ? ipfsApi.getPublicUrl(contract.ipfsHash) : undefined}
           signerName={contract.metadata?.signers?.find((s: any) => s.address?.toLowerCase() === account?.toLowerCase())?.name || account || "Signataire"}
           signerEmail={contract.metadata?.signers?.find((s: any) => s.address?.toLowerCase() === account?.toLowerCase())?.email}
           country={contract.metadata?.country}
+          customLegalBasis={contract.metadata?.customLegalBasis}
         />
       )}
     </div>

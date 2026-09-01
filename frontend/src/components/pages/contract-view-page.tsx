@@ -93,6 +93,12 @@ export function ContractViewPage({ id }: ContractViewPageProps) {
                 src={ipfsApi.getPublicUrl(contract.ipfsHash)}
                 className="w-full h-full border-0"
                 title="Contrat PDF"
+                // No `allow-scripts`/`allow-same-origin` together — that combination lets a
+                // sandboxed document strip its own sandbox. `allow-downloads` IS needed:
+                // Pinata's gateway serves pinned files with `Content-Disposition: attachment`,
+                // which Chrome treats as a download attempt — blocked by a fully empty
+                // sandbox (shown as "this content was blocked" instead of the document).
+                sandbox="allow-downloads"
               />
             </div>
           ) : (
