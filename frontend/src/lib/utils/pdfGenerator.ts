@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import { toSafeFileName } from "./fileName";
 
 interface PDFData {
     title: string;
@@ -21,6 +22,10 @@ interface PDFData {
     isExternalPdf?: boolean;
     /** Direct link to the original imported file on IPFS — only meaningful when isExternalPdf. */
     ipfsUrl?: string;
+    /** True when the import-time analysis (create-contract-page.tsx) flagged that this file
+     *  already looked signed before it was ever uploaded to ContracTify — see the dated
+     *  disclaimer this triggers below. Only meaningful when isExternalPdf. */
+    priorSignatureDetected?: boolean;
 }
 
 export async function generateCertifiedPDF(data: PDFData) {
@@ -156,6 +161,16 @@ export async function generateCertifiedPDF(data: PDFData) {
             checkPageBreak(10);
             addText(data.ipfsUrl, 9, false, [33, 150, 243]);
         }
+        // The blockchain anchor date below is when ContracTify's signature transaction was
+        // recorded — for a document that already carried a signature/date before it was ever
+        // imported, that is NOT the same as the date the parties actually signed on paper (or
+        // elsewhere). Conflating the two on a certificate meant to prove authenticity would be
+        // actively misleading, so both are shown, explicitly labeled as distinct.
+        if (data.priorSignatureDetected) {
+            yPos += 6;
+            checkPageBreak(14);
+            addText("Ce document semblait déjà porter une signature avant son import sur ContracTify. La date d'ancrage blockchain ci-dessous correspond à la date de cet ancrage — pas nécessairement à la date de signature originale indiquée sur le document lui-même, qu'il convient de vérifier directement dans le fichier ci-dessus.", 8, false, [180, 100, 20]);
+        }
     } else if (data.content) {
         const lines = data.content.split('\n');
         const sectionHeaderRe = /^(article\s+\d+|chapitre\b|titre\s+[ivx\d]|préambule\b|annexe\s*\d*)/i;
@@ -262,6 +277,12 @@ export async function generateCertifiedPDF(data: PDFData) {
         addText(`Ancrage Blockchain : En attente de déploiement`, 8, false, [130, 130, 130]);
     }
     addText(`Horodatage : ${new Date(data.createdAt).toLocaleString('fr-FR')}`, 8, false, [130, 130, 130]);
+    yPos += 3;
+    // Precisely what the blockchain transaction proves, spelled out rather than left
+    // implicit — it attests which wallet transacted and when, not a cryptographic signature
+    // of the document's content by that wallet; content integrity is what the fingerprint
+    // above and its IPFS anchor establish.
+    addText("Portée de la preuve : la transaction blockchain atteste qu'un portefeuille identifié a validé ce contrat à l'horodatage indiqué. L'intégrité du contenu repose sur l'empreinte ci-dessus et son ancrage IPFS.", 7, false, [150, 150, 150]);
     yPos += 4;
     // Factually true only for an AI-generated contract — an imported document was never
     // drafted by the platform's AI, saying otherwise here would be a false statement on a
@@ -280,5 +301,12 @@ export async function generateCertifiedPDF(data: PDFData) {
         console.error("Failed to generate QR code", e);
     }
 
-    doc.save(`Contrat_${data.contractId || 'Brouillon'}.pdf`);
+    // The contract's own title (e.g. "CDI — Jean Dupont / Sophie Martin"), not a generic
+    // "Contrat_<id>" — a downloaded folder full of certificates used to be indistinguishable
+    // from one another. The numeric id/draft id is still appended: two contracts CAN share
+    // an identical title (same template, same two party names, different agreement), and
+    // this keeps repeated downloads of the same certificate from silently overwriting one
+    // another under an identical file name.
+    const idSuffix = data.contractId ?? data.draftId ?? "brouillon";
+    doc.save(`${toSafeFileName(data.title)} (${idSuffix}).pdf`);
 }
