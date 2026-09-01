@@ -35,6 +35,7 @@ import {
 } from "lucide-react"
 import { KycSignatureModal } from "@/components/contract/kyc-signature-modal"
 import { SignaturePanel } from "@/components/contract/signaturePanel"
+import { PdfPreviewFrame } from "@/components/contract/pdf-preview-frame"
 import { NFTViewer } from "@/components/nft/NFTViewer"
 import { AiBadge } from "../ui/ai-badge"
 import { ContractMarkdownRenderer } from "@/components/contract/contract-markdown-renderer"
@@ -907,19 +908,10 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
 
                 {contract.metadata?.isExternalPdf ? (
                   <div className="w-full h-[800px] bg-gray-100">
-                    <iframe
-                      src={ipfsApi.getPublicUrl(contract.ipfsHash)}
-                      className="w-full h-full border-0"
+                    <PdfPreviewFrame
+                      url={ipfsApi.getPublicUrl(contract.ipfsHash)}
                       title="Contrat PDF"
-                      // Deliberately no `allow-scripts`/`allow-same-origin` together (that
-                      // combination lets a sandboxed document strip its own sandbox), and the
-                      // browser's built-in PDF renderer needs neither — it's out-of-process,
-                      // not page script. `allow-downloads` IS required though: Pinata's IPFS
-                      // gateway serves pinned files with `Content-Disposition: attachment` —
-                      // Chrome treats displaying that inline as a download, which a fully
-                      // empty sandbox silently blocks (surfaced as "this content was blocked"
-                      // instead of the document).
-                      sandbox="allow-downloads"
+                      className="w-full h-full border-0"
                     />
                   </div>
                 ) : (

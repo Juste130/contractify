@@ -8,6 +8,7 @@ import { Loader2, AlertCircle, Shield, CheckCircle2 } from "lucide-react"
 import { contractsApi, type Contract } from "@/lib/api/contracts"
 import { ipfsApi } from "@/lib/api/ipfs"
 import { ContractMarkdownRenderer } from "@/components/contract/contract-markdown-renderer"
+import { PdfPreviewFrame } from "@/components/contract/pdf-preview-frame"
 
 interface ContractViewPageProps {
   id: string
@@ -89,16 +90,10 @@ export function ContractViewPage({ id }: ContractViewPageProps) {
 
           {contract.metadata?.isExternalPdf ? (
             <div className="w-full h-[85vh] bg-gray-100">
-              <iframe
-                src={ipfsApi.getPublicUrl(contract.ipfsHash)}
-                className="w-full h-full border-0"
+              <PdfPreviewFrame
+                url={ipfsApi.getPublicUrl(contract.ipfsHash)}
                 title="Contrat PDF"
-                // No `allow-scripts`/`allow-same-origin` together — that combination lets a
-                // sandboxed document strip its own sandbox. `allow-downloads` IS needed:
-                // Pinata's gateway serves pinned files with `Content-Disposition: attachment`,
-                // which Chrome treats as a download attempt — blocked by a fully empty
-                // sandbox (shown as "this content was blocked" instead of the document).
-                sandbox="allow-downloads"
+                className="w-full h-full border-0"
               />
             </div>
           ) : (
