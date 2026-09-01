@@ -138,6 +138,22 @@ export const E_SIGNATURE_LEGAL_BASIS: Record<string, string> = {
 export const DEFAULT_E_SIGNATURE_LEGAL_BASIS = "la loi applicable au présent contrat";
 
 /**
+ * The exact legal-basis clause every consent checkbox on the platform must use — the
+ * creation wizard (step 4) and the per-signer KYC modal used to word this differently even
+ * though both are citing the same law for the same act. A `customLegalBasis` (free text
+ * entered by the creator, see `create-contract-page.tsx`) is only ever used for a country
+ * outside `E_SIGNATURE_LEGAL_BASIS` — a known country's mapped law always wins, so a typo in
+ * the free-text field can never override a citation we already know is correct.
+ */
+export function signatureLegalBasisClause(country?: string, customLegalBasis?: string): string {
+  const basis =
+    (country && E_SIGNATURE_LEGAL_BASIS[country]) ||
+    (customLegalBasis && customLegalBasis.trim()) ||
+    DEFAULT_E_SIGNATURE_LEGAL_BASIS;
+  return `ma signature électronique ayant valeur légale, au sens de ${basis}`;
+}
+
+/**
  * Principales villes sièges de juridiction (tribunal de première instance / tribunal de
  * commerce) par pays — c'est le tribunal du siège qui est réellement compétent sur un
  * ressort donné, pas nécessairement la ville d'exécution elle-même. Liste non exhaustive à
