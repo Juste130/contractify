@@ -49,12 +49,13 @@ import {
   CONTRACT_TEMPLATES,
   CLAUSE_LIBRARY,
   getContractTemplate,
-  E_SIGNATURE_LEGAL_BASIS,
-  DEFAULT_E_SIGNATURE_LEGAL_BASIS,
+  signatureLegalBasisClause,
   JURISDICTION_CITIES,
 } from "@/lib/contract-templates";
 import { SIGNATORY_ROLE_LABELS } from "@/lib/contract-roles";
 import { renderContractToHtml } from "@/lib/utils/renderContractHtml";
+import { computeSHA256, computeFileSHA256 } from "@/lib/utils/hash";
+import { toSafeFileName } from "@/lib/utils/fileName";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -66,27 +67,6 @@ interface Signatory {
 
 interface ValidationErrors {
   [key: string]: string;
-}
-
-// ─── Utils ────────────────────────────────────────────────────────────────────
-
-async function computeSHA256(text: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(text);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-// A real SHA-256 of the uploaded file's bytes, distinct from its IPFS CID (a different kind
-// of content identifier, not a raw hex digest) — computed so an imported PDF gets the same
-// kind of independently-verifiable fingerprint as an AI-generated one, instead of reusing
-// the CID under a misleading "sha256Hash" label.
-async function computeFileSHA256(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function isValidEthAddress(addr: string): boolean {
@@ -179,6 +159,7 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
       description: "",
       country: "Bénin",
       city: "Cotonou",
+      customLegalBasis: "",
       escrowAmount: "",
       escrowDeadline: "",
       penaltyPercent: "",
@@ -202,6 +183,16 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
     hasDigitalSignature: boolean;
   } | null>(null);
   const [acknowledgeImportWarning, setAcknowledgeImportWarning] = useState(false);
+  // Lets the user actually see the file they're about to commit to, before the final step —
+  // built from the local File object already in memory, so it's available instantly and
+  // doesn't wait on (or depend on) the IPFS upload that only happens at final submit.
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!uploadedFile) { setPdfPreviewUrl(null); return; }
+    const url = URL.createObjectURL(uploadedFile);
+    setPdfPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [uploadedFile]);
 
   const [contractText, setContractText] = useState("");
   const [signatories, setSignatories] = useState<Signatory[]>([]);
@@ -324,6 +315,13 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
       if (!formData.details.city.trim()) errors["details.city"] = "La ville de signature / exécution est requise.";
       if (Number(formData.details.escrowAmount) > 0 && !formData.details.escrowDeadline) {
         errors["details.escrowDeadline"] = "Une échéance est requise si un séquestre est demandé.";
+      }
+      // "Autre" has no mapped e-signature law (see E_SIGNATURE_LEGAL_BASIS) — without this,
+      // every signatory's consent clause falls back to the vague "la loi applicable au
+      // présent contrat", which names no actual text and weakens the clause it's meant to
+      // support. Required here rather than left optional so it can never be signed unset.
+      if (formData.details.country === "Autre" && !formData.details.customLegalBasis.trim()) {
+        errors["details.customLegalBasis"] = "Précisez la loi applicable à la signature électronique pour ce pays.";
       }
     }
     setValidationErrors(errors);
@@ -591,7 +589,14 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
         // hex digest. Storing both means an imported contract gets the same kind of
         // independently-verifiable fingerprint as an AI-generated one.
         sha256Hash = await computeFileSHA256(uploadedFile);
-        const uploadResult = await ipfsApi.uploadDocument(uploadedFile);
+        // Renamed to the actual contract title before upload — left as-is, the pinned file
+        // (and the "Content-Disposition" download name the IPFS gateway derives from it)
+        // would carry whatever arbitrary name the user's own local file happened to have
+        // ("scan0012.pdf", "Document (3).pdf"...), never anything describing the contract.
+        const namedFile = new File([uploadedFile], `${toSafeFileName(contractTitle)}.pdf`, {
+          type: uploadedFile.type || "application/pdf",
+        });
+        const uploadResult = await ipfsApi.uploadDocument(namedFile);
         ipfsHash = uploadResult.cid;
         content = "CONTRAT_PDF_EXTERNE";
       } else {
@@ -609,7 +614,9 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
         // A .html file opens as an actual formatted document directly from the IPFS gateway
         // link, in any browser, with no dependency on this app.
         const html = renderContractToHtml(contractText, contractTitle);
-        const contractFile = new File([html], `${contractTitle}.html`, { type: "text/html;charset=utf-8" });
+        // toSafeFileName, not the raw title: contractTitle embeds "/" as the Partie A / Partie
+        // B separator, which would otherwise land straight into the file name.
+        const contractFile = new File([html], `${toSafeFileName(contractTitle)}.html`, { type: "text/html;charset=utf-8" });
         const ipfsResult = await ipfsApi.uploadDocument(contractFile);
         ipfsHash = ipfsResult.cid;
       }
@@ -628,6 +635,7 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
           isExternalPdf: selectedTemplate === "pdf_upload",
           parties: { partyA: formData.partyA, partyB: formData.partyB },
           country: formData.details.country,
+          customLegalBasis: formData.details.country === "Autre" ? formData.details.customLegalBasis.trim() : null,
           city: formData.details.city,
           options: formData.options,
           escrow: {
@@ -869,6 +877,21 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                        <span className="font-semibold text-sm">{uploadedFile.name}</span>
                      </div>
                    )}
+                   {/* Lets the user confirm "is this really the right file" before the final,
+                       irreversible step — the document itself was otherwise never shown until
+                       after the contract had already been anchored. */}
+                   {pdfPreviewUrl && (
+                     <div className="text-left">
+                       <p className="text-xs font-semibold text-muted-foreground mb-2">Aperçu du fichier :</p>
+                       <div className="border rounded-xl overflow-hidden bg-white h-[420px]">
+                         {/* A local `blob:` URL, not a remote IPFS gateway response — no
+                             Content-Disposition header to fight, so a fully empty sandbox is
+                             fine here (unlike the IPFS-served previews elsewhere, which need
+                             `allow-downloads` for Pinata's attachment-disposition quirk). */}
+                         <iframe src={pdfPreviewUrl} className="w-full h-full border-0" title="Aperçu du contrat PDF importé" sandbox="" />
+                       </div>
+                     </div>
+                   )}
                    {isAnalyzingPdf && (
                      <p className="text-xs text-muted-foreground flex items-center justify-center gap-2">
                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyse du document en cours — recherche des parties, vérification qu'il s'agit bien d'un contrat non signé...
@@ -881,28 +904,41 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                            <CheckCircle2 className="w-3.5 h-3.5" /> {importAnalysis.parties.length} partie(s) détectée(s) et pré-remplie(s) ci-dessous — vérifiez et corrigez si besoin.
                          </p>
                        )}
-                       {importWarningActive && (
+                       {/* Two distinct signals, deliberately not merged: a digital signature is
+                           found by scanning the PDF's own bytes for its /ByteRange signature
+                           dictionary (reliable, part of the PDF spec) — a real, strong signal.
+                           "Mentions/looks like" comes from an AI reading the extracted text
+                           (best-effort, can be wrong either way) — a much softer signal. Giving
+                           both the same amber treatment understated the first and overstated
+                           the second. */}
+                       {importAnalysis.hasDigitalSignature && (
+                         <div className="text-left p-4 bg-destructive/5 border-2 border-destructive/30 rounded-xl flex items-start gap-3">
+                           <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                           <div className="space-y-2">
+                             <p className="text-xs text-foreground"><strong>Signature électronique détectée dans le fichier</strong> — ce document semble déjà signé numériquement (hors ContracTify). Cette détection est fiable : elle lit directement la structure du PDF, pas seulement son texte.</p>
+                             <p className="text-xs text-muted-foreground">Si ce contrat est déjà conclu, ContracTify peut simplement l'ancrer comme preuve — faire re-signer les parties ici créerait une nouvelle date de signature, distincte de celle déjà indiquée sur le document.</p>
+                           </div>
+                         </div>
+                       )}
+                       {(importAnalysis.looksLikeContract === false || (importAnalysis.mentionsExistingSignature && !importAnalysis.hasDigitalSignature)) && (
                          <div className="text-left p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl flex items-start gap-3">
                            <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                            <div className="space-y-2">
+                             <p className="text-[10px] uppercase tracking-wide font-bold text-amber-600">Suggestion IA — à vérifier vous-même</p>
                              {importAnalysis.looksLikeContract === false && (
                                <p className="text-xs text-muted-foreground">Ce document ne ressemble pas à un contrat classique d'après une lecture automatique — vous pouvez continuer si c'est normal pour votre cas.</p>
                              )}
-                             {importAnalysis.hasDigitalSignature && (
-                               <p className="text-xs text-muted-foreground"><strong className="text-foreground">Signature électronique détectée</strong> dans le fichier PDF — ce document semble déjà signé numériquement (hors ContracTify).</p>
-                             )}
                              {importAnalysis.mentionsExistingSignature && !importAnalysis.hasDigitalSignature && (
-                               <p className="text-xs text-muted-foreground">Le texte du document semble indiquer qu'il a déjà été signé{importAnalysis.signatureExcerpt ? ` (« ${importAnalysis.signatureExcerpt} »)` : ""} — à vérifier vous-même.</p>
+                               <p className="text-xs text-muted-foreground">Le texte du document semble indiquer qu'il a déjà été signé{importAnalysis.signatureExcerpt ? ` (« ${importAnalysis.signatureExcerpt} »)` : ""} — à vérifier vous-même, cette lecture automatique du texte peut se tromper.</p>
                              )}
-                             {(importAnalysis.hasDigitalSignature || importAnalysis.mentionsExistingSignature) && (
-                               <p className="text-xs text-muted-foreground">Si ce contrat est déjà conclu, ContracTify peut simplement l'ancrer comme preuve — faire re-signer les parties ici créerait une nouvelle date de signature, distincte de celle déjà indiquée sur le document.</p>
-                             )}
-                             <label className="flex items-center gap-2 cursor-pointer pt-1">
-                               <Checkbox checked={acknowledgeImportWarning} onCheckedChange={(v) => setAcknowledgeImportWarning(!!v)} />
-                               <span className="text-xs font-medium">J'ai pris connaissance de ce point et je souhaite continuer.</span>
-                             </label>
                            </div>
                          </div>
+                       )}
+                       {importWarningActive && (
+                         <label className="flex items-center gap-2 cursor-pointer pt-1 justify-center">
+                           <Checkbox checked={acknowledgeImportWarning} onCheckedChange={(v) => setAcknowledgeImportWarning(!!v)} />
+                           <span className="text-xs font-medium">J'ai pris connaissance de ce point et je souhaite continuer.</span>
+                         </label>
                        )}
                      </>
                    )}
@@ -1198,7 +1234,19 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                           </SelectContent>
                         </Select>
                       </FieldGroup>
-                      
+
+                      {formData.details.country === "Autre" && (
+                        <FieldGroup label="Loi applicable à la signature électronique *" error={validationErrors["details.customLegalBasis"]} className="md:col-span-2">
+                          <Input
+                            placeholder="Ex : la loi n° XXXX-XX du [date] relative aux transactions électroniques de [pays]"
+                            className="bg-background"
+                            value={formData.details.customLegalBasis}
+                            onChange={(e) => updateFormData("details", "customLegalBasis", e.target.value)}
+                          />
+                          <p className="text-[11px] text-muted-foreground mt-1">Ce pays n'a pas de base légale pré-renseignée sur la plateforme — le texte cité ici sera celui repris dans la clause de consentement de chaque signataire.</p>
+                        </FieldGroup>
+                      )}
+
                       <FieldGroup label="Ville de signature / exécution *" error={validationErrors["details.city"]}>
                         {jurisdictionCities.length > 0 ? (
                           <>
@@ -1704,7 +1752,7 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                 <div className="flex items-start gap-3 cursor-pointer" onClick={() => { setConsentChecked(!consentChecked); if (validationErrors["consent"]) setValidationErrors((e) => { const { consent: _, ...r } = e; return r; }); }}>
                   <Checkbox id="consent" checked={consentChecked} onCheckedChange={(v) => { setConsentChecked(!!v); }} className="mt-1" />
                   <Label htmlFor="consent" className="block cursor-pointer text-sm leading-relaxed">
-                    Je certifie avoir <strong>lu et approuvé</strong> le contrat dans son intégralité. Je confirme que les informations saisies sont exactes et je consens à la signature électronique sur blockchain. Ce consentement constitue une preuve légale au sens de {E_SIGNATURE_LEGAL_BASIS[formData.details.country] || DEFAULT_E_SIGNATURE_LEGAL_BASIS}.
+                    Je certifie avoir <strong>lu et approuvé</strong> le contrat dans son intégralité. Je confirme que les informations saisies sont exactes et je consens à apposer {signatureLegalBasisClause(formData.details.country, formData.details.customLegalBasis)}.
                   </Label>
                 </div>
                 {validationErrors["consent"] && (
@@ -1718,23 +1766,28 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                   Retour
                 </Button>
 
-                <Button
-                  className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300] px-10 py-6 text-lg font-bold"
-                  onClick={handleFinalSubmit}
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="w-6 h-6 mr-3 animate-spin" />
-                      Finalisation...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-5 h-5 mr-3" />
-                      Enregistrer le Brouillon
-                    </>
-                  )}
-                </Button>
+                <div className="flex flex-col items-end gap-1.5">
+                  <Button
+                    className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300] px-10 py-6 text-lg font-bold"
+                    onClick={handleFinalSubmit}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-6 h-6 mr-3 animate-spin" />
+                        Finalisation...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-5 h-5 mr-3" />
+                        Enregistrer le Brouillon
+                      </>
+                    )}
+                  </Button>
+                  <p className="text-[11px] text-muted-foreground max-w-xs text-right">
+                    Cette étape ne signe ni ne déploie rien — le déploiement sur la blockchain puis la signature de chaque partie restent à faire ensuite.
+                  </p>
+                </div>
               </div>
 
               {/* Supprimé: check isConnected */}
