@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const ipfsService = require('../services/ipfs');
 const logger = require('../utils/logger');
 const prisma = require('../models/prisma');
@@ -98,17 +99,28 @@ exports.getDocumentMetadata = async (req, res, next) => {
 };
 
 /**
- * Streams a pinned document back to the browser from OUR OWN origin, instead of the browser
- * fetching it directly from the IPFS gateway. Framing or client-side `fetch`-ing a third-party
- * gateway URL directly (the previous approach) puts the browser at the mercy of whatever that
- * gateway decides to send: X-Frame-Options/CSP headers refusing to be framed at all (Chrome's
- * own "this content was blocked" page — nothing an iframe's `sandbox` attribute can override),
- * CORS headers that may or may not permit this app's origin, or an unexpected
- * Content-Disposition. An AI-generated contract never hits any of this because its content is
- * already stored in OUR OWN database and rendered straight from there — this endpoint gives an
- * imported PDF the same trust model: the browser only ever talks to this API (same origin,
- * headers we fully control), and THIS SERVER — not the user's browser — is the one that talks
- * to the IPFS gateway, where CORS/framing rules are server-to-server and simply don't apply.
+ * Serves a pinned document back to the browser from OUR OWN origin — normally straight from
+ * this app's own database, never by the browser itself talking to a third-party IPFS
+ * gateway. That used to be the design (browser iframe/fetch -> Pinata gateway directly), and
+ * it kept failing in practice: gateways are free to send X-Frame-Options/CSP headers refusing
+ * to be framed at all (Chrome's own "this content was blocked" page, which no iframe
+ * `sandbox` value can override), enforce CORS rules that may or may not permit this app's
+ * origin, restrict dedicated-gateway access, or simply have an outage — none of which this
+ * app controls or can guarantee. An AI-generated contract never hits any of this because its
+ * content already lives in our own database and is rendered straight from there; this
+ * endpoint gives an imported PDF the exact same trust model.
+ *
+ * IPFS + the on-chain sha256Hash remain the ONLY canonical record — IpfsDocument.fileData is
+ * purely a verified serving cache, not a second source of truth the rest of the system
+ * trusts blindly:
+ *   - if a cached copy exists, its SHA-256 is recomputed and compared against the contract's
+ *     certified hash (meaningful only for an imported PDF — see the isExternalPdf check
+ *     below) before it's ever served; a mismatch is logged loudly and the cache is treated as
+ *     unusable rather than served as if it were authoritative.
+ *   - whenever the cache is missing or fails that check, this falls back to fetching the real
+ *     bytes from IPFS (a server-to-server request — CORS/framing rules are a browser-only
+ *     concept and simply don't apply here) and opportunistically re-caches that known-good
+ *     copy, so a corrupted row self-heals from the canonical source on the very next view.
  *
  * Gated the same way as viewing the contract itself (creator, signatory, or admin — see
  * hasContractAccess) rather than by IpfsDocument.uploadedBy: a signatory who isn't the
@@ -128,15 +140,44 @@ exports.proxyDocument = async (req, res, next) => {
             return res.status(403).json({ error: 'Unauthorized to access this document' });
         }
 
-        const upstreamUrl = ipfsService.getPublicUrl(cid);
-        const upstream = await fetch(upstreamUrl);
-        if (!upstream.ok) {
-            logger.error(`IPFS proxy fetch failed for ${cid}: HTTP ${upstream.status}`);
-            return res.status(502).json({ error: 'Failed to fetch document from IPFS' });
+        const document = await prisma.ipfsDocument.findUnique({ where: { cid } });
+        // sha256Hash only represents the FILE'S OWN bytes for an imported PDF (see
+        // computeFileSHA256 in create-contract-page.tsx). For an AI-generated contract it's
+        // the hash of the plain-text content, not of the styled HTML actually pinned here —
+        // there is nothing meaningful to cross-check the cached bytes against in that case.
+        const expectedHash = contract.metadata?.isExternalPdf ? contract.metadata?.sha256Hash : null;
+
+        let buffer = null;
+        let mimeType = document?.mimeType || null;
+
+        if (document?.fileData) {
+            const actualHash = crypto.createHash('sha256').update(document.fileData).digest('hex');
+            if (!expectedHash || actualHash === expectedHash) {
+                buffer = document.fileData;
+            } else {
+                logger.error(`[IPFS proxy] Cached copy for ${cid} does not match its certified hash (expected ${expectedHash}, got ${actualHash}) — falling back to IPFS`);
+            }
         }
 
-        const buffer = Buffer.from(await upstream.arrayBuffer());
-        res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/octet-stream');
+        if (!buffer) {
+            const upstream = await fetch(ipfsService.getPublicUrl(cid));
+            if (!upstream.ok) {
+                logger.error(`IPFS proxy fetch failed for ${cid}: HTTP ${upstream.status}`);
+                return res.status(502).json({ error: 'Failed to fetch document from IPFS' });
+            }
+            buffer = Buffer.from(await upstream.arrayBuffer());
+            mimeType = mimeType || upstream.headers.get('content-type');
+
+            // Opportunistic backfill/self-heal: this document had no verified cache yet, or
+            // its cache just failed verification — cache these freshly-fetched, known-good
+            // (came straight from IPFS) bytes so the next view doesn't need the gateway at all.
+            if (document) {
+                prisma.ipfsDocument.update({ where: { cid }, data: { fileData: buffer } })
+                    .catch((err) => logger.error(`[IPFS proxy] Failed to cache document ${cid}:`, err));
+            }
+        }
+
+        res.setHeader('Content-Type', mimeType || 'application/octet-stream');
         // "inline", never "attachment": the point is to display it in the app's own preview,
         // not trigger a download dialog the moment the iframe/fetch touches it.
         res.setHeader('Content-Disposition', 'inline');

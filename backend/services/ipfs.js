@@ -28,6 +28,11 @@ class IPFSService {
                     fileSize: fileBuffer.length,
                     mimeType,
                     uploadedBy,
+                    // A verified local cache of these exact bytes (see the model comment in
+                    // schema.prisma) — lets the app serve this document from its own database
+                    // afterward instead of depending on the IPFS gateway's cooperation for
+                    // every view. Never updated after this insert.
+                    fileData: fileBuffer,
                 },
             });
 

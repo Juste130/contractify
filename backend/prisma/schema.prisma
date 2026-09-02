@@ -300,6 +300,16 @@ model IpfsDocument {
   mimeType   String?  @map("mime_type")
   uploadedBy String?  @map("uploaded_by")
   createdAt  DateTime @default(now()) @map("created_at")
+  // Verified local cache of the pinned bytes — NOT a second source of truth. IPFS (the CID)
+  // and the on-chain sha256Hash remain the only canonical record; this column exists purely
+  // so the app can serve a document from its own database instead of depending on a
+  // third-party gateway's cooperation (CORS, framing headers, uptime) for every view. Set at
+  // upload time; serving code re-verifies this buffer's SHA-256 against the contract's
+  // recorded hash on every read (for an imported PDF, where that hash is meaningful) and
+  // re-fetches + overwrites it from the real IPFS content if it's ever missing or fails to
+  // match (see proxyDocument in ipfs.js), so a corrupted or tampered row self-heals from the
+  // canonical source instead of being served as if it were authoritative.
+  fileData   Bytes?   @map("file_data")
 
   @@map("ipfs_documents")
 }
