@@ -884,11 +884,11 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                      <div className="text-left">
                        <p className="text-xs font-semibold text-muted-foreground mb-2">Aperçu du fichier :</p>
                        <div className="border rounded-xl overflow-hidden bg-white h-[420px]">
-                         {/* A local `blob:` URL, not a remote IPFS gateway response — no
-                             Content-Disposition header to fight, so a fully empty sandbox is
-                             fine here (unlike the IPFS-served previews elsewhere, which need
-                             `allow-downloads` for Pinata's attachment-disposition quirk). */}
-                         <iframe src={pdfPreviewUrl} className="w-full h-full border-0" title="Aperçu du contrat PDF importé" sandbox="" />
+                         {/* `allow-same-origin` is required for a blob: URL to render at all —
+                             without it the frame is an opaque origin and Chrome blocks
+                             loading its own blob into it as a cross-origin navigation. Safe
+                             here specifically because `allow-scripts` is never also set. */}
+                         <iframe src={pdfPreviewUrl} className="w-full h-full border-0" title="Aperçu du contrat PDF importé" sandbox="allow-same-origin" />
                        </div>
                      </div>
                    )}

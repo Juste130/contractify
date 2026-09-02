@@ -90,8 +90,14 @@ export function PdfPreviewFrame({ url, title, className, fallbackUrl }: PdfPrevi
   }
 
   return (
-    // A local blob: URL, not a cross-origin navigation — no gateway framing headers to
-    // fight, so a fully empty sandbox is both safe and sufficient here.
-    <iframe src={blobUrl!} className={className} title={title} sandbox="" />
+    // `allow-same-origin` is required, not optional, for a blob: URL: without it the frame
+    // is treated as an opaque origin and Chrome blocks loading its OWN blob into it as if it
+    // were a cross-origin navigation (confirmed against real Chromium bug reports on this
+    // exact blob+sandbox combination) — this is what was still showing "this content was
+    // blocked" even after switching to fetch()+blob, since the sandbox was empty. Safe here
+    // specifically because `allow-scripts` is never also set: that pairing (both together)
+    // is what lets a sandboxed document strip its own sandbox — `allow-same-origin` alone,
+    // with scripts still fully blocked, carries none of that risk.
+    <iframe src={blobUrl!} className={className} title={title} sandbox="allow-same-origin" />
   )
 }
