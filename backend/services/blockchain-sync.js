@@ -5,6 +5,7 @@ const { config } = require('../config');
 const { ContractStatus } = require('@prisma/client');
 const notificationService = require('./notification');
 const { AppError, BadRequestError, NotFoundError, ForbiddenError } = require('../utils/errors');
+const { buildContractTitle } = require('../utils/contract-naming');
 
 const CONTRACT_MANAGER_ABI = [
     'function getUserContracts(address user) external view returns (uint256[])',
@@ -180,7 +181,18 @@ class BlockchainSyncService {
                 create: {
                     contractId: parseInt(contractId),
                     userId: finalUserId,
-                    title: `Contract #${contractId}`,
+                    // This row's own draft never went through saveDraft (a contract deployed
+                    // outside this app's normal flow, or a race the event listener caught
+                    // first) — no form-entered party names to draw on, so this falls back to
+                    // whatever name each signer resolves to (see enrichedSigners above:
+                    // wallet's profile name, else email, else the bare address). Built with
+                    // the same shared naming rules as everywhere else rather than a generic,
+                    // permanent English placeholder ("Contract #N") that never gets fixed up.
+                    title: buildContractTitle({
+                        documentType: 'Contrat',
+                        partyNames: enrichedSigners.map((s) => s.name || s.address),
+                        createdAt: new Date(Number(contractData.createdAt) * 1000),
+                    }),
                     ipfsHash: '',
                     status,
                     metadata,
