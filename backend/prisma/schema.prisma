@@ -100,6 +100,14 @@ model ContractCache {
   contractId Int?           @unique @map("contract_id") // Optional for drafts
   userId     String         @map("user_id")
   title      String
+  // Platform-wide sequential reference (displayed as "CTF-000042" — see
+  // lib/utils/contractNaming.ts / utils/contract-naming.js), assigned atomically by
+  // Postgres the instant the draft row is created. This is the ONLY thing this app relies
+  // on for guaranteed uniqueness between documents — `title` alone can (and regularly does)
+  // collide: same contract type, same signatories, same day produces an identical title.
+  // A Postgres sequence can never hand out the same value twice, even under concurrent
+  // writes, unlike a date/time-based scheme.
+  reference  Int            @unique @default(autoincrement())
   ipfsHash   String?        @map("ipfs_hash") // Optional until IPFS upload
   status     ContractStatus
   metadata   Json
