@@ -1,5 +1,5 @@
 import QRCode from "qrcode";
-import { toSafeFileName } from "./fileName";
+import { buildContractFileBaseName } from "./contractNaming";
 
 interface PDFData {
     title: string;
@@ -7,6 +7,14 @@ interface PDFData {
     sha256Hash: string;
     contractId?: number;
     draftId?: string;
+    /** The type segment used to build the file name ("CDI", "Bail commercial"...) — the same
+     *  concept as contract.metadata.type, kept separate from the full `title` string so the
+     *  file name can be rebuilt from its actual parts (type, parties, date, reference)
+     *  instead of just reusing the on-screen title verbatim. */
+    documentType: string;
+    /** Platform-wide sequential number (see schema.prisma ContractCache.reference) — the
+     *  only thing guaranteeing two contracts never produce the same file name. */
+    reference: number;
     parties: {
         partyA: { name: string; email: string };
         partyB: { name: string; email: string };
@@ -301,12 +309,15 @@ export async function generateCertifiedPDF(data: PDFData) {
         console.error("Failed to generate QR code", e);
     }
 
-    // The contract's own title (e.g. "CDI — Jean Dupont / Sophie Martin"), not a generic
-    // "Contrat_<id>" — a downloaded folder full of certificates used to be indistinguishable
-    // from one another. The numeric id/draft id is still appended: two contracts CAN share
-    // an identical title (same template, same two party names, different agreement), and
-    // this keeps repeated downloads of the same certificate from silently overwriting one
-    // another under an identical file name.
-    const idSuffix = data.contractId ?? data.draftId ?? "brouillon";
-    doc.save(`${toSafeFileName(data.title)} (${idSuffix}).pdf`);
+    // Rebuilt from its actual parts (type, every signatory, creation date, reference) rather
+    // than reusing the on-screen `title` verbatim — see buildContractFileBaseName. The
+    // reference is what actually guarantees this never collides with another certificate:
+    // two contracts CAN otherwise share an identical type/parties/day.
+    const fileBaseName = buildContractFileBaseName({
+        documentType: data.documentType,
+        partyNames: data.signatories.map((s) => s.name).filter(Boolean),
+        createdAt: new Date(data.createdAt),
+        reference: data.reference,
+    });
+    doc.save(`${fileBaseName}.pdf`);
 }

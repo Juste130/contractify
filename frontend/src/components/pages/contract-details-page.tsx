@@ -41,6 +41,7 @@ import { AiBadge } from "../ui/ai-badge"
 import { ContractMarkdownRenderer } from "@/components/contract/contract-markdown-renderer"
 import { cn } from "@/components/ui/utils"
 import { getEffectiveStatus } from "@/lib/contract-status"
+import { formatReference } from "@/lib/utils/contractNaming"
 import { deployDraftContract } from "@/lib/utils/deployContract"
 import {
   DISPUTE_REASONS,
@@ -120,6 +121,8 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
 
       await generateCertifiedPDF({
         title: contract.title,
+        documentType: contract.metadata?.type || "Contrat",
+        reference: contract.reference,
         content: contract.metadata?.content || "",
         // pdfGenerator's "sha256Hash" field is deliberately overloaded: for un contrat
         // importé, il doit contenir le CID IPFS du PDF original (c'est ce que le certificat
@@ -546,6 +549,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                 {getStatusBadge(getEffectiveStatus(contract))}
               </div>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                <span className="font-mono text-xs">{formatReference(contract.reference)}</span>
                 <span className="flex items-center gap-1">
                   <Clock className="w-4 h-4" />
                   Créé le {new Date(contract.createdAt).toLocaleDateString()}
