@@ -129,6 +129,11 @@ export const aiApi = {
         signatureExcerpt: string | null;
         hasDigitalSignature: boolean;
         hasExtractedText: boolean;
+        /** Best-effort document type classification, unified with the same template ids used
+         *  by the AI-generation flow (see contract-templates.ts) — `knownType` when the text
+         *  matches one of those, else a short free-text `suggestedLabel`. Always a suggestion
+         *  to confirm/edit, never applied silently. */
+        documentType: { knownType: string | null; suggestedLabel: string | null };
     }> {
         try {
             const formData = new FormData();

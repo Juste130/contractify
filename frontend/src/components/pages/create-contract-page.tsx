@@ -56,6 +56,7 @@ import { SIGNATORY_ROLE_LABELS } from "@/lib/contract-roles";
 import { renderContractToHtml } from "@/lib/utils/renderContractHtml";
 import { computeSHA256, computeFileSHA256 } from "@/lib/utils/hash";
 import { toSafeFileName } from "@/lib/utils/fileName";
+import { buildContractTitle } from "@/lib/utils/contractNaming";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -181,8 +182,14 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
     mentionsExistingSignature: boolean;
     signatureExcerpt: string | null;
     hasDigitalSignature: boolean;
+    documentType: { knownType: string | null; suggestedLabel: string | null };
   } | null>(null);
   const [acknowledgeImportWarning, setAcknowledgeImportWarning] = useState(false);
+  // Editable — the AI's classification is a starting suggestion, never applied silently. Used
+  // as the "type" segment of the title/file names for an import, exactly like the fixed
+  // "CDI"/"Freelance"/... label the AI-generation flow already gets from an explicit choice —
+  // one shared concept, filled in differently depending on how the contract was created.
+  const [importedTypeLabel, setImportedTypeLabel] = useState("");
   // Lets the user actually see the file they're about to commit to, before the final step —
   // built from the local File object already in memory, so it's available instantly and
   // doesn't wait on (or depend on) the IPFS upload that only happens at final submit.
@@ -502,6 +509,15 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
     try {
       const result = await aiApi.analyzeImportedPdf(file);
       setImportAnalysis(result);
+      // Same rule as the template gallery: a known type's own display name ("CDI"), never
+      // its raw id — falls back to the AI's free-text guess, and only pre-fills if the user
+      // hasn't already typed something themselves.
+      if (!importedTypeLabel.trim()) {
+        const known = result.documentType?.knownType
+          ? getContractTemplate(result.documentType.knownType)?.name
+          : null;
+        setImportedTypeLabel(known || result.documentType?.suggestedLabel || "");
+      }
       // Pré-remplit Partie A / Partie B seulement si l'utilisateur n'a rien saisi
       // lui-même — une suggestion ne doit jamais écraser une valeur déjà entrée.
       const [suggestedA, suggestedB] = result.parties;
@@ -570,13 +586,28 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
       // from the moment of creation, rather than a generic one that would need patching up
       // the instant signing starts.
       const templateLabel = selectedTemplate === "pdf_upload"
-        ? "Contrat"
+        // Editable, pre-filled by the same AI analysis that already detects parties/signature
+        // for an import — one shared "document type" concept with the AI-generation flow
+        // below, just sourced from a classification instead of an explicit menu choice.
+        ? (importedTypeLabel.trim() || "Contrat")
         : (contractTemplatesUI.find((t) => t.id === selectedTemplate)?.name || "Contrat");
       const partyAName = formData.partyA.name?.trim();
       const partyBName = formData.partyB.name?.trim();
-      const contractTitle = partyAName && partyBName
-        ? `${templateLabel} — ${partyAName} / ${partyBName}`
-        : templateLabel;
+      // Beyond Partie A/B, a signatory can be a witness, an additional co-signer, etc. — the
+      // title accounts for them too (collapsing past a few names) instead of silently
+      // dropping anyone who isn't one of the two named parties. buildContractTitle also
+      // stamps the creation date, which — together with the platform-wide reference number
+      // shown alongside the title everywhere it's displayed — is what actually guarantees no
+      // two contracts ever look identical, even the same type/parties/day.
+      const additionalPartyNames = signatories
+        .filter((s) => s.email !== formData.partyA.email && s.email !== formData.partyB.email)
+        .map((s) => s.name || s.email)
+        .filter(Boolean);
+      const contractTitle = buildContractTitle({
+        documentType: templateLabel,
+        partyNames: [partyAName, partyBName, ...additionalPartyNames],
+        createdAt: new Date(),
+      });
 
       let ipfsHash = "";
       let sha256Hash = "";
@@ -896,6 +927,22 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                      <p className="text-xs text-muted-foreground flex items-center justify-center gap-2">
                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyse du document en cours — recherche des parties, vérification qu'il s'agit bien d'un contrat non signé...
                      </p>
+                   )}
+                   {uploadedFile && (
+                     <div className="max-w-sm mx-auto text-left">
+                       <FieldGroup label="Type de document">
+                         <Input
+                           placeholder={isAnalyzingPdf ? "Détection en cours..." : "Ex. Bail commercial, CDI, Reconnaissance de dette..."}
+                           value={importedTypeLabel}
+                           onChange={(e) => setImportedTypeLabel(e.target.value)}
+                         />
+                       </FieldGroup>
+                       <p className="text-[11px] text-muted-foreground mt-1">
+                         {importAnalysis?.documentType?.knownType || importAnalysis?.documentType?.suggestedLabel
+                           ? "Suggéré par l'analyse du document — corrigez si besoin. Utilisé dans le titre et le nom de fichier."
+                           : "Laissez vide pour \"Contrat\" par défaut. Utilisé dans le titre et le nom de fichier."}
+                       </p>
+                     </div>
                    )}
                    {importAnalysis && !isAnalyzingPdf && (
                      <>
