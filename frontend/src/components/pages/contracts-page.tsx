@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { contractsApi } from "@/lib/api/contracts";
 import { getEffectiveStatus, getStatusBadgeVariant } from "@/lib/contract-status";
+import { formatReference } from "@/lib/utils/contractNaming";
 import {
   Table,
   TableBody,
@@ -170,7 +171,7 @@ export function ContractsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Nom du contrat</TableHead>
+                  <TableHead>Titre</TableHead>
                   <TableHead>Date de création</TableHead>
                   <TableHead>IPFS CID</TableHead>
                   <TableHead>Statut</TableHead>
@@ -188,8 +189,11 @@ export function ContractsPage() {
                   >
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-[#FFC107]" />
-                        <span className="font-medium">{contract.title}</span>
+                        <FileText className="w-4 h-4 text-[#FFC107] shrink-0" />
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{contract.title}</p>
+                          <p className="text-[10px] text-muted-foreground font-mono">{formatReference(contract.reference)}</p>
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>

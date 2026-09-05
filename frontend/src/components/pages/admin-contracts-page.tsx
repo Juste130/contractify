@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { contractsApi } from "@/lib/api/contracts";
+import { formatReference } from "@/lib/utils/contractNaming";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +55,7 @@ export function AdminContractsPage() {
             const mappedContracts = contractsRes.contracts.map((c: any) => ({
                 id: c.contractId || c.id,
                 title: c.title || (c.metadata?.title) || "Sans titre",
+                reference: c.reference,
                 type: c.metadata?.type || "Standard",
                 user: c.user?.email || "Inconnu",
                 status: c.status?.toLowerCase() || 'pending',
@@ -184,7 +186,10 @@ export function AdminContractsPage() {
                                     className="cursor-pointer hover:bg-muted/50"
                                     onClick={() => router.push(`/contract-details?id=${contract.id}`)}
                                 >
-                                    <TableCell className="font-medium">{contract.title}</TableCell>
+                                    <TableCell className="font-medium">
+                                        <p>{contract.title}</p>
+                                        <p className="text-[10px] text-muted-foreground font-mono font-normal">{formatReference(contract.reference)}</p>
+                                    </TableCell>
                                     <TableCell>{contract.type}</TableCell>
                                     <TableCell>{contract.user}</TableCell>
                                     <TableCell>{contract.createdDate}</TableCell>

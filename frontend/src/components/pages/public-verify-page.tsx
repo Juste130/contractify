@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Spinner } from "@/components/ui/spinner";
 import { getStatusBadgeVariant } from "@/lib/contract-status";
+import { formatReference } from "@/lib/utils/contractNaming";
 import { CheckCircle2, Clock, XCircle, ShieldCheck } from "lucide-react";
 
 interface PublicVerifyPageProps {
@@ -16,6 +17,7 @@ interface PublicVerifyPageProps {
 
 interface VerificationData {
   title: string;
+  reference: number;
   status: string;
   createdAt: string;
   contractId: number | null;
@@ -69,7 +71,10 @@ export function PublicVerifyPage({ id }: PublicVerifyPageProps) {
           ) : (
             <Card className="p-6 space-y-5">
               <div className="flex items-start justify-between gap-3">
-                <h2 className="font-bold text-lg leading-snug">{data.title}</h2>
+                <div>
+                  <h2 className="font-bold text-lg leading-snug">{data.title}</h2>
+                  <p className="text-xs font-mono text-muted-foreground mt-0.5">{formatReference(data.reference)}</p>
+                </div>
                 <StatusBadge status={getStatusBadgeVariant(data.status)} className="shrink-0" />
               </div>
 

@@ -563,6 +563,7 @@ exports.getPublicVerification = async (req, res, next) => {
         // without being a retrieval mechanism itself.
         res.json({
             title: contract.title,
+            reference: contract.reference,
             status: contract.status,
             createdAt: contract.createdAt,
             contractId: contract.contractId,

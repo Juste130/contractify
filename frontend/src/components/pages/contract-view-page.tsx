@@ -9,6 +9,7 @@ import { contractsApi, type Contract } from "@/lib/api/contracts"
 import { ipfsApi } from "@/lib/api/ipfs"
 import { ContractMarkdownRenderer } from "@/components/contract/contract-markdown-renderer"
 import { PdfPreviewFrame } from "@/components/contract/pdf-preview-frame"
+import { formatReference } from "@/lib/utils/contractNaming"
 
 interface ContractViewPageProps {
   id: string
@@ -76,6 +77,7 @@ export function ContractViewPage({ id }: ContractViewPageProps) {
               <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground ml-2">
                 {contract.title}
               </span>
+              <span className="text-[10px] font-mono text-muted-foreground">{formatReference(contract.reference)}</span>
             </div>
             <div className="flex items-center gap-2">
               {contract.status === 'ACTIVE' || contract.status === 'COMPLETED' ? (

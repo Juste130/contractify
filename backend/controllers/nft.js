@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 const { config } = require('../config');
 const { BadRequestError, NotFoundError } = require('../utils/errors');
 const { renderCertificateSvg } = require('../utils/nftCertificateSvg');
+const { formatReference } = require('../utils/contract-naming');
 
 /**
  * This is what ContractNFT.sol's tokenURI() now points to on-chain (see the constructor
@@ -43,7 +44,7 @@ async function findContractForToken(tokenId) {
     try {
         return await prisma.contractCache.findFirst({
             where: { metadata: { path: ['nftTokenId'], equals: String(tokenId) } },
-            select: { contractId: true, id: true, title: true },
+            select: { contractId: true, id: true, title: true, reference: true },
         });
     } catch (err) {
         logger.warn(`NFT metadata: contract lookup failed for token ${tokenId}: ${err.message}`);
@@ -73,7 +74,9 @@ exports.getMetadata = async (req, res, next) => {
         const verifyId = contractRow?.contractId ?? contractRow?.id ?? null;
 
         res.json({
-            name: contractRow?.title ? `ContracTify — ${contractRow.title}` : `ContracTify — Certificat #${tokenId}`,
+            name: contractRow?.title
+                ? `ContracTify — ${contractRow.title} · ${formatReference(contractRow.reference)}`
+                : `ContracTify — Certificat #${tokenId}`,
             description:
                 "Preuve de signature horodatée et infalsifiable, ancrée sur le réseau Polygon. " +
                 "Ce certificat atteste qu'un contrat a été finalisé par l'ensemble de ses signataires ; " +

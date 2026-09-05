@@ -5,6 +5,10 @@ export interface Contract {
     contractId: number;
     userId: string;
     title: string;
+    /** Platform-wide sequential number (Postgres autoincrement) — the only thing guaranteed
+     *  unique between two contracts. Format for display with formatReference() from
+     *  lib/utils/contractNaming.ts ("CTF-000042"), never render the bare integer. */
+    reference: number;
     ipfsHash: string;
     status:
     | 'DRAFT_WAITING_SIGNERS'
@@ -212,6 +216,7 @@ export const contractsApi = {
      */
     async getPublicVerification(id: string | number): Promise<{
         title: string;
+        reference: number;
         status: string;
         createdAt: string;
         contractId: number | null;
