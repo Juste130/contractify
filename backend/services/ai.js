@@ -318,6 +318,7 @@ class AIService {
             mentionsExistingSignature: false,
             signatureConfidence: 'low',
             signatureExcerpt: null,
+            documentType: { knownType: null, suggestedLabel: null },
         };
         if (!extractedText || !extractedText.trim()) return empty;
 
@@ -325,7 +326,12 @@ class AIService {
             const text = await this._chat([
                 {
                     role: 'system',
-                    content: 'Tu analyses le texte extrait d\'un document PDF importé sur une plateforme de contrats. Réponds UNIQUEMENT avec un objet JSON strict, sans texte autour, sans markdown, exactement dans cette forme : {"parties": [{"name": "<nom complet>", "email": "<email>"}], "looksLikeContract": true|false, "looksLikeContractConfidence": "high"|"medium"|"low", "mentionsExistingSignature": true|false, "signatureConfidence": "high"|"medium"|"low", "signatureExcerpt": "<courte phrase du texte qui l\'indique, ou null>"}. Règle stricte : n\'invente JAMAIS un email qui n\'apparaît pas mot pour mot dans le texte fourni — si un nom de partie est identifiable mais sans email associé dans le texte, mets email à une chaîne vide. Limite la liste "parties" aux personnes ou entités clairement identifiées comme parties au contrat (pas les témoins, pas les tiers mentionnés en passant), au maximum 4.',
+                    // The known-type vocabulary here (cdi/cdd/freelance/location/nda/commercial)
+                    // must stay the exact same ids as TEMPLATE_SECTIONS above and
+                    // CONTRACT_TEMPLATES on the frontend — one shared "document type" concept
+                    // used whether it comes from an explicit template choice or, here, a guess
+                    // from imported text, instead of two vocabularies that can drift apart.
+                    content: 'Tu analyses le texte extrait d\'un document PDF importé sur une plateforme de contrats. Réponds UNIQUEMENT avec un objet JSON strict, sans texte autour, sans markdown, exactement dans cette forme : {"parties": [{"name": "<nom complet>", "email": "<email>"}], "looksLikeContract": true|false, "looksLikeContractConfidence": "high"|"medium"|"low", "mentionsExistingSignature": true|false, "signatureConfidence": "high"|"medium"|"low", "signatureExcerpt": "<courte phrase du texte qui l\'indique, ou null>", "documentType": {"knownType": "cdi"|"cdd"|"freelance"|"location"|"nda"|"commercial"|null, "suggestedLabel": "<court libellé en français du type de document si aucune valeur connue ne correspond, ex. \'Bail commercial\', \'Reconnaissance de dette\', ou null si un knownType a été choisi>"}}. Règle stricte : n\'invente JAMAIS un email qui n\'apparaît pas mot pour mot dans le texte fourni — si un nom de partie est identifiable mais sans email associé dans le texte, mets email à une chaîne vide. Limite la liste "parties" aux personnes ou entités clairement identifiées comme parties au contrat (pas les témoins, pas les tiers mentionnés en passant), au maximum 4. Pour documentType : choisis knownType UNIQUEMENT s\'il correspond vraiment (un CDI n\'est pas un CDD, une location n\'est pas un commercial) ; sinon knownType est null et suggestedLabel donne un libellé court (2-4 mots) et précis du type réel de document.',
                 },
                 {
                     role: 'user',
@@ -353,6 +359,12 @@ class AIService {
                 : [];
 
             const confidenceOrDefault = (v) => ['high', 'medium', 'low'].includes(v) ? v : 'low';
+            const KNOWN_TYPES = ['cdi', 'cdd', 'freelance', 'location', 'nda', 'commercial'];
+            const rawKnownType = parsed.documentType?.knownType;
+            const knownType = KNOWN_TYPES.includes(rawKnownType) ? rawKnownType : null;
+            const suggestedLabel = !knownType && typeof parsed.documentType?.suggestedLabel === 'string' && parsed.documentType.suggestedLabel.trim()
+                ? parsed.documentType.suggestedLabel.trim().slice(0, 60)
+                : null;
 
             return {
                 parties,
@@ -361,6 +373,7 @@ class AIService {
                 mentionsExistingSignature: parsed.mentionsExistingSignature === true,
                 signatureConfidence: confidenceOrDefault(parsed.signatureConfidence),
                 signatureExcerpt: typeof parsed.signatureExcerpt === 'string' && parsed.signatureExcerpt.trim() ? parsed.signatureExcerpt.trim().slice(0, 200) : null,
+                documentType: { knownType, suggestedLabel },
             };
         } catch (error) {
             logger.error('Error analyzing imported contract:', error);
