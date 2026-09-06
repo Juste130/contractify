@@ -54,6 +54,24 @@ const config = {
     pinataJwt: process.env.PINATA_JWT,
     pinataGateway: process.env.PINATA_GATEWAY || 'https://gateway.pinata.cloud',
 
+    // Identity verification (KYC) — Smile ID, chosen for confirmed coverage of all four
+    // target countries (Bénin, Togo, Côte d'Ivoire, Sénégal) with a single integration. Off
+    // (mock mode) until real partner credentials are configured — same "disabled until
+    // wired" pattern as payments above — so the surrounding UI/flow can be built and
+    // demoed before the Smile ID partner account is finalized. In mock mode, a submission
+    // is approved automatically after a short delay instead of calling the real API.
+    kyc: {
+        provider: 'smile_id',
+        mockMode: process.env.KYC_MOCK_MODE !== 'false', // defaults to true — see comment above
+        smileId: {
+            partnerId: process.env.SMILE_ID_PARTNER_ID,
+            apiKey: process.env.SMILE_ID_API_KEY,
+            // '0' = sandbox, '1' = production — see smile-identity-core's WebApi.
+            server: process.env.SMILE_ID_SERVER || '0',
+            callbackUrl: process.env.SMILE_ID_CALLBACK_URL,
+        },
+    },
+
 
     // Email
     smtp: {
