@@ -7,6 +7,9 @@ export interface User {
     isActive: boolean;
     createdAt: string;
     profileData?: any;
+    kycStatus: 'NOT_VERIFIED' | 'PENDING' | 'VERIFIED' | 'FAILED';
+    kycVerifiedAt: string | null;
+    hasSeenKycPrompt: boolean;
 }
 
 export interface Wallet {
