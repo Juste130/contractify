@@ -17,7 +17,9 @@ import { fr } from 'date-fns/locale';
 import { getDisplayName } from "@/lib/utils/displayName";
 import { getEffectiveStatus, getStatusBadgeVariant } from "@/lib/contract-status";
 import { InviteUserDialog } from "@/components/shared/invite-user-dialog";
-import { UserPlus } from "lucide-react";
+import { UserPlus, ShieldCheck } from "lucide-react";
+import { useState } from "react";
+import { IdentityVerificationModal } from "@/components/kyc/identity-verification-modal";
 
 // Statuts qui nécessitent encore une action de l'utilisateur (inscription des
 // signataires, déploiement, ou signature) — cohérent avec le badge "En attente"
@@ -26,6 +28,7 @@ const NEEDS_ACTION_STATUSES = ['DRAFT_WAITING_SIGNERS', 'READY_TO_DEPLOY', 'PEND
 
 export function DashboardPage() {
   const { user } = useAuthStore();
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
 
   const { data: contractsData, isLoading, error } = useQuery({
     queryKey: ['contracts', 'cached'],
@@ -146,6 +149,34 @@ export function DashboardPage() {
             </Button>
           </Link>
         </div>
+
+        {/* Framed as a benefit, not a warning — dismissible in spirit (it just stops
+            appearing once VERIFIED, no "hide forever" needed since it's a small, calm card
+            rather than an interruption). The sidebar badge covers "I want to do this from
+            any other page"; this card covers "I want to be told this is worth doing at all". */}
+        {user && user.kycStatus !== "VERIFIED" && (
+          <Card className="p-5 mb-8 border-primary/20 bg-primary/5 flex items-center gap-4 flex-wrap">
+            <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-5 h-5 text-primary" />
+            </div>
+            <div className="flex-1 min-w-[200px]">
+              <p className="font-semibold text-sm">Renforcez la valeur légale de vos signatures</p>
+              <p className="text-xs text-muted-foreground">
+                {user.kycStatus === "PENDING"
+                  ? "Vérification en cours — vous serez prévenu dès que c'est prêt."
+                  : "Une seule vérification d'identité, valable pour tous vos contrats futurs."}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 shrink-0"
+              onClick={() => setShowVerifyModal(true)}
+              disabled={user.kycStatus === "PENDING"}
+            >
+              {user.kycStatus === "PENDING" ? "En cours..." : "Vérifier mon identité"}
+            </Button>
+          </Card>
+        )}
 
         {isLoading ? (
           <div className="flex items-center justify-center h-64">
