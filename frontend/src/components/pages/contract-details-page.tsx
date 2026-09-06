@@ -6,6 +6,7 @@ import { AppSidebar } from "../layout/app-sidebar"
 import { Button } from "../ui/button"
 import { Card } from "../ui/card"
 import { Badge } from "../ui/badge"
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "../ui/dialog"
 import { contractsApi, type Contract } from "@/lib/api/contracts"
 import { escrowApi, type Escrow } from "@/lib/api/escrow"
 import { incidentsApi, type Incident } from "@/lib/api/incidents"
@@ -36,6 +37,7 @@ import {
 import { KycSignatureModal } from "@/components/contract/kyc-signature-modal"
 import { SignaturePanel } from "@/components/contract/signaturePanel"
 import { PdfPreviewFrame } from "@/components/contract/pdf-preview-frame"
+import { IdentityVerificationModal } from "@/components/kyc/identity-verification-modal"
 import { NFTViewer } from "@/components/nft/NFTViewer"
 import { AiBadge } from "../ui/ai-badge"
 import { ContractMarkdownRenderer } from "@/components/contract/contract-markdown-renderer"
@@ -61,6 +63,8 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showKycModal, setShowKycModal] = useState(false)
+  const [showVerifyBeforeSign, setShowVerifyBeforeSign] = useState(false)
+  const [showIdentityVerification, setShowIdentityVerification] = useState(false)
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
   const [resendingId, setResendingId] = useState<string | null>(null)
   const [resendFeedback, setResendFeedback] = useState<{ id: string; type: "success" | "error"; text: string } | null>(null)
@@ -449,6 +453,22 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
   const canSign = currentUserSigner && !currentUserSigner.hasSigned && contract.status === 'PENDING_SIGNATURES'
   const isCreator = !!user?.id && user.id === contract.userId
 
+  // Set once at creation (create-contract-page.tsx), never editable afterward — there is no
+  // "edit a deployed contract's options" screen in this app, so this is effectively locked
+  // in from the moment of deployment onward, exactly as intended (see the KYC design notes
+  // on why the requirement can't change mid-way through collecting signatures).
+  const requiresVerifiedSigners = !!contract.metadata?.options?.requireVerifiedSigners
+  const currentUserIsVerified = user?.kycStatus === 'VERIFIED'
+  const blockedByKyc = requiresVerifiedSigners && !currentUserIsVerified
+
+  const handleOpenSign = () => {
+    if (blockedByKyc) {
+      setShowVerifyBeforeSign(true)
+      return
+    }
+    setShowKycModal(true)
+  }
+
   // Unified signer list: merges platform signatories (email, registration state)
   // with on-chain signature state, so we can show who signed / who's still pending
   // and offer a "resend" action for anyone who hasn't signed yet.
@@ -590,7 +610,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
               {canSign && (
                 <Button
                   className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2 px-6"
-                  onClick={() => setShowKycModal(true)}
+                  onClick={handleOpenSign}
                   disabled={isSigning}
                 >
                   {isSigning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Shield className="w-4 h-4" />}
@@ -963,7 +983,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
               {(canSign || currentUserSigner?.hasSigned) && (
                 <SignaturePanel
                   hasSigned={!!currentUserSigner?.hasSigned}
-                  onSign={() => setShowKycModal(true)}
+                  onSign={handleOpenSign}
                   isSigning={isSigning}
                 />
               )}
@@ -1191,6 +1211,27 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
           customLegalBasis={contract.metadata?.customLegalBasis}
         />
       )}
+
+      {/* Ce contrat exige une identité vérifiée pour signer, et cet utilisateur — créateur ou
+          simple signataire, peu importe — ne l'est pas encore. Bloque avant même d'ouvrir le
+          flux de signature, avec un accès direct à la vérification. */}
+      <Dialog open={showVerifyBeforeSign} onOpenChange={setShowVerifyBeforeSign}>
+        <DialogContent className="max-w-sm">
+          <DialogTitle className="text-base font-bold">Identité vérifiée requise</DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            Le créateur de ce contrat exige que chaque signataire ait vérifié son identité avant de signer. Vérifiez la vôtre pour continuer — une seule fois, valable pour tous vos contrats futurs.
+          </DialogDescription>
+          <div className="flex gap-3 pt-2">
+            <Button variant="outline" className="flex-1" onClick={() => setShowVerifyBeforeSign(false)}>Annuler</Button>
+            <Button className="flex-1" onClick={() => { setShowVerifyBeforeSign(false); setShowIdentityVerification(true) }}>Vérifier maintenant</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <IdentityVerificationModal
+        open={showIdentityVerification}
+        onClose={() => setShowIdentityVerification(false)}
+        onVerified={() => setShowKycModal(true)}
+      />
     </div>
   )
 }
