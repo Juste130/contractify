@@ -41,6 +41,7 @@ import {
   Lock,
 } from "lucide-react";
 import { Checkbox } from "../ui/checkbox";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "../ui/dialog";
 import { useRouter } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../ui/tabs";
@@ -57,6 +58,8 @@ import { renderContractToHtml } from "@/lib/utils/renderContractHtml";
 import { computeSHA256, computeFileSHA256 } from "@/lib/utils/hash";
 import { toSafeFileName } from "@/lib/utils/fileName";
 import { buildContractTitle } from "@/lib/utils/contractNaming";
+import { useAuthStore } from "@/hooks/useAuth";
+import { IdentityVerificationModal } from "@/components/kyc/identity-verification-modal";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -125,6 +128,12 @@ interface CreateContractPageProps {
 export function CreateContractPage({ template }: CreateContractPageProps = {}) {
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const { user } = useAuthStore();
+  // Contextual, not a hard block — the creator can still toggle the requirement on even
+  // while unverified themselves; this just makes sure they notice, immediately, with a
+  // direct path to fix it (see the KYC design notes on why this beats a rigid lock).
+  const [showCreatorKycWarning, setShowCreatorKycWarning] = useState(false);
+  const [showCreatorVerifyModal, setShowCreatorVerifyModal] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSimplifying, setIsSimplifying] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
@@ -171,6 +180,9 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
       probation: false,
       allowTermination: true,
       allowDispute: true,
+      // Off by default (see the KYC design notes) — a per-contract choice, never a
+      // platform-wide default, so the low-friction case stays low-friction.
+      requireVerifiedSigners: false,
     },
   });
 
@@ -1793,6 +1805,54 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                   </div>
                 </div>
               </div>
+
+              {/* Exigence de vérification d'identité — désactivée par défaut (voir la note
+                  de conception KYC) : un choix par contrat, jamais un défaut plateforme. Le
+                  créateur est automatiquement inclus quand c'est activé — sinon sa propre
+                  signature ne bénéficierait pas de la présomption renforcée que ce réglage
+                  est censé apporter au document tout entier. */}
+              <div
+                className={`flex items-start gap-3 p-4 border rounded-lg mb-8 cursor-pointer transition-colors ${
+                  formData.options.requireVerifiedSigners ? "border-primary/30 bg-primary/5" : "bg-input-background"
+                }`}
+                onClick={() => {
+                  const next = !formData.options.requireVerifiedSigners;
+                  updateFormData("options", "requireVerifiedSigners", next);
+                  if (next && user?.kycStatus !== "VERIFIED") setShowCreatorKycWarning(true);
+                }}
+              >
+                <Checkbox
+                  checked={formData.options.requireVerifiedSigners}
+                  onCheckedChange={(v) => {
+                    updateFormData("options", "requireVerifiedSigners", !!v);
+                    if (v && user?.kycStatus !== "VERIFIED") setShowCreatorKycWarning(true);
+                  }}
+                  className="mt-1"
+                />
+                <div>
+                  <p className="font-bold text-sm block mb-1">Exiger une identité vérifiée pour signer</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Chaque signataire — vous y compris — devra avoir vérifié son identité avant de pouvoir signer ce contrat. Renforce la valeur légale du document, au prix d'une étape supplémentaire pour tout le monde.
+                  </p>
+                </div>
+              </div>
+
+              {/* Le créateur vient d'activer l'exigence sans être lui-même vérifié — un
+                  rappel immédiat plutôt qu'une découverte frustrante au moment de signer,
+                  avec un accès direct à la vérification depuis cet écran même. */}
+              <Dialog open={showCreatorKycWarning} onOpenChange={setShowCreatorKycWarning}>
+                <DialogContent className="max-w-sm">
+                  <DialogTitle className="text-base font-bold">Vous n'êtes pas encore vérifié</DialogTitle>
+                  <DialogDescription className="text-sm text-muted-foreground">
+                    Vous exigez une identité vérifiée pour signer ce contrat — cela vous concerne aussi. Vous pourrez enregistrer ce brouillon dès maintenant, mais vous devrez vérifier votre identité avant de pouvoir le signer vous-même.
+                  </DialogDescription>
+                  <div className="flex gap-3 pt-2">
+                    <Button variant="outline" className="flex-1" onClick={() => setShowCreatorKycWarning(false)}>Plus tard</Button>
+                    <Button className="flex-1" onClick={() => { setShowCreatorKycWarning(false); setShowCreatorVerifyModal(true); }}>Vérifier maintenant</Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+              <IdentityVerificationModal open={showCreatorVerifyModal} onClose={() => setShowCreatorVerifyModal(false)} />
 
               {/* Consent Checkbox */}
               <div className={`p-4 border rounded-lg mb-8 ${validationErrors["consent"] ? "border-destructive bg-destructive/5" : "border-primary/20 bg-primary/5"}`}>
