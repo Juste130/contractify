@@ -4,6 +4,7 @@ import { useEffect, useRef, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/hooks/useAuth';
 import { Spinner } from '../ui/spinner';
+import { KycFirstPrompt } from '@/components/kyc/kyc-first-prompt';
 
 const PUBLIC_PATHS = ['/', '/login', '/signup', '/how-it-works'];
 // Prefix-matched rather than exact: /verify/[id] is a dynamic route, and every id under it
@@ -73,5 +74,10 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
         return null;
     }
 
-    return <>{children}</>;
+    return (
+        <>
+            {children}
+            <KycFirstPrompt />
+        </>
+    );
 }
