@@ -19,17 +19,46 @@ enum UserRole {
   VIEWER
 }
 
+// ==================== IDENTITY VERIFICATION (KYC) ====================
+//
+// One verification per human being, ever — never per contract. Reused across every future
+// contract once VERIFIED, which is the whole point: it upgrades a signature from "simple"
+// (valid, but no legal presumption of authenticity) to one backed by a reliable
+// identification process (the presumption courts actually give weight to), without asking
+// anyone to repeat it. Platform absorbs the cost of the first check per person — see the
+// KYC design notes — so there is deliberately no per-contract billing concept here.
+enum KycStatus {
+  NOT_VERIFIED // Default. Can still create and sign contracts (simple e-signature).
+  PENDING // Submitted to the provider, awaiting its async result (webhook).
+  VERIFIED
+  FAILED // Provider rejected the submission (mismatch, unreadable document...) — can retry.
+}
+
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String?  @map("password_hash")
-  googleId     String?  @unique @map("google_id")
-  privyId      String?  @unique @map("privy_id")
-  role         UserRole @default(USER)
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  profileData  Json?    @map("profile_data")
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String?   @map("password_hash")
+  googleId     String?   @unique @map("google_id")
+  privyId      String?   @unique @map("privy_id")
+  role         UserRole  @default(USER)
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  profileData  Json?     @map("profile_data")
+
+  kycStatus      KycStatus @default(NOT_VERIFIED) @map("kyc_status")
+  // "smile_id" today — kept as a string rather than an enum so a future second provider
+  // doesn't need a migration, just a new value.
+  kycProvider    String?   @map("kyc_provider")
+  // The PROVIDER's own job/reference id — never the ID document itself, never the selfie.
+  // Data minimization by construction: there is nothing sensitive in this column to leak.
+  kycReferenceId String?   @map("kyc_reference_id")
+  kycCountry     String?   @map("kyc_country")
+  kycVerifiedAt  DateTime? @map("kyc_verified_at")
+  // Distinct from kycStatus: tracks whether the ONE-TIME post-signup invitation modal has
+  // already been shown, independently of whether the user went through with it or skipped —
+  // without this, "skip" would have no way to stop the modal from reappearing.
+  hasSeenKycPrompt Boolean @default(false) @map("has_seen_kyc_prompt")
 
   wallet    UserWallet?
   contracts ContractCache[]
