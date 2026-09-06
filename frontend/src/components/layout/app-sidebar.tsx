@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   LayoutDashboard,
   FileText,
@@ -10,6 +11,7 @@ import {
   BarChart3,
   UserCog,
   Shield,
+  ShieldCheck,
   Gavel,
   LogOut,
 } from "lucide-react";
@@ -33,6 +35,7 @@ import { cn } from "../ui/utils";
 import { getDisplayName } from "@/lib/utils/displayName";
 import { roleLabel as getRoleLabel } from "@/lib/user-roles";
 import { SealMark } from "./seal-mark";
+import { IdentityVerificationModal } from "@/components/kyc/identity-verification-modal";
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -40,6 +43,8 @@ export function AppSidebar() {
   const { user } = useAuthStore();
   const { logout } = useLogout();
   const isAdmin = user?.role === "ADMIN";
+  const isVerified = user?.kycStatus === "VERIFIED";
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
 
   const userInitial = user?.email?.[0]?.toUpperCase() ?? "U";
   const userLabel = user ? getDisplayName(user) : "Mon compte";
@@ -200,9 +205,21 @@ export function AppSidebar() {
                       aria-label="Menu du compte"
                       className="w-full flex items-center justify-center cursor-pointer"
                     >
-                      <Avatar className="w-8 h-8">
-                        <AvatarFallback className="bg-[#FFC107] text-[#212121]">{userInitial}</AvatarFallback>
-                      </Avatar>
+                      <div className="relative">
+                        <Avatar className="w-8 h-8">
+                          <AvatarFallback className="bg-[#FFC107] text-[#212121]">{userInitial}</AvatarFallback>
+                        </Avatar>
+                        {/* Permanent, non-intrusive indicator — reachable from every page
+                            regardless of which one the user happens to be on, unlike a
+                            one-off dashboard card or a modal. Amber dot (attention, not
+                            alarm) when unverified; a small check once verified doubles as a
+                            quiet trust marker for the account itself. */}
+                        {isVerified ? (
+                          <ShieldCheck className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 text-emerald-500 bg-background rounded-full" />
+                        ) : (
+                          <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-500 border-2 border-background" />
+                        )}
+                      </div>
                     </button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
@@ -219,9 +236,16 @@ export function AppSidebar() {
                 aria-label="Menu du compte"
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-muted cursor-pointer transition-colors text-left"
               >
-                <Avatar className="w-8 h-8">
-                  <AvatarFallback className="bg-[#FFC107] text-[#212121]">{userInitial}</AvatarFallback>
-                </Avatar>
+                <div className="relative shrink-0">
+                  <Avatar className="w-8 h-8">
+                    <AvatarFallback className="bg-[#FFC107] text-[#212121]">{userInitial}</AvatarFallback>
+                  </Avatar>
+                  {isVerified ? (
+                    <ShieldCheck className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 text-emerald-500 bg-background rounded-full" />
+                  ) : (
+                    <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-500 border-2 border-background" />
+                  )}
+                </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm truncate">{userLabel}</p>
                   <p className="text-xs text-muted-foreground truncate">{roleLabel}</p>
@@ -232,6 +256,15 @@ export function AppSidebar() {
           <DropdownMenuContent align="end" side="right" className="w-56">
             <DropdownMenuLabel className="truncate">{user?.email ?? "Mon compte"}</DropdownMenuLabel>
             <DropdownMenuSeparator />
+            {!isVerified && (
+              <DropdownMenuItem
+                onClick={() => setShowVerifyModal(true)}
+                className="cursor-pointer"
+              >
+                <ShieldCheck className="w-4 h-4 mr-2 text-amber-500" />
+                Vérifier mon identité
+              </DropdownMenuItem>
+            )}
             {/* "Paramètres" removed from here — it pointed at the exact same /settings page
                 already one click away in the persistent sidebar nav above, permanently
                 visible on every screen. Duplicating it in this transient dropdown added
@@ -247,6 +280,8 @@ export function AppSidebar() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <IdentityVerificationModal open={showVerifyModal} onClose={() => setShowVerifyModal(false)} />
     </aside>
   );
 }
