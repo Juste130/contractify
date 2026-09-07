@@ -26,6 +26,10 @@ export interface Escrow {
     disputedAt: string | null;
     disputeReason: string | null;
     refundedAt: string | null;
+    /** The amount actually released — null until RELEASED. Equal to `amount` unless
+     *  penaltyApplied, in which case it's `amount` reduced by `penaltyPercent`. */
+    releasedAmount: string | null;
+    penaltyApplied: boolean;
 }
 
 export const escrowApi = {
@@ -64,6 +68,16 @@ export const escrowApi = {
     async blockRelease(contractId: string, reason: string): Promise<{ escrow: Escrow }> {
         try {
             const response = await apiClient.post(`/api/contracts/${contractId}/escrow/block`, { reason });
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
+    /** Resolves a DISPUTED escrow — the only way out of that status. */
+    async resolveDispute(contractId: string, applyPenalty: boolean): Promise<{ escrow: Escrow }> {
+        try {
+            const response = await apiClient.post(`/api/contracts/${contractId}/escrow/resolve-dispute`, { applyPenalty });
             return response.data;
         } catch (error) {
             throw new Error(handleApiError(error));

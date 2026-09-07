@@ -209,6 +209,13 @@ model ContractEscrow {
   disputedAt       DateTime?    @map("disputed_at")
   disputeReason    String?      @map("dispute_reason") @db.Text
   refundedAt       DateTime?    @map("refunded_at")
+  // The actual amount released — equal to `amount` unless a delay penalty was applied when
+  // resolving a DISPUTED escrow (see EscrowService.resolveDispute), in which case it's
+  // `amount` reduced by `penaltyPercent`. Null until actually released. Distinct from
+  // `amount` (the declared/deposited total) precisely so a penalty is a recorded fact, not
+  // something inferred after the fact from penaltyApplied + penaltyPercent alone.
+  releasedAmount   Decimal?     @db.Decimal(14, 2) @map("released_amount")
+  penaltyApplied   Boolean      @default(false) @map("penalty_applied")
   createdAt        DateTime     @default(now()) @map("created_at")
   updatedAt        DateTime     @updatedAt @map("updated_at")
 

@@ -31,4 +31,12 @@ router.post('/:id/escrow/release', authenticate, escrowController.releaseNow);
  */
 router.post('/:id/escrow/block', authenticate, escrowController.blockRelease);
 
+/**
+ * @route   POST /api/contracts/:id/escrow/resolve-dispute
+ * @desc    Creator resolves a DISPUTED escrow — the only way out of that status.
+ *          Body: { applyPenalty: boolean }
+ * @access  Private
+ */
+router.post('/:id/escrow/resolve-dispute', authenticate, escrowController.resolveDispute);
+
 module.exports = router;

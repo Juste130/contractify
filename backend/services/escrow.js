@@ -120,6 +120,51 @@ class EscrowService {
     }
 
     /**
+     * Resolves a DISPUTED escrow (one the creator previously blocked via blockRelease) —
+     * the only way out of that status until now: nothing else in this service could ever
+     * move a DISPUTED escrow anywhere else, so a blocked escrow stayed blocked forever.
+     *
+     * `applyPenalty: true` releases `amount` reduced by `penaltyPercent` — this is the actual
+     * implementation of the delay-penalty clause the generated contract text promises
+     * (`buildEscrowClause`, create-contract-page.tsx): until this method existed, that clause
+     * was never backed by any code path that could apply it. `releasedAmount` records
+     * whichever figure actually applied, distinct from the originally declared `amount`.
+     */
+    async resolveDispute(contractCacheId, userId, applyPenalty) {
+        const escrow = await this._getOwnedEscrow(contractCacheId, userId);
+        if (escrow.status !== 'DISPUTED') {
+            throw new ConflictError(`Ce séquestre n'est pas en litige (statut: ${escrow.status}).`);
+        }
+        if (applyPenalty && Number(escrow.penaltyPercent) <= 0) {
+            throw new BadRequestError("Aucune pénalité n'a été déclarée pour ce séquestre.");
+        }
+
+        const releasedAmount = applyPenalty
+            ? Number(escrow.amount) * (1 - Number(escrow.penaltyPercent) / 100)
+            : Number(escrow.amount);
+
+        const updated = await prisma.contractEscrow.update({
+            where: { id: escrow.id },
+            data: {
+                status: 'RELEASED',
+                releasedAt: new Date(),
+                releasedAmount,
+                penaltyApplied: applyPenalty,
+            },
+        });
+
+        await this._notifyParties(updated, {
+            type: 'ESCROW_RELEASED',
+            title: 'Litige résolu — séquestre libéré',
+            message: applyPenalty
+                ? `Le litige a été résolu avec application de la pénalité de retard (${escrow.penaltyPercent}%) : ${releasedAmount.toLocaleString('fr-FR')} ${escrow.currency} libérés sur ${Number(escrow.amount).toLocaleString('fr-FR')} ${escrow.currency} initialement séquestrés.`
+                : `Le litige a été résolu sans pénalité : le montant intégral (${releasedAmount.toLocaleString('fr-FR')} ${escrow.currency}) a été libéré.`,
+        });
+
+        return updated;
+    }
+
+    /**
      * Scheduler tick: sends the T-72h / T-48h / T-24h reminders to both parties for every
      * DEPOSITED escrow approaching its deadline. Idempotent — each window's *SentAt field
      * guards against sending the same reminder twice.
@@ -184,7 +229,11 @@ class EscrowService {
     async _release(escrow, trigger) {
         const updated = await prisma.contractEscrow.update({
             where: { id: escrow.id },
-            data: { status: 'RELEASED', releasedAt: new Date() },
+            // No penalty on this path by construction: releaseDue only ever fires on-time
+            // (no dispute open — see releaseDue above), and releaseNow is the creator
+            // releasing early/on-time by choice. A delay penalty only makes sense once a
+            // problem was actually flagged — that's resolveDispute, not this method.
+            data: { status: 'RELEASED', releasedAt: new Date(), releasedAmount: escrow.amount },
         });
 
         await this._notifyParties(updated, {

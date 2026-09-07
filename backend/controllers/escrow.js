@@ -96,3 +96,22 @@ exports.blockRelease = async (req, res, next) => {
         next(err);
     }
 };
+
+/**
+ * Creator resolves a DISPUTED escrow — the only way out of that status (previously none
+ * existed at all). `applyPenalty: true` releases the declared amount minus the declared
+ * delay penalty; otherwise the full amount.
+ */
+exports.resolveDispute = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { applyPenalty } = req.body;
+        const { error, contract } = await findOwnedContract(id, req.user.userId);
+        if (error) return res.status(error[0]).json({ error: error[1] });
+
+        const escrow = await escrowService.resolveDispute(contract.id, req.user.userId, applyPenalty === true);
+        res.json({ message: 'Litige résolu', escrow });
+    } catch (err) {
+        next(err);
+    }
+};

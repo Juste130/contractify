@@ -294,6 +294,19 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
     }
   }
 
+  const handleResolveDispute = async (applyPenalty: boolean) => {
+    setEscrowActionLoading(true)
+    setEscrowActionError(null)
+    try {
+      await escrowApi.resolveDispute(id, applyPenalty)
+      await fetchEscrow()
+    } catch (err: any) {
+      setEscrowActionError(err.message || "La résolution a échoué.")
+    } finally {
+      setEscrowActionLoading(false)
+    }
+  }
+
   const handleBlockEscrow = async () => {
     setEscrowActionLoading(true)
     setEscrowActionError(null)
@@ -774,16 +787,37 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
               )}
 
               {escrow.status === 'DISPUTED' && (
-                <p className="text-xs text-destructive flex items-center gap-1.5">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                  Libération bloquée par le créateur{escrow.disputeReason ? ` : ${escrow.disputeReason}` : ''}. En attente de résolution.
-                </p>
+                <div className="space-y-2">
+                  <p className="text-xs text-destructive flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    Libération bloquée par le créateur{escrow.disputeReason ? ` : ${escrow.disputeReason}` : ''}.
+                  </p>
+                  {isCreator && (
+                    <div className="p-3 rounded-lg bg-muted/50 border border-border/60 space-y-2">
+                      <p className="text-xs text-muted-foreground">Une fois le problème réglé avec l'autre partie, résolvez le litige :</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" onClick={() => handleResolveDispute(false)} disabled={escrowActionLoading} className="gap-2 bg-green-600 text-white hover:bg-green-700">
+                          {escrowActionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                          Libérer intégralement
+                        </Button>
+                        {Number(escrow.penaltyPercent) > 0 && (
+                          <Button size="sm" variant="outline" onClick={() => handleResolveDispute(true)} disabled={escrowActionLoading} className="gap-2 text-destructive border-destructive/30 hover:bg-destructive/5">
+                            <AlertCircle className="w-4 h-4" />
+                            Libérer avec pénalité ({escrow.penaltyPercent}%)
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               {escrow.status === 'RELEASED' && (
                 <p className="text-xs text-green-600 flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                  Fonds libérés{escrow.releasedAt ? ` le ${new Date(escrow.releasedAt).toLocaleDateString('fr-FR')}` : ''}.
+                  {escrow.penaltyApplied
+                    ? `Fonds libérés avec pénalité de retard appliquée : ${Number(escrow.releasedAmount).toLocaleString('fr-FR')} ${escrow.currency} sur ${Number(escrow.amount).toLocaleString('fr-FR')} ${escrow.currency} initialement séquestrés`
+                    : "Fonds libérés intégralement"}{escrow.releasedAt ? ` le ${new Date(escrow.releasedAt).toLocaleDateString('fr-FR')}` : ''}.
                 </p>
               )}
 
