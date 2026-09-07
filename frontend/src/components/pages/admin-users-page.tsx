@@ -59,6 +59,7 @@ import {
 const PAGE_SIZE = 20;
 
 const ROLE_LABEL: Record<string, string> = { ADMIN: "Admin", USER: "Éditeur", VIEWER: "Visionneur" };
+const KYC_LABEL: Record<string, string> = { NOT_VERIFIED: "Non vérifié", PENDING: "En cours", VERIFIED: "Vérifié", FAILED: "Échec" };
 
 function mapUser(u: AdminUser) {
     return {
@@ -72,6 +73,7 @@ function mapUser(u: AdminUser) {
         contracts: u._count?.contracts || 0,
         joinedDate: new Date(u.createdAt).toLocaleDateString("fr-FR"),
         walletAddress: u.wallet?.publicAddress || null,
+        kycStatus: u.kycStatus,
     };
 }
 
@@ -85,6 +87,7 @@ export function AdminUsersPage() {
     const [searchInput, setSearchInput] = useState("");
     const [search, setSearch] = useState("");
     const [roleFilter, setRoleFilter] = useState("all");
+    const [kycFilter, setKycFilter] = useState("all");
     const [page, setPage] = useState(1);
 
     const [users, setUsers] = useState<MappedUser[]>([]);
@@ -114,6 +117,7 @@ export function AdminUsersPage() {
                     page,
                     limit: PAGE_SIZE,
                     role: roleFilter === "all" ? undefined : roleFilter.toUpperCase(),
+                    kycStatus: kycFilter === "all" ? undefined : kycFilter,
                     search: search || undefined,
                 }),
                 usersApi.getUsersSummary(),
@@ -126,7 +130,7 @@ export function AdminUsersPage() {
         } finally {
             setLoading(false);
         }
-    }, [page, roleFilter, search]);
+    }, [page, roleFilter, kycFilter, search]);
 
     useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
@@ -253,6 +257,18 @@ export function AdminUsersPage() {
                                 <SelectItem value="viewer">Visionneur</SelectItem>
                             </SelectContent>
                         </Select>
+                        <Select value={kycFilter} onValueChange={(v) => { setKycFilter(v); setPage(1); }}>
+                            <SelectTrigger className="w-full md:w-[200px] bg-background">
+                                <SelectValue placeholder="Filtrer par identité" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">Identité — tous statuts</SelectItem>
+                                <SelectItem value="VERIFIED">Vérifiée</SelectItem>
+                                <SelectItem value="PENDING">En cours</SelectItem>
+                                <SelectItem value="NOT_VERIFIED">Non vérifiée</SelectItem>
+                                <SelectItem value="FAILED">Échec</SelectItem>
+                            </SelectContent>
+                        </Select>
                     </div>
                 </Card>
 
@@ -264,6 +280,7 @@ export function AdminUsersPage() {
                                 <TableHead>Utilisateur</TableHead>
                                 <TableHead>Email</TableHead>
                                 <TableHead>Rôle</TableHead>
+                                <TableHead>Identité</TableHead>
                                 <TableHead>Contrats</TableHead>
                                 <TableHead>Inscrit le</TableHead>
                                 <TableHead>Statut</TableHead>
@@ -273,13 +290,13 @@ export function AdminUsersPage() {
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={7} className="py-12">
+                                    <TableCell colSpan={8} className="py-12">
                                         <Spinner size="md" label="Chargement des utilisateurs…" />
                                     </TableCell>
                                 </TableRow>
                             ) : users.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
                                         Aucun utilisateur ne correspond à ces critères.
                                     </TableCell>
                                 </TableRow>
@@ -302,6 +319,19 @@ export function AdminUsersPage() {
                                             <Badge className={getRoleBadgeColor(user.role)}>
                                                 {getRoleIcon(user.role)}
                                                 {user.role}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Badge
+                                                variant="outline"
+                                                className={
+                                                    user.kycStatus === "VERIFIED" ? "border-green-500/30 text-green-600" :
+                                                    user.kycStatus === "PENDING" ? "border-blue-500/30 text-blue-500" :
+                                                    user.kycStatus === "FAILED" ? "border-destructive/30 text-destructive" :
+                                                    "border-border text-muted-foreground"
+                                                }
+                                            >
+                                                {KYC_LABEL[user.kycStatus] || user.kycStatus}
                                             </Badge>
                                         </TableCell>
                                         <TableCell>{user.contracts}</TableCell>
@@ -399,6 +429,10 @@ export function AdminUsersPage() {
                                 <div>
                                     <p className="text-muted-foreground mb-1">Contrats</p>
                                     <p>{profileUser.contracts}</p>
+                                </div>
+                                <div>
+                                    <p className="text-muted-foreground mb-1">Identité</p>
+                                    <p>{KYC_LABEL[profileUser.kycStatus] || profileUser.kycStatus}</p>
                                 </div>
                             </div>
                             {profileUser.walletAddress && (

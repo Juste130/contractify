@@ -99,10 +99,11 @@ exports.getWallet = async (req, res, next) => {
  */
 exports.getAllUsers = async (req, res, next) => {
     try {
-        const { page = 1, limit = 20, role, search } = req.query;
+        const { page = 1, limit = 20, role, search, kycStatus } = req.query;
 
         const where = {};
         if (role) where.role = role;
+        if (kycStatus) where.kycStatus = kycStatus;
         if (search) {
             where.email = { contains: search, mode: 'insensitive' };
         }

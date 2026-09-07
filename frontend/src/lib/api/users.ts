@@ -82,6 +82,7 @@ export const usersApi = {
         limit?: number;
         role?: string;
         search?: string;
+        kycStatus?: string;
     }): Promise<{
         users: AdminUser[];
         pagination: {
