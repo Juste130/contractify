@@ -147,4 +147,17 @@ if (config.pinataJwt) {
     }
 }
 
+// KYC mock mode (see the `kyc` block above) approves anyone automatically after a simulated
+// delay and skips webhook signature verification entirely — exactly right for building and
+// demoing the feature before a Smile ID partner account exists, and exactly wrong to have on
+// by accident once real money/legal weight is riding on a signature. It defaults to true
+// whenever KYC_MOCK_MODE isn't set at all, so a forgotten env var in production is a real,
+// plausible way to end up here — same fail-fast-in-production posture as the checks above.
+if (config.nodeEnv === 'production' && config.kyc.mockMode) {
+    throw new Error(
+        'KYC_MOCK_MODE is active in production. Set KYC_MOCK_MODE=false and configure ' +
+        'SMILE_ID_PARTNER_ID/SMILE_ID_API_KEY, or identity verification will approve anyone automatically without checking anything.'
+    );
+}
+
 module.exports = { config };
