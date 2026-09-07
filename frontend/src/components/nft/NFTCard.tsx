@@ -101,7 +101,7 @@ export function NFTCard({
     <div className="border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-center justify-between mb-3">
         <Badge variant="outline" className="gap-1 border-[#FFC107] text-[#FFC107]">
-          <ShieldCheck className="size-3.5" /> NFT Contract #{tokenId}
+          <ShieldCheck className="size-3.5" /> Certificat #{tokenId}
         </Badge>
         <span className="text-xs text-muted-foreground">ID: {contractId}</span>
       </div>
@@ -121,7 +121,7 @@ export function NFTCard({
         {/* eslint-disable-next-line @next/next/no-img-element -- server-generated SVG, not an optimizable local asset */}
         <img
           src={`${API_URL}/api/nft/${tokenId}/image.svg`}
-          alt={`Certificat NFT #${tokenId}`}
+          alt={`Certificat #${tokenId}`}
           className="w-full aspect-square object-cover"
           loading="lazy"
         />
@@ -150,8 +150,12 @@ export function NFTCard({
           </p>
         ) : (
           <div className="space-y-1.5 text-[11px]">
+            {/* "Créateur du contrat", pas "Propriétaire" : ce champ affiche toujours
+                l'adresse du créateur (seul destinataire du mint) — sur un contrat à
+                plusieurs signataires, "propriétaire" laissait croire à un co-signataire que
+                quelqu'un d'autre "possédait" son propre contrat. */}
             <div className="flex items-center justify-between gap-2">
-              <span className="text-muted-foreground">Propriétaire</span>
+              <span className="text-muted-foreground">Créateur du contrat</span>
               <button
                 type="button"
                 onClick={copyOwner}

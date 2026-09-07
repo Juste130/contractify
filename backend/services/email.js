@@ -182,7 +182,7 @@ class EmailService {
       heading: 'Votre contrat est actif !',
       bodyHtml: `
         <p style="color: #4B4B42; line-height: 1.7; margin-bottom: 8px;">
-          Toutes les signatures ont été collectées. Le contrat suivant est maintenant actif sur la blockchain, et un NFT de preuve a été généré avec succès :
+          Toutes les signatures ont été collectées. Le contrat suivant est maintenant actif sur la blockchain, et un certificat de preuve a été généré avec succès :
         </p>
       `,
       contractTitle: safeTitle,

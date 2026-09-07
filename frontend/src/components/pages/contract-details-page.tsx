@@ -1134,7 +1134,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-muted-foreground">Type</span>
-                    <span className="font-medium">Contrat NFT</span>
+                    <span className="font-medium">Contrat certifié</span>
                   </div>
                   {contract.metadata?.expiresAt && (
                     <div className="flex justify-between items-center">
@@ -1189,8 +1189,8 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                       ) : (
                         <p className="text-[11px] text-muted-foreground italic">
                           {contract.status === 'ACTIVE' || contract.status === 'COMPLETED'
-                            ? "Certificat NFT en cours de synchronisation..."
-                            : "Le certificat NFT sera disponible une fois toutes les signatures collectées."}
+                            ? "Certificat en cours de synchronisation..."
+                            : "Le certificat sera disponible une fois toutes les signatures collectées."}
                         </p>
                       )}
                       <Button variant="outline" className="w-full text-xs gap-2" asChild>
