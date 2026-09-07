@@ -302,6 +302,26 @@ model SchedulerLock {
   @@map("scheduler_locks")
 }
 
+// One row per health check tick (see services/sync-health.js) — not just an in-memory flag
+// on the running process, so an admin dashboard sees the same result regardless of which
+// instance actually ran the check, and survives a restart. A count mismatch between
+// getTotalContracts() (live) and cached deployed contracts means the event listener missed
+// at least one ContractCreated — the most severe, and cheapest to detect, failure mode of
+// the background sync (see blockchain-sync.js's own event polling).
+model SyncHealthCheck {
+  id                 String   @id @default(uuid())
+  checkedAt          DateTime @default(now()) @map("checked_at")
+  onChainTotal       Int      @map("on_chain_total")
+  cachedTotal        Int      @map("cached_total")
+  drifted            Boolean  @default(false)
+  // Populated only by the deeper, less frequent reconciliation pass (per-contract status
+  // comparison) — the fast tick only ever compares totals, never lists individual contracts.
+  driftedContractIds Json?    @map("drifted_contract_ids")
+
+  @@index([checkedAt])
+  @@map("sync_health_checks")
+}
+
 // ==================== NOTIFICATIONS ====================
 
 enum NotificationType {

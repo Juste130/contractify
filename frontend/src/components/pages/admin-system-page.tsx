@@ -10,13 +10,21 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Shield, Server, AlertCircle, CheckCircle, Activity, XCircle, Loader2, PauseCircle, PlayCircle } from "lucide-react";
+import { Shield, Server, AlertCircle, CheckCircle, Activity, XCircle, Loader2, PauseCircle, PlayCircle, GitCompareArrows } from "lucide-react";
+
+interface SyncHealthCheck {
+    checkedAt: string;
+    onChainTotal: number;
+    cachedTotal: number;
+    drifted: boolean;
+}
 
 export function AdminSystemPage() {
     const [apiStatus, setApiStatus] = useState<'loading' | 'online' | 'offline'>('loading');
     const [dbStatus, setDbStatus] = useState<'loading' | 'online' | 'offline'>('loading');
     const [pauseState, setPauseState] = useState<{ paused: boolean; pausedAt: number; owner: string; emergencyAdmin: string } | null>(null);
     const [chainStatus, setChainStatus] = useState<'loading' | 'online' | 'offline'>('loading');
+    const [syncHealth, setSyncHealth] = useState<SyncHealthCheck | null | undefined>(undefined);
     const [pauseReason, setPauseReason] = useState("");
     const [pauseConfirmText, setPauseConfirmText] = useState("");
     const [pauseActionLoading, setPauseActionLoading] = useState(false);
@@ -48,6 +56,13 @@ export function AdminSystemPage() {
             }
         };
         checkHealth();
+
+        // Latest result from the sync-health scheduler (services/sync-health.js, runs every
+        // 15min server-side) — not a live check triggered by loading this page, just its most
+        // recent finding, so this call is cheap regardless of how often an admin refreshes.
+        apiClient.get('/api/contracts/admin/sync-health')
+            .then((res) => setSyncHealth(res.data.latest))
+            .catch(() => setSyncHealth(null));
     }, []);
 
     const refreshPauseState = async () => {
@@ -142,6 +157,49 @@ export function AdminSystemPage() {
                             <StatusBadge status={dbStatus} />
                         </div>
                     </div>
+                </Card>
+
+                {/* Sync health — on-chain contract count vs ContractCache, see services/sync-health.js */}
+                <Card className="p-6 mb-6">
+                    <div className="flex items-center gap-2 mb-4">
+                        <GitCompareArrows className="w-5 h-5" />
+                        <h3>Synchronisation blockchain ↔ cache</h3>
+                    </div>
+                    {syncHealth === undefined ? (
+                        <p className="text-sm text-muted-foreground">Chargement…</p>
+                    ) : syncHealth === null ? (
+                        <p className="text-sm text-muted-foreground">
+                            Aucune vérification enregistrée pour l'instant — le premier passage du planificateur (au démarrage du serveur) n'a pas encore eu lieu.
+                        </p>
+                    ) : (
+                        <>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                <div className="bg-muted p-4 rounded-lg">
+                                    <p className="text-sm text-muted-foreground mb-1">Contrats sur la blockchain</p>
+                                    <p className="font-medium tabular-nums">{syncHealth.onChainTotal}</p>
+                                </div>
+                                <div className="bg-muted p-4 rounded-lg">
+                                    <p className="text-sm text-muted-foreground mb-1">Contrats en cache</p>
+                                    <p className="font-medium tabular-nums">{syncHealth.cachedTotal}</p>
+                                </div>
+                                <div className="flex items-center justify-between p-4 rounded-lg bg-muted">
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">État</p>
+                                        <p className="font-medium">{syncHealth.drifted ? "Désynchronisé" : "Synchronisé"}</p>
+                                    </div>
+                                    {syncHealth.drifted ? (
+                                        <Badge className="bg-destructive text-white"><AlertCircle className="w-3 h-3 mr-1" />Écart détecté</Badge>
+                                    ) : (
+                                        <Badge className="bg-[#4CAF50] text-white"><CheckCircle className="w-3 h-3 mr-1" />OK</Badge>
+                                    )}
+                                </div>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                Dernière vérification : {new Date(syncHealth.checkedAt).toLocaleString('fr-FR')}.
+                                {syncHealth.drifted && " Un écart signifie que l'écouteur d'événements a manqué au moins un contrat créé sur la chaîne — vérifiez les logs serveur (blockchain-sync.js)."}
+                            </p>
+                        </>
+                    )}
                 </Card>
 
                 {/* Emergency Admin — read-only, real on-chain addresses */}

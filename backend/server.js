@@ -9,6 +9,7 @@ const { errorHandler } = require('./middleware/error-handler');
 const { generalLimiter } = require('./middleware/rate-limit');
 const blockchainSyncService = require('./services/blockchain-sync');
 const escrowScheduler = require('./services/escrow-scheduler');
+const syncHealthScheduler = require('./services/sync-health');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -103,6 +104,7 @@ app.listen(PORT, async () => {
     }
 
     escrowScheduler.start();
+    syncHealthScheduler.start();
 });
 
 module.exports = app;

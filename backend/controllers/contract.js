@@ -651,3 +651,16 @@ exports.getAdminContractsSummary = async (req, res, next) => {
         next(error);
     }
 };
+
+// Surfaces the last sync-health check (see services/sync-health.js) on /admin/system —
+// the admin's earliest signal that the background event listener missed a ContractCreated
+// and the cache has silently drifted from the chain, well before it would otherwise show up
+// as a user-facing "contract not found".
+exports.getSyncHealth = async (req, res, next) => {
+    try {
+        const latest = await prisma.syncHealthCheck.findFirst({ orderBy: { checkedAt: 'desc' } });
+        res.json({ latest });
+    } catch (error) {
+        next(error);
+    }
+};

@@ -96,4 +96,11 @@ router.get('/admin/all', authenticate, requireAdmin, contractController.getAllCo
  */
 router.get('/admin/summary', authenticate, requireAdmin, contractController.getAdminContractsSummary);
 
+/**
+ * @route   GET /api/contracts/admin/sync-health
+ * @desc    Latest on-chain vs cache drift check (admin only)
+ * @access  Private/Admin
+ */
+router.get('/admin/sync-health', authenticate, requireAdmin, contractController.getSyncHealth);
+
 module.exports = router;
