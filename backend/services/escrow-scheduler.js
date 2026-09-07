@@ -1,7 +1,7 @@
 const logger = require('../utils/logger');
 const { config } = require('../config');
 const escrowService = require('./escrow');
-const prisma = require('../models/prisma');
+const { acquireLock, releaseLock } = require('../utils/scheduler-lock');
 
 let interval = null;
 
@@ -11,41 +11,12 @@ const LOCK_NAME = 'escrow-scheduler';
 const LOCK_TTL_MS = 2 * 60 * 1000;
 
 /**
- * A setInterval scheduler is per-process — with more than one instance running (scaling
- * horizontally), each would fire its own tick concurrently and double-send reminders or
- * double-release escrows. This is a simple Postgres-backed advisory lock (no Redis needed):
- * claim by inserting the lock row, or by stealing it if the previous holder's lock expired.
- */
-async function acquireLock() {
-    const now = new Date();
-    const lockedUntil = new Date(now.getTime() + LOCK_TTL_MS);
-    try {
-        await prisma.schedulerLock.create({ data: { name: LOCK_NAME, lockedAt: now, lockedUntil } });
-        return true;
-    } catch {
-        const result = await prisma.schedulerLock.updateMany({
-            where: { name: LOCK_NAME, lockedUntil: { lt: now } },
-            data: { lockedAt: now, lockedUntil },
-        });
-        return result.count > 0;
-    }
-}
-
-async function releaseLock() {
-    try {
-        await prisma.schedulerLock.delete({ where: { name: LOCK_NAME } });
-    } catch {
-        // Already released or reclaimed after expiry — fine either way.
-    }
-}
-
-/**
  * Periodically sends the T-72h/48h/24h reminders and releases escrows whose deadline has
  * arrived. Runs independently of whether a real payment provider is wired — it's pure
  * date/status logic.
  */
 async function tick() {
-    if (!(await acquireLock())) {
+    if (!(await acquireLock(LOCK_NAME, LOCK_TTL_MS))) {
         logger.info('[Escrow] Scheduler tick skipped: another instance holds the lock');
         return;
     }
@@ -58,7 +29,7 @@ async function tick() {
     } catch (error) {
         logger.error('[Escrow] Scheduler tick failed:', error);
     } finally {
-        await releaseLock();
+        await releaseLock(LOCK_NAME);
     }
 }
 
