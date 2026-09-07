@@ -715,12 +715,17 @@ contract ContractManager is Ownable, ReentrancyGuard {
      * @dev Mint le NFT de preuve après toutes les signatures
      */
     function _mintContractNFT(uint256 contractId) internal returns (uint256) {
-        ContractData memory contractData = contracts[contractId];
-        
-        // Récupération de tous les signataires pour le NFT
-        SignerInfo[] memory signers = contractSigners[contractId];
+        // A single field, not `ContractData memory contractData = contracts[contractId]` —
+        // the old version copied the ENTIRE struct into memory (both TerminationInfo and
+        // DisputeInfo nested structs, each holding several `string` fields) just to read
+        // `.creator` below. One SLOAD instead of copying the whole thing.
+        address creator = contracts[contractId].creator;
+
+        // Récupération de tous les signataires pour le NFT — `storage`, same reasoning as
+        // _getAllParticipants: only `.signer` is read per element.
+        SignerInfo[] storage signers = contractSigners[contractId];
         address[] memory signerAddresses = new address[](signers.length);
-        
+
         for (uint256 i = 0; i < signers.length; i++) {
             signerAddresses[i] = signers[i].signer;
         }
@@ -728,7 +733,7 @@ contract ContractManager is Ownable, ReentrancyGuard {
         // Appel externe vers ContractNFT pour créer la preuve — après mise à jour de l'état
         // du contrat dans _finalizeContract (pattern Checks-Effects-Interactions).
         uint256 tokenId = contractNFT.mintContractNFT(
-            contractData.creator,           // Propriétaire du NFT
+            creator,                         // Propriétaire du NFT
             contractIpfsHashes[contractId], // Hash IPFS du document
             signerAddresses                 // Tous les signataires
         );
@@ -741,8 +746,12 @@ contract ContractManager is Ownable, ReentrancyGuard {
      * @dev Vérifie si toutes les signatures sont collectées
      */
     function _allSignaturesCollected(uint256 contractId) internal view returns (bool) {
-        SignerInfo[] memory signers = contractSigners[contractId];
-        
+        // `storage`, not `memory`: this only ever reads `.hasSignedContract` per element, but
+        // a `memory` copy of the whole array pays to copy every field of every SignerInfo —
+        // including `customRole`, a `string` — for data this loop never touches. A `storage`
+        // pointer costs an SLOAD per field actually read instead.
+        SignerInfo[] storage signers = contractSigners[contractId];
+
         for (uint256 i = 0; i < signers.length; i++) {
             if (!signers[i].hasSignedContract) {
                 return false;
@@ -765,8 +774,11 @@ contract ContractManager is Ownable, ReentrancyGuard {
      * @dev Vérifie si l'adresse est un participant
      */
     function _isContractParticipant(uint256 contractId, address user) internal view returns (bool) {
-        SignerInfo[] memory signers = contractSigners[contractId];
-        
+        // `storage`: same reasoning as _allSignaturesCollected above — only `.signer` is ever
+        // read here, a `memory` copy would pay to duplicate every SignerInfo's `customRole`
+        // string too, on every single call to onlyParticipant.
+        SignerInfo[] storage signers = contractSigners[contractId];
+
         for (uint256 i = 0; i < signers.length; i++) {
             if (signers[i].signer == user) {
                 return true;
@@ -796,7 +808,10 @@ contract ContractManager is Ownable, ReentrancyGuard {
      * @dev Récupère tous les participants
      */
     function _getAllParticipants(uint256 contractId) internal view returns (address[] memory) {
-        SignerInfo[] memory signers = contractSigners[contractId];
+        // `storage` for the source — only `.signer` is read per element; the `memory` array
+        // built below is the actual return value this function needs, not a full copy of the
+        // source (which would also duplicate every `customRole` string for nothing).
+        SignerInfo[] storage signers = contractSigners[contractId];
         address[] memory participants = new address[](signers.length);
         
         for (uint256 i = 0; i < signers.length; i++) {
