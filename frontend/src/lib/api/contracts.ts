@@ -222,6 +222,10 @@ export const contractsApi = {
         contractId: number | null;
         sha256Hash: string | null;
         isExternalPdf: boolean;
+        /** True when status/hash/signatures below were just re-read live from the smart
+         *  contract rather than served from the cache — false means the on-chain read failed
+         *  and the response fell back to the (still trustworthy, just not freshly-verified) cache. */
+        verifiedOnChain: boolean;
         signatories: { name: string | null; hasSigned: boolean }[];
     }> {
         try {

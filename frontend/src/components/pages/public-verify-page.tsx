@@ -23,6 +23,7 @@ interface VerificationData {
   contractId: number | null;
   sha256Hash: string | null;
   isExternalPdf: boolean;
+  verifiedOnChain: boolean;
   signatories: { name: string | null; hasSigned: boolean }[];
 }
 
@@ -88,6 +89,24 @@ export function PublicVerifyPage({ id }: PublicVerifyPageProps) {
                   <p>{data.contractId ? `Polygon Amoy · ID ${data.contractId}` : "En attente de déploiement"}</p>
                 </div>
               </div>
+
+              {/* Distinguishes a value just re-read from the smart contract itself from one
+                  merely served out of ContracTify's own database cache — the entire point of a
+                  public, no-account verification page is to let a stranger confirm a claim
+                  independently of trusting ContracTify's backend, so this page should say so
+                  plainly rather than silently presenting both the same way. */}
+              {data.contractId && (
+                data.verifiedOnChain ? (
+                  <div className="flex items-center gap-1.5 text-xs text-[#4CAF50] font-medium bg-[#4CAF50]/10 rounded-lg px-3 py-2">
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                    Statut et signatures reconfirmés en direct sur la blockchain Polygon
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground bg-muted rounded-lg px-3 py-2">
+                    Statut servi depuis le cache ContracTify (relecture directe de la blockchain indisponible pour le moment)
+                  </div>
+                )
+              )}
 
               {/* Le CID IPFS n'est volontairement pas affiché ici : c'est la clé d'accès
                   directe au document complet (original importé ou texte intégral), pas un

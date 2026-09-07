@@ -544,12 +544,43 @@ exports.getPublicVerification = async (req, res, next) => {
 
         if (!contract) return res.status(404).json({ error: 'Contract not found' });
 
-        const signedAddresses = new Set(
+        // This is the one read path in the whole app that deliberately bypasses the cache:
+        // everywhere else, ContractCache is the correct source (fast, cheap, and it carries
+        // hybrid off-chain data — escrow, KYC, incidents — that never existed on-chain to begin
+        // with). But the entire point of a *public* verification page is to let a stranger with
+        // no ContracTify account confirm a claim independently of ContracTify's own database —
+        // trusting the cache here would defeat that. So when this contract is deployed
+        // (contractId set), re-derive status/hash/signatures from the chain itself and let that
+        // override the cache; if the RPC call fails for any reason, fall back to the cache
+        // rather than break the page, but say so via verifiedOnChain: false so the UI can be
+        // honest about which source answered.
+        let status = contract.status;
+        let sha256Hash = contract.metadata?.sha256Hash || null;
+        let signedAddresses = new Set(
             (contract.metadata?.signers || [])
                 .filter((s) => s.hasSigned)
                 .map((s) => s.address?.toLowerCase())
                 .filter(Boolean)
         );
+        let verifiedOnChain = false;
+
+        if (contract.contractId != null && blockchainSyncService.contractManager) {
+            try {
+                const details = await blockchainSyncService.contractManager.getContractDetails(contract.contractId);
+                const contractData = details.contractData;
+                status = blockchainSyncService.mapContractStatus(contractData.status);
+                sha256Hash = contractData.sha256Hash || sha256Hash;
+                signedAddresses = new Set(
+                    details.signers
+                        .filter((s) => s.hasSignedContract)
+                        .map((s) => s.signer?.toLowerCase())
+                        .filter(Boolean)
+                );
+                verifiedOnChain = true;
+            } catch (error) {
+                logger.warn(`Public verification: on-chain read failed for contract ${contract.contractId}, falling back to cache:`, error.message);
+            }
+        }
 
         // Deliberately NOT ipfsHash: a CID isn't an opaque identifier, it's the actual
         // retrieval key for the full document on any public IPFS gateway
@@ -564,11 +595,12 @@ exports.getPublicVerification = async (req, res, next) => {
         res.json({
             title: contract.title,
             reference: contract.reference,
-            status: contract.status,
+            status,
             createdAt: contract.createdAt,
             contractId: contract.contractId,
-            sha256Hash: contract.metadata?.sha256Hash || null,
+            sha256Hash,
             isExternalPdf: !!contract.metadata?.isExternalPdf,
+            verifiedOnChain,
             signatories: contract.signatories.map((s) => ({
                 name: s.name || null,
                 hasSigned: s.walletAddress ? signedAddresses.has(s.walletAddress.toLowerCase()) : false,
