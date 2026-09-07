@@ -33,7 +33,9 @@ import {
   Gavel,
   PauseCircle,
   XCircle,
+  QrCode,
 } from "lucide-react"
+import Link from "next/link"
 import { KycSignatureModal } from "@/components/contract/kyc-signature-modal"
 import { SignaturePanel } from "@/components/contract/signaturePanel"
 import { PdfPreviewFrame } from "@/components/contract/pdf-preview-frame"
@@ -961,17 +963,42 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
                   <div className="flex items-center gap-2">
                     {!contract.metadata?.isExternalPdf && <AiBadge />}
                     <span className="text-[10px] text-muted-foreground">PDF certifié blockchain</span>
+                    {/* Previously this verification link existed only inside a downloaded PDF
+                        certificate (see pdfGenerator.ts's QR code) — nothing on-screen pointed
+                        anyone at the same public, no-account verification page, even though the
+                        page itself has existed since Point 3. */}
+                    <Link
+                      href={`/verify/${contract.contractId || contract.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
+                    >
+                      <QrCode className="w-3 h-3" />
+                      Vérifier ce contrat
+                    </Link>
                   </div>
                 </div>
 
                 {contract.metadata?.isExternalPdf ? (
-                  <div className="w-full h-[800px] bg-gray-100">
-                    <PdfPreviewFrame
-                      url={ipfsApi.getProxyUrl(contract.ipfsHash)}
-                      fallbackUrl={ipfsApi.getPublicUrl(contract.ipfsHash)}
-                      title="Contrat PDF"
-                      className="w-full h-full border-0"
-                    />
+                  <div>
+                    <div className="w-full h-[800px] bg-gray-100">
+                      <PdfPreviewFrame
+                        url={ipfsApi.getProxyUrl(contract.ipfsHash)}
+                        fallbackUrl={ipfsApi.getPublicUrl(contract.ipfsHash)}
+                        title="Contrat PDF"
+                        className="w-full h-full border-0"
+                      />
+                    </div>
+                    {/* The AI-generated branch below has always carried this footer; an
+                        imported PDF is rendered as a bare, unbranded file inside the iframe
+                        with nothing around it confirming it's the same certified, blockchain-
+                        anchored document ContracTify tracks — this closes that gap. */}
+                    <div className="border-t border-gray-100 bg-white py-4 px-6">
+                      <p className="text-[9px] text-gray-400 text-center">
+                        Document original certifié par ContracTify • Ancré sur Polygon Blockchain
+                        {contract.ipfsHash && ` • IPFS: ${contract.ipfsHash.slice(0, 16)}...`}
+                      </p>
+                    </div>
                   </div>
                 ) : (
                   /* A4-style paper with shadow for premium feel */
