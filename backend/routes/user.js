@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/user');
 const { authenticate, requireAdmin } = require('../middleware/auth');
-const { walletLimiter } = require('../middleware/rate-limit');
+const { walletLimiter, inviteLimiter } = require('../middleware/rate-limit');
 
 /**
  * @route   GET /api/users/me
@@ -33,6 +33,13 @@ router.get('/wallet', authenticate, walletLimiter, userController.getWallet);
 router.get('/', authenticate, requireAdmin, userController.getAllUsers);
 
 /**
+ * @route   GET /api/users/summary
+ * @desc    Platform-wide user counts, not truncated by pagination (admin only)
+ * @access  Private/Admin
+ */
+router.get('/summary', authenticate, requireAdmin, userController.getUsersSummary);
+
+/**
  * @route   PUT /api/users/:userId/role
  * @desc    Update user role (admin only)
  * @access  Private/Admin
@@ -41,9 +48,23 @@ router.put('/:userId/role', authenticate, requireAdmin, userController.updateUse
 
 /**
  * @route   DELETE /api/users/:userId
- * @desc    Deactivate user (admin only)
+ * @desc    Deactivate ("suspend") user (admin only)
  * @access  Private/Admin
  */
 router.delete('/:userId', authenticate, requireAdmin, userController.deactivateUser);
+
+/**
+ * @route   POST /api/users/:userId/activate
+ * @desc    Reactivate a suspended user (admin only)
+ * @access  Private/Admin
+ */
+router.post('/:userId/activate', authenticate, requireAdmin, userController.activateUser);
+
+/**
+ * @route   POST /api/users/invite
+ * @desc    Invite someone without a ContracTify account yet, by email
+ * @access  Private (any authenticated user)
+ */
+router.post('/invite', authenticate, inviteLimiter, userController.inviteUser);
 
 module.exports = router;

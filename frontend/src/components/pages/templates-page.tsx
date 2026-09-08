@@ -12,56 +12,64 @@ import {
   FileSignature,
   Plus,
   Search,
-  Pencil,
-  Trash2
+  LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TemplateSelector } from "@/components/contract/templateSelector";
+import { CONTRACT_TEMPLATES } from "@/lib/contract-templates";
+
+// Purely cosmetic — the actual list of supported contract types (fields, prompt content)
+// lives in @/lib/contract-templates and is shared with the creation wizard.
+const TEMPLATE_ICONS: Record<string, LucideIcon> = {
+  cdi: Briefcase,
+  cdd: Briefcase,
+  freelance: Users,
+  location: Home,
+  nda: FileSignature,
+  commercial: Briefcase,
+  custom: FileSignature,
+};
+
+// Kept disabled for now: this page duplicated the template picker already built into the
+// create-contract wizard's step 1 without adding anything the wizard doesn't already do,
+// and "Mes modèles personnalisés" was a permanent dead empty state. Rather than delete the
+// gallery code, it's gated behind this flag so it's a one-line flip once this page has a
+// real reason to exist (e.g. actual custom template management, usage stats, search).
+const GALLERY_ENABLED: boolean = false;
 
 export function TemplatesPage() {
   const router = useRouter();
 
-  const aiTemplates = [
-    {
-      id: 1,
-      name: "CDI",
-      icon: Briefcase,
-      description: "Contrat de travail à durée indéterminée conforme au droit du travail (OHADA / Bénin)",
-    },
-    {
-      id: 2,
-      name: "Freelance",
-      icon: Users,
-      description: "Contrat de prestation de services pour travailleurs indépendants",
-    },
-    {
-      id: 3,
-      name: "Location",
-      icon: Home,
-      description: "Bail de location immobilière résidentielle ou commerciale",
-    },
-    {
-      id: 4,
-      name: "NDA",
-      icon: FileSignature,
-      description: "Accord de confidentialité pour protéger vos informations sensibles",
-    },
-    {
-      id: 5,
-      name: "Commercial",
-      icon: Briefcase,
-      description: "Contrat commercial B2B pour relations d'affaires",
-    },
-    {
-      id: 6,
-      name: "CDD",
-      icon: Briefcase,
-      description: "Contrat de travail à durée déterminée",
-    },
-  ];
+  const aiTemplates = CONTRACT_TEMPLATES.filter((t) => t.id !== "custom").map((t) => ({
+    id: t.id,
+    name: t.name,
+    icon: TEMPLATE_ICONS[t.id] ?? FileSignature,
+    description: t.description,
+  }));
 
-  const customTemplates: { id: number; name: string; description: string; createdDate: string; uses: number }[] = [];
+  if (!GALLERY_ENABLED) {
+    return (
+      <div className="flex min-h-screen bg-muted">
+        <AppSidebar />
+        <main className="flex-1 transition-all duration-300 flex items-center justify-center" style={{ marginLeft: 'var(--sidebar-width, 256px)', padding: '2rem' }}>
+          <Card className="p-12 text-center max-w-md">
+            <FileSignature className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+            <h1 className="mb-2">Modèles de contrats</h1>
+            <p className="text-muted-foreground mb-6">
+              Cette page arrive prochainement. Pour créer un contrat, utilisez directement le bouton ci-dessous : le choix du type de contrat s'y fait déjà à la première étape.
+            </p>
+            <Link href="/create-contract">
+              <Button className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300]">
+                <Plus className="w-5 h-5 mr-2" />
+                Créer un contrat
+              </Button>
+            </Link>
+          </Card>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-muted">
@@ -105,66 +113,27 @@ export function TemplatesPage() {
 
           <TemplateSelector
             templates={aiTemplates.map(t => ({ ...t, isAi: true }))}
-            onSelect={() => router.push('/create-contract')}
+            onSelect={(tpl) => router.push(`/create-contract?template=${tpl.id}`)}
           />
         </div>
 
-        {/* Custom Templates */}
+        {/* Custom Templates — not implemented yet; shown as an honest "coming soon" rather
+            than a dead-empty table with buttons that would never do anything. */}
         <div>
-          <h2 className="mb-6">Mes modèles personnalisés</h2>
+          <div className="flex items-center gap-3 mb-6">
+            <h2>Mes modèles personnalisés</h2>
+            <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-muted text-muted-foreground">
+              Bientôt disponible
+            </span>
+          </div>
 
-          {customTemplates.length > 0 ? (
-            <div className="space-y-4">
-              {customTemplates.map((template) => (
-                <Card key={template.id} className="p-6">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex-1">
-                      <h3 className="mb-2">{template.name}</h3>
-                      <p className="text-sm text-muted-foreground mb-2">
-                        {template.description}
-                      </p>
-                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                        <span>Créé le {template.createdDate}</span>
-                        <span>•</span>
-                        <span>{template.uses} utilisations</span>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button variant="outline" size="sm">
-                        <Pencil className="w-4 h-4 mr-2" />
-                        Modifier
-                      </Button>
-                      <Button
-                        className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300]"
-                        onClick={() => router.push('/create-contract')}
-                      >
-                        Utiliser
-                      </Button>
-                      <Button variant="ghost" size="sm" aria-label="Supprimer le modèle">
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <Card className="p-12 text-center">
-              <Plus className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="mb-2">Aucun modèle personnalisé</h3>
-              <p className="text-muted-foreground mb-6">
-                Créez vos propres modèles pour gagner du temps
-              </p>
-              <Button
-                className="bg-[#FFC107] text-[#212121] hover:bg-[#FFB300]"
-                onClick={() => router.push('/create-contract')}
-              >
-                <Plus className="w-5 h-5 mr-2" />
-                Créer un modèle
-              </Button>
-            </Card>
-          )}
+          <Card className="p-12 text-center">
+            <Plus className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="mb-2">Bientôt disponible</h3>
+            <p className="text-muted-foreground">
+              La création de modèles personnalisés arrive prochainement. En attendant, utilisez l'un des modèles générés par IA ci-dessus.
+            </p>
+          </Card>
         </div>
       </main>
     </div>

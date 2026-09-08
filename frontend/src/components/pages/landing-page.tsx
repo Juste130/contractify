@@ -11,7 +11,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "../ui/accordion";
-import { ImageWithFallback } from "../figma/ImageWithFallback";
+import { SealMark } from "../layout/seal-mark";
 
 export function LandingPage() {
   const features = [
@@ -23,7 +23,7 @@ export function LandingPage() {
     {
       icon: Shield,
       title: "Sécurité",
-      description: "Vos données sont protégées avec un chiffrement de niveau bancaire"
+      description: "Vos données sont chiffrées et vos contrats ancrés sur la blockchain"
     },
     {
       icon: Smile,
@@ -57,7 +57,7 @@ export function LandingPage() {
     },
     {
       question: "Mes données sont-elles sécurisées ?",
-      answer: "Absolument. Nous utilisons un chiffrement de niveau bancaire pour toutes vos données. De plus, notre infrastructure blockchain garantit l'intégrité et la traçabilité de tous vos contrats."
+      answer: "Vos données sont chiffrées, et chaque contrat est ancré sur Polygon, un réseau blockchain public, ce qui garantit l'intégrité et la traçabilité de tous vos contrats."
     },
     {
       question: "Puis-je personnaliser les modèles générés par l'IA ?",
@@ -106,13 +106,35 @@ export function LandingPage() {
             </div>
           </div>
 
-          <div className="mt-16 flex justify-center">
-            <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-border w-full max-w-4xl transition-transform hover:scale-[1.01] duration-300">
-              <ImageWithFallback
-                src="https://images.unsplash.com/photo-1748609339084-ea43ec1b8fbb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBidXNpbmVzcyUyMGRhc2hib2FyZHxlbnwxfHx8fDE3NjYwMDAyNjN8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
-                alt="Dashboard Contractify"
-                className="w-full object-cover"
-              />
+          <div className="mt-14 flex justify-center">
+            {/* A generic stock photo mislabeled "Dashboard ContracTify" used to sit here — not
+                an actual screenshot of the product, and full-width enough to dominate the hero.
+                This is an honest illustration instead: it doesn't claim to be product UI, and
+                stays a supporting visual rather than the first thing a visitor's eye lands on. */}
+            <div className="relative w-full max-w-sm">
+              <div className="absolute -inset-3 bg-gradient-to-br from-[#FFC107]/15 to-transparent rounded-3xl blur-xl" aria-hidden="true" />
+              <div className="relative bg-card border border-border rounded-2xl shadow-xl p-6">
+                <div className="flex items-center justify-between mb-5">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contrat de prestation</span>
+                  <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-[#4CAF50] bg-[#4CAF50]/10 px-2 py-1 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#4CAF50]" /> Signé
+                  </span>
+                </div>
+                <div className="space-y-2 mb-5">
+                  <div className="h-2.5 bg-muted rounded w-full" />
+                  <div className="h-2.5 bg-muted rounded w-11/12" />
+                  <div className="h-2.5 bg-muted rounded w-4/5" />
+                  <div className="h-2.5 bg-muted rounded w-full" />
+                  <div className="h-2.5 bg-muted rounded w-3/5" />
+                </div>
+                <div className="flex items-center justify-between pt-4 border-t border-border">
+                  <div className="flex items-center gap-2">
+                    <SealMark className="w-7 h-7 shrink-0" />
+                    <span className="text-[11px] text-muted-foreground font-mono">Ancré · Polygon</span>
+                  </div>
+                  <span className="text-[11px] text-muted-foreground font-mono">a3f9…c21e</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -122,7 +144,7 @@ export function LandingPage() {
       <section id="features" className="py-20 bg-muted px-4 sm:px-6 lg:px-8">
         <div className="container mx-auto max-w-6xl">
           <div className="text-center mb-12">
-            <h2 className="mb-4">Pourquoi choisir Contractify ?</h2>
+            <h2 className="mb-4">Pourquoi choisir ContracTify ?</h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
               Une solution complète pour transformer votre gestion de contrats
             </p>
@@ -254,7 +276,7 @@ export function LandingPage() {
           <div className="text-center mb-12">
             <h2 className="mb-4">Questions fréquentes</h2>
             <p className="text-muted-foreground">
-              Tout ce que vous devez savoir sur Contractify
+              Tout ce que vous devez savoir sur ContracTify
             </p>
           </div>
 
@@ -278,7 +300,7 @@ export function LandingPage() {
             Prêt à simplifier vos contrats ?
           </h2>
           <p className="text-[#212121]/80 text-xl mb-8">
-            Rejoignez des milliers d'entreprises qui font confiance à Contractify
+            Rejoignez les entreprises et indépendants qui font confiance à ContracTify
           </p>
           <Link href="/signup">
             <Button

@@ -12,15 +12,19 @@ const errorHandler = (err, req, res, next) => {
     let statusCode = err.statusCode || 500;
     let message = err.message || 'Internal server error';
 
-    // Fallback for non-AppError exceptions using legacy string matching
-    if (!(err instanceof AppError) && err.message) {
-        if (err.message.includes('not found')) {
+    // Fallback for third-party/uncaught exceptions (Prisma, ethers, raw thrown strings...) that
+    // never go through AppError and so carry no real statusCode. Only runs when nothing already
+    // set one above — guards against ever overwriting a genuine statusCode some future non-
+    // AppError error type might carry, and this whole block is a best-effort heuristic, not
+    // meant to run at all once every app-thrown error already extends AppError above.
+    if (statusCode === 500 && !(err instanceof AppError) && err.message) {
+        if (/\bnot found\b/i.test(err.message)) {
             statusCode = 404;
-        } else if (err.message.includes('Invalid') || err.message.includes('already exists')) {
+        } else if (/\binvalid\b/i.test(err.message) || /\balready exists\b/i.test(err.message)) {
             statusCode = 400;
-        } else if (err.message.includes('Unauthorized') || err.message.includes('Invalid token')) {
+        } else if (/\bunauthorized\b/i.test(err.message) || /\binvalid token\b/i.test(err.message)) {
             statusCode = 401;
-        } else if (err.message.includes('Forbidden') || err.message.includes('permissions')) {
+        } else if (/\bforbidden\b/i.test(err.message) || /\bpermissions\b/i.test(err.message)) {
             statusCode = 403;
         }
     }

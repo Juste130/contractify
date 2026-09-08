@@ -1,0 +1,17 @@
+<svg width="240" height="240" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg">
+  <!-- Standalone copy of src/app/icon.svg (Le Sceau) for contexts outside Next's own icon
+       pipeline — currently the Privy login modal's `appearance.logo` and the emails sent
+       from backend/services/email.js, both of which need a stable public URL rather than
+       Next's internally-managed /icon.svg route. Exact geometry/colors from the concept
+       artifact — keep in sync with icon.svg and the sidebar's inline copy if it changes. -->
+  <circle cx="120" cy="120" r="100" fill="#FFC107"/>
+  <circle cx="204" cy="120" r="5" fill="#15180F"/><circle cx="192.7" cy="162" r="5" fill="#15180F"/>
+  <circle cx="162" cy="192.7" r="5" fill="#15180F"/><circle cx="120" cy="204" r="5" fill="#15180F"/>
+  <circle cx="78" cy="192.7" r="5" fill="#15180F"/><circle cx="47.3" cy="162" r="5" fill="#15180F"/>
+  <circle cx="36" cy="120" r="5" fill="#15180F"/><circle cx="47.3" cy="78" r="5" fill="#15180F"/>
+  <circle cx="78" cy="47.3" r="5" fill="#15180F"/><circle cx="120" cy="36" r="5" fill="#15180F"/>
+  <circle cx="162" cy="47.3" r="5" fill="#15180F"/><circle cx="192.7" cy="78" r="5" fill="#15180F"/>
+  <circle cx="120" cy="120" r="54" fill="none" stroke="#15180F" stroke-width="22"/>
+  <rect x="110" y="75" width="95" height="90" fill="#FFC107"/>
+  <circle cx="178" cy="155" r="8" fill="#15180F"/>
+</svg>

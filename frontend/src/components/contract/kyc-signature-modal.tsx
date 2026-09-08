@@ -16,10 +16,13 @@ import {
   FileCheck2,
   PenLine,
   ChevronRight,
+  ChevronDown,
   AlertTriangle,
   Loader2,
   CheckCircle2,
 } from "lucide-react"
+import { signatureLegalBasisClause } from "@/lib/contract-templates"
+import { computeSHA256, computeRemoteFileSHA256 } from "@/lib/utils/hash"
 
 interface KycSignatureModalProps {
   open: boolean
@@ -28,25 +31,30 @@ interface KycSignatureModalProps {
   contractTitle: string
   contractContent?: string
   originalHash?: string
+  /** CID of the file on IPFS — only meaningful (and only shown) for an imported PDF, where
+   *  `originalHash` is a real SHA-256 of the file's bytes and this is a separate identifier. */
+  ipfsCid?: string
+  /** Full gateway URL for the imported file — used to re-fetch and re-hash it at signature
+   *  time (see `computeRemoteFileSHA256`), so an import gets the same live integrity check
+   *  an AI-generated contract already had, instead of only checking the hash once at upload. */
+  ipfsUrl?: string
   signerName?: string
   signerEmail?: string
-}
-
-async function computeSHA256(text: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(text);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  /** Country of execution, used to cite the right country's e-signature law instead of
+   *  a fixed EU/eIDAS reference that doesn't apply outside the EU/EEA. */
+  country?: string
+  /** Free-text legal basis entered by the creator when `country` isn't one of the mapped
+   *  ones — see `signatureLegalBasisClause`. */
+  customLegalBasis?: string
 }
 
 const STEPS = [
   {
     id: "identity",
     icon: UserCheck,
-    title: "Vérification d'identité",
+    title: "Confirmation d'identité",
     description:
-      "Confirmez que vous êtes bien la personne autorisée à signer ce contrat. Votre identité est liée à votre compte et à votre portefeuille numérique.",
+      "Confirmez que vous êtes bien la personne autorisée à signer ce contrat, via le compte et le portefeuille numérique déjà connectés à cette session. Il ne s'agit pas d'une vérification d'identité par pièce officielle.",
     color: "text-blue-500",
     bg: "bg-blue-500/10",
     border: "border-blue-500/20",
@@ -66,7 +74,7 @@ const STEPS = [
     icon: PenLine,
     title: "Signature électronique",
     description:
-      "En cliquant sur « Signer », vous apposez votre signature électronique certifiée. Cette action déclenchera une transaction immuable sur la blockchain.",
+      "En cliquant sur « Signer », vous apposez votre signature électronique. Cette action déclenchera une transaction immuable sur la blockchain.",
     color: "text-emerald-500",
     bg: "bg-emerald-500/10",
     border: "border-emerald-500/20",
@@ -80,27 +88,64 @@ export function KycSignatureModal({
   contractTitle,
   contractContent,
   originalHash,
+  ipfsCid,
+  ipfsUrl,
   signerName,
   signerEmail,
+  country,
+  customLegalBasis,
 }: KycSignatureModalProps) {
   const [currentStep, setCurrentStep] = useState(0)
   const [agreed, setAgreed] = useState(false)
   const [signing, setSigning] = useState(false)
   const [done, setDone] = useState(false)
   const [calculatedHash, setCalculatedHash] = useState<string>("")
+  const isImportedPdf = contractContent === "CONTRAT_PDF_EXTERNE"
+  // Only meaningful for an imported PDF: re-fetched and re-hashed from the gateway, not
+  // just re-displayed from what was computed once at upload time (see hash.ts).
+  const [calculatedFileHash, setCalculatedFileHash] = useState<string | null>(null)
+  const [checkingFileHash, setCheckingFileHash] = useState(false)
+  // Raw hash strings are exactly the kind of detail that reassures a technical user and
+  // alarms/confuses everyone else — collapsed by default, one click away for the curious.
+  const [showHashDetails, setShowHashDetails] = useState(false)
 
   useEffect(() => {
-    if (open && contractContent) {
+    if (open && contractContent && !isImportedPdf) {
       computeSHA256(contractContent).then(setCalculatedHash);
     }
-  }, [open, contractContent]);
+  }, [open, contractContent, isImportedPdf]);
+
+  useEffect(() => {
+    if (!open || !isImportedPdf || !ipfsUrl) return;
+    setCheckingFileHash(true);
+    setCalculatedFileHash(null);
+    computeRemoteFileSHA256(ipfsUrl)
+      .then(setCalculatedFileHash)
+      .finally(() => setCheckingFileHash(false));
+  }, [open, isImportedPdf, ipfsUrl]);
 
   const step = STEPS[currentStep]
   const isLastStep = currentStep === STEPS.length - 1
+  // A warning that doesn't actually stop the signature isn't a safeguard — if the displayed
+  // text doesn't match the hash the platform itself certified, signing it is blocked
+  // outright rather than left to a checkbox the user might click past without reading.
+  // For an imported PDF, the same guarantee now applies to the file itself: the gateway is
+  // re-fetched and re-hashed live rather than trusting the hash computed once at upload.
+  // A failed re-fetch (`calculatedFileHash === null` after checking) never blocks signing —
+  // a network/CORS hiccup on the gateway is not evidence of tampering.
+  const hasHashMismatch = isImportedPdf
+    ? (calculatedFileHash !== null && calculatedFileHash !== originalHash)
+    : (calculatedHash !== "" && calculatedHash !== originalHash)
+
+  // A genuine integrity problem must never stay hidden behind a collapsed "for the curious"
+  // section — force it open the moment it's detected, regardless of the user's own toggle.
+  useEffect(() => {
+    if (hasHashMismatch) setShowHashDetails(true)
+  }, [hasHashMismatch])
 
   const handleNext = async () => {
     if (isLastStep) {
-      if (!agreed) return
+      if (!agreed || hasHashMismatch) return
       try {
         setSigning(true)
         await onConfirm()
@@ -219,25 +264,48 @@ export function KycSignatureModal({
               {currentStep === 1 && (
                 <>
                   <div className="flex flex-col gap-2 p-3 rounded-lg bg-muted/40 border border-border/50 mb-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                      <p className="text-xs font-bold">Vérification de l'intégrité {contractContent !== "CONTRAT_PDF_EXTERNE" && "(SHA-256)"}</p>
-                    </div>
-                    {contractContent === "CONTRAT_PDF_EXTERNE" ? (
-                      <div className="text-[10px] font-mono break-all space-y-1">
-                        <p className="text-emerald-500 font-bold">Intégrité du fichier PDF garantie par IPFS</p>
-                        <p><span className="text-muted-foreground">CID (Hash) :</span> {originalHash || "N/A"}</p>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="text-[10px] font-mono break-all space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowHashDetails((v) => !v)}
+                      className="flex items-center justify-between gap-2 w-full text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <ShieldCheck className={`w-4 h-4 ${hasHashMismatch ? "text-destructive" : "text-emerald-500"}`} />
+                        <span className="text-xs font-bold">Vérification de l'intégrité</span>
+                        {!hasHashMismatch && (
+                          <span className="text-[10px] text-emerald-600 font-medium">✓ Conforme</span>
+                        )}
+                      </span>
+                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0">
+                        Détails techniques
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showHashDetails ? "rotate-180" : ""}`} />
+                      </span>
+                    </button>
+
+                    {hasHashMismatch && (
+                      <p className="text-[10px] text-destructive font-bold">
+                        ⚠ {isImportedPdf
+                          ? "Le fichier actuellement servi diffère de celui certifié à l'import"
+                          : "Le texte affiché diffère de la version originale certifiée"} — la signature est bloquée tant que cet écart n'est pas résolu.
+                      </p>
+                    )}
+
+                    {showHashDetails && (
+                      isImportedPdf ? (
+                        <div className="text-[10px] font-mono break-all space-y-1 pt-1 border-t border-border/40">
+                          <p className={hasHashMismatch ? "text-destructive font-bold" : "text-emerald-500 font-bold"}>
+                            {hasHashMismatch ? "Le fichier servi ne correspond plus à l'empreinte certifiée" : "Intégrité du fichier PDF garantie par empreinte SHA-256 et IPFS"}
+                          </p>
+                          <p><span className="text-muted-foreground">Fichier resservi depuis IPFS :</span> {checkingFileHash ? "Calcul en cours..." : (calculatedFileHash ?? "Non vérifiable (réseau/gateway indisponible)")}</p>
+                          <p><span className="text-muted-foreground">Empreinte SHA-256 certifiée :</span> {originalHash || "N/A"}</p>
+                          <p><span className="text-muted-foreground">Identifiant IPFS (CID) :</span> {ipfsCid || "N/A"}</p>
+                        </div>
+                      ) : (
+                        <div className="text-[10px] font-mono break-all space-y-1 pt-1 border-t border-border/40">
                           <p><span className="text-muted-foreground">Texte affiché :</span> <span className={calculatedHash === originalHash ? "text-emerald-500" : "text-amber-500"}>{calculatedHash || "Calcul en cours..."}</span></p>
                           <p><span className="text-muted-foreground">Original (IPFS) :</span> {originalHash || "N/A"}</p>
                         </div>
-                        {calculatedHash !== originalHash && calculatedHash !== "" && (
-                          <p className="text-[10px] text-destructive mt-1 font-bold">⚠ Attention : Le texte affiché diffère de la version originale certifiée.</p>
-                        )}
-                      </>
+                      )
                     )}
                   </div>
 
@@ -270,8 +338,7 @@ export function KycSignatureModal({
                   />
                   <label htmlFor="kyc-agree" className="text-xs cursor-pointer leading-relaxed">
                     Je confirme avoir lu et compris le contrat dans son intégralité. Je
-                    consens à apposer ma signature électronique ayant valeur légale, en
-                    accord avec la réglementation eIDAS.
+                    consens à apposer {signatureLegalBasisClause(country, customLegalBasis)}.
                   </label>
                 </div>
               )}
@@ -289,7 +356,7 @@ export function KycSignatureModal({
                 <Button
                   className="flex-1 gap-2"
                   onClick={handleNext}
-                  disabled={(isLastStep && !agreed) || signing}
+                  disabled={(isLastStep && (!agreed || hasHashMismatch)) || signing}
                 >
                   {signing ? (
                     <>

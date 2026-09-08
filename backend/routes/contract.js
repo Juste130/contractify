@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const contractController = require('../controllers/contract');
 const { authenticate, requireAdmin } = require('../middleware/auth');
+const { resendLimiter } = require('../middleware/rate-limit');
 
 /**
  * @route   POST /api/contracts/draft
@@ -29,7 +30,7 @@ router.post('/draft/:id/deploy', authenticate, contractController.markDraftDeplo
  * @desc    Resend an invitation/signature request email to a signatory who hasn't signed yet
  * @access  Private
  */
-router.post('/:id/resend-signature', authenticate, contractController.resendSignatureRequest);
+router.post('/:id/resend-signature', authenticate, resendLimiter, contractController.resendSignatureRequest);
 
 /**
  * @route   GET /api/contracts/cached
@@ -74,10 +75,32 @@ router.get('/search', authenticate, contractController.searchContracts);
 router.get('/:contractId', authenticate, contractController.getContractDetails);
 
 /**
+ * @route   GET /api/contracts/verify/:id
+ * @desc    Public, unauthenticated verification lookup (title, status, hash, signatories'
+ *          names + signed status only) — what the QR code on a downloaded certificate points to
+ * @access  Public
+ */
+router.get('/verify/:id', contractController.getPublicVerification);
+
+/**
  * @route   GET /api/contracts/admin/all
  * @desc    Get all contracts (admin only)
  * @access  Private/Admin
  */
 router.get('/admin/all', authenticate, requireAdmin, contractController.getAllContracts);
+
+/**
+ * @route   GET /api/contracts/admin/summary
+ * @desc    Platform-wide contract counts by status, not truncated by pagination (admin only)
+ * @access  Private/Admin
+ */
+router.get('/admin/summary', authenticate, requireAdmin, contractController.getAdminContractsSummary);
+
+/**
+ * @route   GET /api/contracts/admin/sync-health
+ * @desc    Latest on-chain vs cache drift check (admin only)
+ * @access  Private/Admin
+ */
+router.get('/admin/sync-health', authenticate, requireAdmin, contractController.getSyncHealth);
 
 module.exports = router;

@@ -2,33 +2,19 @@
 
 import { useState, useEffect } from "react";
 import apiClient from "@/lib/api/client";
+import { analyticsApi, MonthlyStat } from "@/lib/api/analytics";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Card } from "@/components/ui/card";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { TrendingUp, Users, FileText, CheckCircle } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
+import { LineChart, Line, BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { TrendingUp, TrendingDown, Users, FileText, CheckCircle } from "lucide-react";
 
 export function AdminAnalyticsPage() {
     const [stats, setStats] = useState({ totalUsers: 0, totalContracts: 0, signedContracts: 0 });
+    const [monthly, setMonthly] = useState<MonthlyStat[]>([]);
+    const [userGrowthPercent, setUserGrowthPercent] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
-
-    // Static chart data (no dedicated analytics endpoint yet)
-    const userGrowthData = [
-        { month: 'Jan', users: 10 },
-        { month: 'Fév', users: 15 },
-        { month: 'Mar', users: 25 },
-        { month: 'Avr', users: 35 },
-        { month: 'Mai', users: 42 },
-        { month: 'Juin', users: 50 },
-    ];
-
-    const contractsData = [
-        { month: 'Jan', created: 5, signed: 3 },
-        { month: 'Fév', created: 8, signed: 6 },
-        { month: 'Mar', created: 12, signed: 10 },
-        { month: 'Avr', created: 15, signed: 12 },
-        { month: 'Mai', created: 18, signed: 15 },
-        { month: 'Juin', created: 22, signed: 20 },
-    ];
+    const [chartsLoading, setChartsLoading] = useState(true);
 
     useEffect(() => {
         const fetchStats = async () => {
@@ -61,6 +47,21 @@ export function AdminAnalyticsPage() {
             }
         };
         fetchStats();
+    }, []);
+
+    useEffect(() => {
+        const fetchMonthly = async () => {
+            try {
+                const res = await analyticsApi.getMonthlyStats(6);
+                setMonthly(res.months);
+                setUserGrowthPercent(res.userGrowthPercent);
+            } catch (error) {
+                console.error('Error fetching monthly analytics:', error);
+            } finally {
+                setChartsLoading(false);
+            }
+        };
+        fetchMonthly();
     }, []);
 
     return (
@@ -135,45 +136,97 @@ export function AdminAnalyticsPage() {
                                 <TrendingUp className="w-6 h-6 text-[#2196F3]" />
                             </div>
                             <div>
-                                <p className="text-sm text-muted-foreground">Croissance</p>
-                                <p className="text-2xl font-bold">+18%</p>
-                                <p className="text-xs text-muted-foreground">vs mois dernier</p>
+                                <p className="text-sm text-muted-foreground">Croissance utilisateurs</p>
+                                <p className="text-2xl font-bold">
+                                    {chartsLoading ? '…' : userGrowthPercent === null ? 'N/A' : `${userGrowthPercent > 0 ? '+' : ''}${userGrowthPercent}%`}
+                                </p>
+                                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                    {userGrowthPercent !== null && (userGrowthPercent >= 0
+                                        ? <TrendingUp className="w-3 h-3 text-[#4CAF50]" />
+                                        : <TrendingDown className="w-3 h-3 text-destructive" />)}
+                                    vs mois dernier
+                                </p>
                             </div>
                         </div>
                     </Card>
                 </div>
 
-                {/* Charts */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Charts — données réelles issues de /api/analytics/monthly (nouveaux comptes,
+                    contrats créés/signés, connexions), plus aucune donnée fictive codée en dur. */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                     <Card className="p-6">
                         <h3 className="mb-4">Croissance des utilisateurs</h3>
-                        <ResponsiveContainer width="100%" height={300}>
-                            <LineChart data={userGrowthData}>
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis dataKey="month" />
-                                <YAxis />
-                                <Tooltip />
-                                <Legend />
-                                <Line type="monotone" dataKey="users" stroke="#FFC107" strokeWidth={2} />
-                            </LineChart>
-                        </ResponsiveContainer>
+                        {chartsLoading ? (
+                            <div className="h-[300px] flex items-center justify-center">
+                                <Spinner size="md" />
+                            </div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height={300}>
+                                <LineChart data={monthly}>
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis dataKey="label" />
+                                    <YAxis allowDecimals={false} />
+                                    <Tooltip />
+                                    <Legend />
+                                    <Line type="monotone" dataKey="users" name="Nouveaux utilisateurs" stroke="#FFC107" strokeWidth={2} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        )}
                     </Card>
 
                     <Card className="p-6">
                         <h3 className="mb-4">Contrats créés vs signés</h3>
-                        <ResponsiveContainer width="100%" height={300}>
-                            <BarChart data={contractsData}>
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis dataKey="month" />
-                                <YAxis />
-                                <Tooltip />
-                                <Legend />
-                                <Bar dataKey="created" fill="#FFC107" />
-                                <Bar dataKey="signed" fill="#4CAF50" />
-                            </BarChart>
-                        </ResponsiveContainer>
+                        {chartsLoading ? (
+                            <div className="h-[300px] flex items-center justify-center">
+                                <Spinner size="md" />
+                            </div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height={300}>
+                                <BarChart data={monthly}>
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis dataKey="label" />
+                                    <YAxis allowDecimals={false} />
+                                    <Tooltip />
+                                    <Legend />
+                                    <Bar dataKey="contractsCreated" name="Créés" fill="#FFC107" />
+                                    <Bar dataKey="contractsSigned" name="Signés" fill="#4CAF50" />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        )}
                     </Card>
                 </div>
+
+                {/* Affluence — activité de connexion par mois (une entrée par connexion réussie),
+                    le proxy le plus honnête disponible pour "fréquentation" sans mettre en place
+                    un tracker de pages vues dédié (qui soulèverait des questions de vie privée/
+                    consentement distinctes de ce chantier). */}
+                <Card className="p-6">
+                    <h3 className="mb-1">Affluence — connexions par mois</h3>
+                    <p className="text-xs text-muted-foreground mb-4">
+                        Nombre de connexions réussies à la plateforme, par mois.
+                    </p>
+                    {chartsLoading ? (
+                        <div className="h-[280px] flex items-center justify-center">
+                            <Spinner size="md" />
+                        </div>
+                    ) : (
+                        <ResponsiveContainer width="100%" height={280}>
+                            <AreaChart data={monthly}>
+                                <defs>
+                                    <linearGradient id="affluenceFill" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#2196F3" stopOpacity={0.35} />
+                                        <stop offset="95%" stopColor="#2196F3" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="label" />
+                                <YAxis allowDecimals={false} />
+                                <Tooltip />
+                                <Area type="monotone" dataKey="logins" name="Connexions" stroke="#2196F3" fill="url(#affluenceFill)" strokeWidth={2} />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    )}
+                </Card>
             </main>
         </div>
     );

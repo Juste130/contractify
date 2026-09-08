@@ -7,6 +7,9 @@ export interface User {
     isActive: boolean;
     createdAt: string;
     profileData?: any;
+    kycStatus: 'NOT_VERIFIED' | 'PENDING' | 'VERIFIED' | 'FAILED';
+    kycVerifiedAt: string | null;
+    hasSeenKycPrompt: boolean;
 }
 
 export interface Wallet {
@@ -19,6 +22,11 @@ export interface Wallet {
 
 export interface UserWithWallet extends User {
     wallet: Wallet;
+}
+
+export interface AdminUser extends User {
+    wallet: Wallet | null;
+    _count: { contracts: number };
 }
 
 export const usersApi = {
@@ -74,8 +82,9 @@ export const usersApi = {
         limit?: number;
         role?: string;
         search?: string;
+        kycStatus?: string;
     }): Promise<{
-        users: User[];
+        users: AdminUser[];
         pagination: {
             page: number;
             limit: number;
@@ -85,6 +94,18 @@ export const usersApi = {
     }> {
         try {
             const response = await apiClient.get('/api/users', { params });
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
+    /**
+     * Platform-wide user counts, not truncated by pagination (admin only)
+     */
+    async getUsersSummary(): Promise<{ total: number; active: number; suspended: number; admins: number }> {
+        try {
+            const response = await apiClient.get('/api/users/summary');
             return response.data;
         } catch (error) {
             throw new Error(handleApiError(error));
@@ -109,11 +130,36 @@ export const usersApi = {
     },
 
     /**
-     * Deactivate user (admin only)
+     * Deactivate ("suspend") a user (admin only)
      */
-    async deactivateUser(userId: string): Promise<void> {
+    async deactivateUser(userId: string): Promise<{ user: User }> {
         try {
-            await apiClient.delete(`/api/users/${userId}`);
+            const response = await apiClient.delete(`/api/users/${userId}`);
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
+    /**
+     * Reactivate a previously suspended user (admin only)
+     */
+    async activateUser(userId: string): Promise<{ user: User }> {
+        try {
+            const response = await apiClient.post(`/api/users/${userId}/activate`);
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
+    /**
+     * Invite someone who doesn't have a ContracTify account yet, by email
+     */
+    async inviteUser(email: string): Promise<{ message: string }> {
+        try {
+            const response = await apiClient.post('/api/users/invite', { email });
+            return response.data;
         } catch (error) {
             throw new Error(handleApiError(error));
         }

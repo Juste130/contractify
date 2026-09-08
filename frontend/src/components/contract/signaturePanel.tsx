@@ -58,6 +58,9 @@ export function SignaturePanel({
           </>
         )}
       </Button>
+      <p className="text-[11px] text-muted-foreground mt-3 text-center">
+        Action immédiate et définitive, ancrée sur la blockchain.
+      </p>
     </Card>
   );
 }

@@ -47,6 +47,7 @@ Ensure you have:
 - Node.js 20+
 - npm 10+ (official package manager for all sub-projects)
 - PostgreSQL 14+
+- Redis (optional, for caching)
 - Git
 - A GitHub account
 
@@ -85,6 +86,8 @@ npm install
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env.local
 ```
+
+> ⚠️ **Never commit `.env` or `.env.local`** — they're already gitignored. Fill them with your own local/testnet values. Production secrets live in Vercel's and Render's dashboards, not in the repo — see the [Deployment section of the README](./README.md#-deployment).
 
 ### Start Development
 

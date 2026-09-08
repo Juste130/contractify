@@ -5,7 +5,12 @@ const ipfsController = require('../controllers/ipfs');
 const { authenticate } = require('../middleware/auth');
 const { BadRequestError } = require('../utils/errors');
 
-const ALLOWED_MIME_TYPES = ['application/pdf'];
+// 'application/pdf' — the "J'ai déjà un contrat (PDF)" import flow.
+// 'text/html' — the AI-generated contract, rendered as a self-contained styled document
+// (see renderContractToHtml / create-contract-page.tsx) so opening it on IPFS shows an
+// actual formatted document instead of a raw JSON blob or an unstyled wall of plain text.
+// 'text/plain' kept for compatibility with anything still uploading raw text.
+const ALLOWED_MIME_TYPES = ['application/pdf', 'text/html', 'text/plain'];
 
 // Configure multer for file upload
 const upload = multer({
@@ -14,8 +19,10 @@ const upload = multer({
         fileSize: 10 * 1024 * 1024, // 10MB limit
     },
     fileFilter: (req, file, cb) => {
-        if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-            return cb(new BadRequestError('Type de fichier non autorisé. Seuls les PDF sont acceptés.'));
+        // Browsers can send "text/plain;charset=utf-8" — compare on the type only.
+        const baseType = file.mimetype.split(';')[0].trim();
+        if (!ALLOWED_MIME_TYPES.includes(baseType)) {
+            return cb(new BadRequestError('Type de fichier non autorisé. Seuls les PDF et les fichiers texte sont acceptés.'));
         }
         cb(null, true);
     },
@@ -34,6 +41,15 @@ router.post('/upload', authenticate, upload.single('file'), ipfsController.uploa
  * @access  Private
  */
 router.post('/upload-json', authenticate, ipfsController.uploadJSON);
+
+/**
+ * @route   GET /api/ipfs/proxy/:cid
+ * @desc    Streams a pinned document (e.g. an imported PDF) back through this app's own
+ *          origin instead of the browser talking to the IPFS gateway directly — see
+ *          proxyDocument for why (gateway CORS/framing headers we don't control).
+ * @access  Private (creator, signatory, or admin of the contract that owns this CID)
+ */
+router.get('/proxy/:cid', authenticate, ipfsController.proxyDocument);
 
 /**
  * @route   GET /api/ipfs/:cid

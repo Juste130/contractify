@@ -12,6 +12,8 @@ import { Spinner } from "../ui/spinner";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { contractsApi } from "@/lib/api/contracts";
+import { getEffectiveStatus, getStatusBadgeVariant } from "@/lib/contract-status";
+import { formatReference } from "@/lib/utils/contractNaming";
 import {
   Table,
   TableBody,
@@ -37,35 +39,62 @@ import {
   AlertCircle
 } from "lucide-react";
 
+// "Resigned" has no dedicated chip: no on-chain function ever sets that status today (see
+// ContractManager.sol), so it would always show a permanent, confusing "0" — the label and
+// badge still handle it correctly if that ever changes, it just isn't worth a filter yet.
+const STATUS_FILTERS: { label: string; id: string }[] = [
+  { label: 'Tous', id: 'all' },
+  { label: 'Brouillons', id: 'draft' },
+  { label: 'En attente', id: 'pending' },
+  { label: 'Signés', id: 'signed' },
+  { label: 'Complétés', id: 'completed' },
+  { label: 'Litiges', id: 'disputed' },
+  { label: 'Résiliés', id: 'terminated' },
+  { label: 'Annulés', id: 'cancelled' },
+  { label: 'Expirés', id: 'expired' },
+];
+
 export function ContractsPage() {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
 
-  const { data: contractsData, isLoading, error } = useQuery({
-    queryKey: ['contracts', 'cached', filterStatus],
-    queryFn: () => contractsApi.getCachedContracts({
-      status: filterStatus === "all" ? undefined : filterStatus.toUpperCase(),
-      limit: 50
-    }),
+  // Unfiltered by status, paged through in full — filtering and the chip counts both happen
+  // client-side below, across every grouped category (not just what the API's exact-match
+  // status param could express), so they need the complete set, not a truncated first page.
+  // This was previously capped at a flat `limit: 50`: any contract beyond that was silently
+  // invisible, and the chip counts (computed from that same truncated array) quietly went
+  // wrong past 50 too. A personal "my contracts" list is bounded by one account's real usage
+  // (unlike the platform-wide admin list), so paging through it in full — capped at 20 pages /
+  // 2000 contracts as a sanity ceiling, not a expected real limit — stays cheap and correct
+  // without needing new server-side filtering.
+  const { data: contracts = [], isLoading, error } = useQuery({
+    queryKey: ['contracts', 'cached', 'all'],
+    queryFn: async () => {
+      const first = await contractsApi.getCachedContracts({ page: 1, limit: 100 });
+      const all = [...first.contracts];
+      const totalPages = Math.min(first.pagination.pages || 1, 20);
+      if (totalPages > 1) {
+        const rest = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, i) => contractsApi.getCachedContracts({ page: i + 2, limit: 100 }))
+        );
+        for (const r of rest) all.push(...r.contracts);
+      }
+      return all;
+    },
   });
 
-  const contracts = contractsData?.contracts || [];
+  const statusCounts = contracts.reduce<Record<string, number>>((acc, c) => {
+    const key = getStatusBadgeVariant(getEffectiveStatus(c));
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
 
   const filteredContracts = contracts.filter((contract) => {
-    return contract.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = filterStatus === "all" || getStatusBadgeVariant(getEffectiveStatus(contract)) === filterStatus;
+    const matchesSearch = contract.title.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesStatus && matchesSearch;
   });
-
-  const getStatusLabel = (status: string) => {
-    switch (status.toUpperCase()) {
-      case 'PENDING_SIGNATURES': return 'pending';
-      case 'ACTIVE': return 'signed';
-      case 'COMPLETED': return 'completed';
-      case 'CANCELLED': return 'cancelled';
-      case 'DISPUTED': return 'disputed';
-      default: return 'pending';
-    }
-  };
 
   return (
     <div className="flex min-h-screen bg-muted">
@@ -94,21 +123,25 @@ export function ContractsPage() {
         <Card className="p-4 mb-6">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex gap-2 flex-wrap">
-              {[
-                { label: 'Tous', id: 'all' },
-                { label: 'En attente', id: 'pending_signatures' },
-                { label: 'Signés', id: 'active' },
-                { label: 'Complétés', id: 'completed' }
-              ].map((btn) => (
-                <Button
-                  key={btn.id}
-                  variant={filterStatus === btn.id ? "default" : "outline"}
-                  onClick={() => setFilterStatus(btn.id)}
-                  className={filterStatus === btn.id ? "bg-[#FFC107] text-[#212121] hover:bg-[#FFB300]" : ""}
-                >
-                  {btn.label}
-                </Button>
-              ))}
+              {STATUS_FILTERS.map((btn) => {
+                const count = btn.id === 'all' ? contracts.length : (statusCounts[btn.id] || 0);
+                // Hide empty categories past "Tous" — a wall of permanently-zero chips
+                // (Litiges, Résiliés...) is just clutter for an account that's never had one.
+                if (btn.id !== 'all' && count === 0) return null;
+                return (
+                  <Button
+                    key={btn.id}
+                    variant={filterStatus === btn.id ? "default" : "outline"}
+                    onClick={() => setFilterStatus(btn.id)}
+                    className={`gap-1.5 ${filterStatus === btn.id ? "bg-[#FFC107] text-[#212121] hover:bg-[#FFB300]" : ""}`}
+                  >
+                    {btn.label}
+                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${filterStatus === btn.id ? "bg-[#212121]/10" : "bg-muted-foreground/10"}`}>
+                      {count}
+                    </span>
+                  </Button>
+                );
+              })}
             </div>
 
             <div className="flex-1 relative">
@@ -138,7 +171,7 @@ export function ContractsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Nom du contrat</TableHead>
+                  <TableHead>Titre</TableHead>
                   <TableHead>Date de création</TableHead>
                   <TableHead>IPFS CID</TableHead>
                   <TableHead>Statut</TableHead>
@@ -152,12 +185,15 @@ export function ContractsPage() {
                   <TableRow
                     key={contract.id}
                     className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => router.push(`/contracts/${contract.contractId ?? contract.id}`)}
+                    onClick={() => router.push(`/contract-details?id=${contract.contractId ?? contract.id}`)}
                   >
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-[#FFC107]" />
-                        <span className="font-medium">{contract.title}</span>
+                        <FileText className="w-4 h-4 text-[#FFC107] shrink-0" />
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{contract.title}</p>
+                          <p className="text-[10px] text-muted-foreground font-mono">{formatReference(contract.reference)}</p>
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -167,7 +203,7 @@ export function ContractsPage() {
                       {contract.ipfsHash ? `${contract.ipfsHash.slice(0, 10)}...` : 'N/A'}
                     </TableCell>
                     <TableCell>
-                      <StatusBadge status={getStatusLabel(contract.status) as any} />
+                      <StatusBadge status={getStatusBadgeVariant(getEffectiveStatus(contract)) as any} />
                     </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
@@ -180,7 +216,7 @@ export function ContractsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => router.push(`/contracts/${contract.contractId ?? contract.id}`)}>
+                          <DropdownMenuItem onClick={() => router.push(`/contract-details?id=${contract.contractId ?? contract.id}`)}>
                             <FileText className="w-4 h-4 mr-2" />
                             Détails
                           </DropdownMenuItem>
@@ -193,13 +229,13 @@ export function ContractsPage() {
                               Voir sur IPFS
                             </DropdownMenuItem>
                           )}
-                          <DropdownMenuItem>
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">
                             <Archive className="w-4 h-4 mr-2" />
-                            Archiver
+                            Archiver (bientôt disponible)
                           </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">
+                          <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">
                             <Trash2 className="w-4 h-4 mr-2" />
-                            Supprimer
+                            Supprimer (bientôt disponible)
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

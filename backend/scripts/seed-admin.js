@@ -17,7 +17,7 @@ const logger = require('../utils/logger');
 
 async function promoteToAdmin(email) {
     if (!email) {
-        console.error('❌  Usage: node scripts/seed-admin.js <email>');
+        console.error('Usage: node scripts/seed-admin.js <email>');
         process.exit(1);
     }
 
@@ -27,13 +27,13 @@ async function promoteToAdmin(email) {
         const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
         if (!user) {
-            console.error(`❌  Aucun utilisateur trouvé pour: ${normalizedEmail}`);
-            console.error('    Conseil: L\'utilisateur doit d\'abord se connecter via Privy au moins une fois.');
+            console.error(`Aucun utilisateur trouvé pour: ${normalizedEmail}`);
+            console.error('  Conseil: L\'utilisateur doit d\'abord se connecter via Privy au moins une fois.');
             process.exit(1);
         }
 
         if (user.role === UserRole.ADMIN) {
-            console.log(`✅  L'utilisateur ${normalizedEmail} est déjà ADMIN. Rien à faire.`);
+            console.log(`L'utilisateur ${normalizedEmail} est déjà ADMIN. Rien à faire.`);
             process.exit(0);
         }
 
@@ -51,13 +51,13 @@ async function promoteToAdmin(email) {
             });
         }
 
-        console.log(`🎉  Succès! ${normalizedEmail} a été promu ADMIN.`);
-        console.log(`    ID utilisateur: ${user.id}`);
+        console.log(`Succès: ${normalizedEmail} a été promu ADMIN.`);
+        console.log(`  ID utilisateur: ${user.id}`);
         console.log('');
-        console.log('    💡 Conseil: Ajoutez cet email dans ADMIN_EMAILS dans votre .env');
-        console.log('    pour maintenir ce statut admin à chaque connexion Privy.');
+        console.log('  Conseil: ajoutez cet email dans ADMIN_EMAILS dans votre .env');
+        console.log('  pour maintenir ce statut admin à chaque connexion Privy.');
     } catch (error) {
-        console.error('❌  Erreur lors de la promotion admin:', error.message);
+        console.error('Erreur lors de la promotion admin:', error.message);
         logger.error('seed-admin error:', error);
         process.exit(1);
     } finally {

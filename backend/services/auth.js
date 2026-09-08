@@ -2,9 +2,11 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const prisma = require('../models/prisma');
 const emailService = require('./email');
+const notificationService = require('./notification');
 const logger = require('../utils/logger');
 const { config } = require('../config');
 const { UserRole } = require('@prisma/client');
+const { UnauthorizedError, ForbiddenError } = require('../utils/errors');
 
 /**
  * Vérifie si un email fait partie de la whitelist des administrateurs.
@@ -25,7 +27,7 @@ class AuthService {
     // maison) ont été retirés — Privy gère désormais entièrement l'authentification, la
     // création de wallet et le financement MATIC. Seul `privyAuth` reste le point d'entrée.
 
-    async privyAuth(privyId, email, walletAddress, profileData) {
+    async privyAuth(privyId, email, walletAddress, profileData, requestMeta = {}) {
         try {
             // Déterminer si cet email est dans la whitelist admin (variable serveur uniquement)
             const shouldBeAdmin = isAdminEmail(email);
@@ -70,39 +72,54 @@ class AuthService {
                     // Créer un nouvel utilisateur avec Privy
                     const assignedRole = shouldBeAdmin ? UserRole.ADMIN : UserRole.USER;
 
-                    const created = await prisma.$transaction(async (tx) => {
-                        const u = await tx.user.create({
-                            data: {
-                                email,
-                                privyId,
-                                role: assignedRole,
-                                profileData,
-                            },
-                        });
-
-                        if (walletAddress) {
-                            await tx.userWallet.create({
+                    try {
+                        const created = await prisma.$transaction(async (tx) => {
+                            const u = await tx.user.create({
                                 data: {
-                                    userId: u.id,
-                                    publicAddress: walletAddress,
-                                    encryptedPrivateKey: null,
-                                    encryptionIv: null,
-                                    encryptionAuthTag: null,
-                                    encryptionSalt: null,
-                                    isAdminWallet: shouldBeAdmin,
+                                    email,
+                                    privyId,
+                                    role: assignedRole,
+                                    profileData,
                                 },
                             });
+
+                            if (walletAddress) {
+                                await tx.userWallet.create({
+                                    data: {
+                                        userId: u.id,
+                                        publicAddress: walletAddress,
+                                        encryptedPrivateKey: null,
+                                        encryptionIv: null,
+                                        encryptionAuthTag: null,
+                                        encryptionSalt: null,
+                                        isAdminWallet: shouldBeAdmin,
+                                    },
+                                });
+                            }
+
+                            return u;
+                        });
+
+                        user = created;
+
+                        if (shouldBeAdmin) {
+                            logger.info(`[Auth] Nouveau compte ADMIN créé via Privy: ${email}`);
+                        } else {
+                            await emailService.sendWelcomeEmail(email, profileData?.name || email.split('@')[0]);
                         }
-
-                        return u;
-                    });
-
-                    user = created;
-
-                    if (shouldBeAdmin) {
-                        logger.info(`[Auth] Nouveau compte ADMIN créé via Privy: ${email}`);
-                    } else {
-                        await emailService.sendWelcomeEmail(email, profileData?.name || email.split('@')[0]);
+                    } catch (createError) {
+                        // P2002 = violation de contrainte unique sur `email` — deux requêtes
+                        // concurrentes pour le même nouvel utilisateur (deux onglets, un double
+                        // appel client) ont toutes les deux passé le `findUnique` ci-dessus avant
+                        // que l'une des deux ne crée la ligne. Plutôt que de faire échouer cette
+                        // connexion, on récupère l'utilisateur que l'autre requête vient de créer.
+                        if (createError.code === 'P2002') {
+                            const raceWinner = await prisma.user.findUnique({ where: { email } });
+                            if (!raceWinner) throw createError;
+                            user = raceWinner;
+                        } else {
+                            throw createError;
+                        }
                     }
                 }
             } else {
@@ -156,7 +173,7 @@ class AuthService {
             const token = this.generateToken(user.id, user.email, user.role);
             const refreshToken = this.generateRefreshToken(user.id);
 
-            await this.saveRefreshToken(user.id, refreshToken);
+            await this.saveRefreshToken(user.id, refreshToken, requestMeta);
 
             logger.info(`User authenticated via Privy: ${email} [role=${user.role}]`);
 
@@ -206,13 +223,31 @@ class AuthService {
 
                 if (pendingCount === 0) {
                     // Tous les signataires ont un wallet ! Le contrat est prêt.
-                    await prisma.contractCache.update({
+                    const draft = await prisma.contractCache.update({
                         where: { id: draftId },
-                        data: { status: 'READY_TO_DEPLOY' }
+                        data: { status: 'READY_TO_DEPLOY' },
+                        include: { user: { select: { id: true, email: true } } },
                     });
                     logger.info(`[Drafts] Le brouillon ${draftId} est maintenant READY_TO_DEPLOY !`);
-                    
-                    // TODO: Envoyer un email au créateur pour lui dire de déployer
+
+                    // Without this, the creator has no way to know it's their turn to deploy —
+                    // they'd have to remember to come back and check the contract page themselves.
+                    if (draft.user) {
+                        await notificationService.create(draft.user.id, {
+                            type: 'CONTRACT_READY_TO_DEPLOY',
+                            title: 'Contrat prêt à être déployé',
+                            message: `Tous les signataires de "${draft.title}" ont désormais un compte. Vous pouvez déployer le contrat sur la blockchain.`,
+                            contractCacheId: draft.id,
+                        });
+                        if (draft.user.email) {
+                            emailService.sendGenericNotification(
+                                draft.user.email,
+                                'Contrat prêt à être déployé',
+                                `Tous les signataires de "${draft.title}" ont désormais un compte sur ContracTify. Vous pouvez déployer le contrat sur la blockchain pour lancer les signatures.`,
+                                draft.id
+                            ).catch(err => logger.error(`[Email] Failed to send ready-to-deploy notice for draft ${draftId}:`, err));
+                        }
+                    }
                 }
             }
         } catch (error) {
@@ -220,7 +255,7 @@ class AuthService {
         }
     }
 
-    async refreshAccessToken(refreshToken) {
+    async refreshAccessToken(refreshToken, requestMeta = {}) {
         try {
             const payload = jwt.verify(refreshToken, config.jwt.refreshSecret);
 
@@ -228,21 +263,31 @@ class AuthService {
             const stored = await prisma.refreshToken.findUnique({ where: { tokenHash } });
 
             if (!stored || stored.revoked) {
-                throw new Error('Refresh token revoked or not found');
+                throw new UnauthorizedError('Refresh token revoked or not found');
             }
 
             if (new Date(stored.expiresAt) <= new Date()) {
-                throw new Error('Refresh token expired');
+                throw new UnauthorizedError('Refresh token expired');
             }
 
             const user = await prisma.user.findUnique({ where: { id: payload.userId } });
             if (!user) {
-                throw new Error('User not found');
+                throw new UnauthorizedError('User not found');
+            }
+
+            // A suspended account must not be able to mint a fresh access token just
+            // because its refresh token is still technically valid — otherwise
+            // "Suspendre" only ever slows a user down until their next refresh, never
+            // actually stops them. Revoke the refresh token too, so this isn't a one-time
+            // check they can simply retry past.
+            if (!user.isActive) {
+                await prisma.refreshToken.update({ where: { tokenHash }, data: { revoked: true } });
+                throw new ForbiddenError('Ce compte a été suspendu');
             }
 
             // Rotation: create new refresh token, persist it, revoke old one
             const newRefreshToken = this.generateRefreshToken(user.id);
-            const saved = await this.saveRefreshToken(user.id, newRefreshToken);
+            const saved = await this.saveRefreshToken(user.id, newRefreshToken, requestMeta);
 
             await prisma.refreshToken.update({
                 where: { tokenHash },
@@ -254,7 +299,12 @@ class AuthService {
             return { token, refreshToken: newRefreshToken };
         } catch (error) {
             logger.error('Error refreshing token:', error);
-            throw new Error('Invalid refresh token');
+            // Preserve a typed error thrown above (e.g. UnauthorizedError, ForbiddenError)
+            // instead of stomping it into a generic one — only wrap truly unexpected
+            // failures (jwt.verify throwing its own error, a DB error) into the same 401,
+            // since either way the client's refresh token isn't usable.
+            if (error instanceof UnauthorizedError || error instanceof ForbiddenError) throw error;
+            throw new UnauthorizedError('Invalid refresh token');
         }
     }
 
@@ -314,7 +364,7 @@ class AuthService {
         try {
             return jwt.verify(token, config.jwt.secret);
         } catch (error) {
-            throw new Error('Invalid token');
+            throw new UnauthorizedError('Invalid token');
         }
     }
 

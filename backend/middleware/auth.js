@@ -1,8 +1,14 @@
 const authService = require('../services/auth');
 const logger = require('../utils/logger');
+const prisma = require('../models/prisma');
 const { UserRole } = require('@prisma/client');
 
-const authenticate = (req, res, next) => {
+// Async and DB-backed on purpose: an access token's signature being valid only proves it
+// was ISSUED while the account was in good standing — it says nothing about whether an
+// admin suspended that account a minute later. Without this lookup, `isActive: false`
+// (the "Suspendre" action in the admin panel) had zero effect: the holder of an
+// already-issued token kept full access until it happened to expire naturally.
+const authenticate = async (req, res, next) => {
     try {
         // Look for token in cookies first, then Authorization header
         let token = req.cookies.accessToken;
@@ -20,7 +26,22 @@ const authenticate = (req, res, next) => {
 
         const payload = authService.verifyToken(token);
 
-        req.user = payload;
+        const user = await prisma.user.findUnique({
+            where: { id: payload.userId },
+            select: { isActive: true, role: true },
+        });
+
+        if (!user || !user.isActive) {
+            return res.status(403).json({ error: 'Ce compte a été suspendu' });
+        }
+
+        // Same reasoning as isActive above, for role: the JWT's `role` claim is frozen at
+        // the moment it was issued. Without overwriting it here, an admin demoted via
+        // updateUserRole keeps requireAdmin access on every already-issued token until it
+        // expires — the demotion has no immediate effect, exactly the gap already closed
+        // for suspension. req.user.role is set from the DB read just above, never trusted
+        // from the token itself.
+        req.user = { ...payload, role: user.role };
         next();
     } catch (error) {
         logger.error('Authentication error:', error);

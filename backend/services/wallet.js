@@ -2,11 +2,15 @@ const { ethers } = require('ethers');
 const prisma = require('../models/prisma');
 const logger = require('../utils/logger');
 const { config } = require('../config');
+const { AppError } = require('../utils/errors');
 
 // NOTE: la génération/le chiffrement de clé privée custodiale (createUserWallet,
 // associateAdminWallet, encryptPrivateKey, fundInitialGas) a été retirée — Privy gère
-// désormais entièrement la création des wallets utilisateurs et leur financement en
-// MATIC. Ce service ne fait plus que lire les wallets déjà enregistrés via Privy.
+// désormais entièrement la création des wallets utilisateurs. Le financement en MATIC
+// n'est PAS automatique côté Privy : c'est le sponsoring natif Privy ("App pays", activé
+// dans le Dashboard Privy) qui couvre le gas transaction par transaction — voir
+// frontend/src/contexts/web3-context.tsx (sendTransaction, sponsor: true). Ce service ne
+// fait plus que lire les wallets déjà enregistrés via Privy.
 class WalletService {
     constructor() {
         this.provider = new ethers.JsonRpcProvider(config.polygonRpcUrl);
@@ -24,7 +28,7 @@ class WalletService {
             return ethers.formatEther(balance);
         } catch (error) {
             logger.error('Error getting wallet balance:', error);
-            throw new Error('Failed to get wallet balance');
+            throw new AppError('Failed to get wallet balance', 500);
         }
     }
 }

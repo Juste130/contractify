@@ -11,14 +11,12 @@ describe("ContractNFT", function () {
   let user2: any;
 
   beforeEach(async function () {
-    // ✅ RÉCUPÉRATION DES SIGNERS AVEC ETHERS.JS
     const signers = await ethers.getSigners();
     [owner, user1, user2] = signers;
 
-    // ✅ DÉPLOIEMENT AVEC ETHERS.JS
     // Déployer ContractNFT
     const ContractNFT = await ethers.getContractFactory("ContractNFT");
-    contractNFT = await ContractNFT.connect(owner).deploy();
+    contractNFT = await ContractNFT.connect(owner).deploy("http://localhost:5000/api/nft/");
     await contractNFT.waitForDeployment();
 
     // Déployer ContractManager
@@ -27,7 +25,7 @@ describe("ContractNFT", function () {
     contractManager = await ContractManager.connect(owner).deploy(nftAddress);
     await contractManager.waitForDeployment();
 
-    // ✅ TRANSFERT OWNERSHIP
+    // ContractManager doit être owner de ContractNFT pour pouvoir mint
     const managerAddress = await contractManager.getAddress();
     const transferTx = await contractNFT.connect(owner).transferOwnership(managerAddress);
     await transferTx.wait();
@@ -35,7 +33,6 @@ describe("ContractNFT", function () {
 
   describe("Fonctionnalités de Base", function () {
     it("Devrait avoir le bon nom et symbole", async function () {
-      // ✅ LECTURE AVEC ETHERS.JS
       const name = await contractNFT.name();
       const symbol = await contractNFT.symbol();
 
@@ -44,7 +41,6 @@ describe("ContractNFT", function () {
     });
 
     it("Devrait mint un NFT via ContractManager", async function () {
-      // ✅ MINT AVEC ETHERS.JS
       const managerAddress = await contractManager.getAddress();
       const user1Address = await user1.getAddress();
       const user2Address = await user2.getAddress();
@@ -64,7 +60,6 @@ describe("ContractNFT", function () {
 
       await tx.wait();
 
-      // ✅ VÉRIFICATIONS AVEC ETHERS.JS
       const ownerOf = await contractNFT.ownerOf(1);
       const balance = await contractNFT.balanceOf(user1Address);
 
@@ -99,7 +94,6 @@ describe("ContractNFT", function () {
       const tx = await contractManager.connect(user2).signContract(1); // ID 1 car reset au beforeEach
       await tx.wait();
 
-      // ✅ RÉCUPÉRATION PREUVE AVEC ETHERS.JS
       const proof = await contractNFT.getContractProof(1);
 
       expect(proof[0]).to.equal("QmTestHash123"); // ipfsHash
@@ -112,7 +106,6 @@ describe("ContractNFT", function () {
     it("Devrait échouer si non-owner tente de mint", async function () {
       const user1Address = await user1.getAddress();
 
-      // ✅ TEST ERREUR AVEC ETHERS.JS
       await expect(
         contractNFT.connect(user1).mintContractNFT(
           user1Address,
@@ -123,7 +116,6 @@ describe("ContractNFT", function () {
     });
 
     it("Devrait échouer pour un token inexistant", async function () {
-      // ✅ TEST TOKEN INEXISTANT AVEC ETHERS.JS
       await expect(
         contractNFT.getContractProof(999)
       ).to.be.reverted;
@@ -132,7 +124,6 @@ describe("ContractNFT", function () {
 
   describe("Transfert d'Ownership", function () {
     it("Devrait transférer l'ownership à ContractManager", async function () {
-      // ✅ VÉRIFICATION OWNERSHIP AVEC ETHERS.JS
       const currentOwner = await contractNFT.owner();
       const managerAddress = await contractManager.getAddress();
 
@@ -143,7 +134,6 @@ describe("ContractNFT", function () {
       const user1Address = await user1.getAddress();
       const expiresAt = Math.floor(Date.now() / 1000) + 86400;
 
-      // ✅ TEST FONCTIONNALITÉ COMPLÈTE AVEC ETHERS.JS
       const tx = await contractManager.connect(owner).createContract(
         "QmOwnershipTest",
         "sha256OwnershipTest",
@@ -158,7 +148,6 @@ describe("ContractNFT", function () {
 
       const receipt = await tx.wait();
 
-      // ✅ VÉRIFICATION QUE LA TRANSACTION A RÉUSSI
       expect(receipt?.status).to.equal(1);
 
       // Vérifier qu'un contrat a bien été créé
@@ -187,14 +176,26 @@ describe("ContractNFT", function () {
     });
 
     it("Devrait supporter l'interface ERC721", async function () {
-      // ✅ VÉRIFICATION INTERFACE ERC721 AVEC ETHERS.JS
       const supportsInterface = await contractNFT.supportsInterface("0x80ac58cd"); // Interface ID ERC721
 
       expect(supportsInterface).to.be.true;
     });
 
+    it("Devrait supporter l'interface EIP-5192 (Minimal Soulbound NFTs)", async function () {
+      const supportsInterface = await contractNFT.supportsInterface("0xb45a3c0e"); // Interface ID ERC-5192
+
+      expect(supportsInterface).to.be.true;
+    });
+
+    it("Devrait rapporter locked() == true pour un token mint", async function () {
+      expect(await contractNFT.locked(1)).to.be.true;
+    });
+
+    it("Devrait revert locked() pour un token inexistant", async function () {
+      await expect(contractNFT.locked(999)).to.be.revertedWith("Token does not exist");
+    });
+
     it("Devrait retourner le token URI", async function () {
-      // ✅ VÉRIFICATION TOKEN URI (si implémenté)
       try {
         const tokenURI = await contractNFT.tokenURI(1);
         // Si la fonction existe, vérifier qu'elle retourne quelque chose
@@ -205,24 +206,19 @@ describe("ContractNFT", function () {
       }
     });
 
-    it("Devrait permettre le transfert de NFT", async function () {
+    it("Ne devrait PAS permettre le transfert du NFT (preuve non transférable)", async function () {
+      // Le NFT est la preuve de qui a signé le contrat — le rendre transférable romprait ce
+      // lien. Seul le mint (from == address(0)) doit passer, tout transfert ultérieur revert.
       const user1Address = await user1.getAddress();
       const user2Address = await user2.getAddress();
 
-      // ✅ TEST TRANSFERT NFT AVEC ETHERS.JS
-      const tx = await contractNFT.connect(user1).transferFrom(
-        user1Address,
-        user2Address,
-        1
-      );
+      await expect(
+        contractNFT.connect(user1).transferFrom(user1Address, user2Address, 1)
+      ).to.be.revertedWith("ContractNFT: proof is non-transferable");
 
-      const receipt = await tx.wait();
-
-      expect(receipt?.status).to.equal(1);
-
-      // Vérifier le nouveau owner
-      const newOwner = await contractNFT.ownerOf(1);
-      expect(newOwner).to.equal(user2Address);
+      // Le owner reste inchangé
+      const owner1 = await contractNFT.ownerOf(1);
+      expect(owner1).to.equal(user1Address);
     });
   });
 
@@ -281,6 +277,54 @@ describe("ContractNFT", function () {
 
       const proof = await contractNFT.getContractProof(1);
       expect(proof[2]).to.be.true; // isActive
+    });
+  });
+
+  describe("Métadonnées (tokenURI)", function () {
+    it("Devrait construire le tokenURI à partir du base URI et de l'ID du token", async function () {
+      const user1Address = await user1.getAddress();
+      await contractManager.connect(user1).createContract(
+        "QmMetadataTest",
+        "sha256MetadataTest",
+        [],
+        Math.floor(Date.now() / 1000) + 86400,
+        true, true, 0, 10, "Metadata test"
+      );
+
+      expect(await contractNFT.tokenURI(1)).to.equal("http://localhost:5000/api/nft/1");
+    });
+
+    it("Devrait permettre au metadataAdmin de changer le base URI", async function () {
+      await contractManager.connect(user1).createContract(
+        "QmMetadataTest2",
+        "sha256MetadataTest2",
+        [],
+        Math.floor(Date.now() / 1000) + 86400,
+        true, true, 0, 10, "Metadata test 2"
+      );
+
+      // owner() est ContractManager depuis le transfert d'ownership du beforeEach — le
+      // metadataAdmin reste le déployeur (owner ici, cf. constructeur), un rôle
+      // volontairement distinct pour ne pas dépendre d'un passthrough côté ContractManager.
+      await contractNFT.connect(owner).setBaseTokenURI("https://cdn.contractify.io/api/nft/");
+      expect(await contractNFT.tokenURI(1)).to.equal("https://cdn.contractify.io/api/nft/1");
+    });
+
+    it("Devrait refuser le changement de base URI à quelqu'un d'autre que le metadataAdmin", async function () {
+      await expect(
+        contractNFT.connect(user1).setBaseTokenURI("https://evil.example/")
+      ).to.be.revertedWith("ContractNFT: caller is not the metadata admin");
+    });
+
+    it("Devrait permettre de transférer le rôle metadataAdmin", async function () {
+      const user1Address = await user1.getAddress();
+      await contractNFT.connect(owner).setMetadataAdmin(user1Address);
+      expect(await contractNFT.metadataAdmin()).to.equal(user1Address);
+
+      // L'ancien admin (owner) ne peut plus rien changer une fois le rôle transféré.
+      await expect(
+        contractNFT.connect(owner).setBaseTokenURI("https://should-fail.example/")
+      ).to.be.revertedWith("ContractNFT: caller is not the metadata admin");
     });
   });
 });

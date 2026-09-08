@@ -9,6 +9,7 @@ interface NFTItem {
   title: string;
   effectiveDate?: string;
   ipfsUrl?: string;
+  contractStatus?: string;
 }
 
 interface NFTGalleryProps {
@@ -19,7 +20,7 @@ export function NFTGallery({ nfts }: NFTGalleryProps) {
   if (!nfts || nfts.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground border border-dashed rounded-xl p-6">
-        Aucun NFT d'acte contractuel disponible pour le moment.
+        Aucun certificat d'acte contractuel disponible pour le moment.
       </div>
     );
   }

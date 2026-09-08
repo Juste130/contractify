@@ -8,6 +8,8 @@ const logger = require('./utils/logger');
 const { errorHandler } = require('./middleware/error-handler');
 const { generalLimiter } = require('./middleware/rate-limit');
 const blockchainSyncService = require('./services/blockchain-sync');
+const escrowScheduler = require('./services/escrow-scheduler');
+const syncHealthScheduler = require('./services/sync-health');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -15,8 +17,18 @@ const userRoutes = require('./routes/user');
 const aiRoutes = require('./routes/ai');
 const ipfsRoutes = require('./routes/ipfs');
 const contractRoutes = require('./routes/contract');
+const escrowRoutes = require('./routes/escrow');
+const incidentRoutes = require('./routes/incident');
+const notificationRoutes = require('./routes/notifications');
+const analyticsRoutes = require('./routes/analytics');
+const nftRoutes = require('./routes/nft');
+const kycRoutes = require('./routes/kyc');
 
 const app = express();
+
+// Doit etre defini avant tout middleware qui lit req.ip (express-rate-limit en particulier)
+// — voir config/index.js pour le detail de ce que ca corrige.
+app.set('trust proxy', config.trustProxy);
 
 // Middleware
 app.use(helmet({
@@ -55,6 +67,13 @@ app.use('/api/users', userRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/ipfs', ipfsRoutes);
 app.use('/api/contracts', contractRoutes);
+app.use('/api/contracts', escrowRoutes);
+app.use('/api/contracts', incidentRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/analytics', analyticsRoutes);
+// Public, unauthenticated on purpose — see routes/nft.js.
+app.use('/api/nft', nftRoutes);
+app.use('/api/kyc', kycRoutes);
 
 // NOTE: le job horaire de réconciliation des wallets a été retiré — avec Privy, le
 // wallet est fourni par le client dès l'authentification, il n'y a plus de scénario
@@ -83,6 +102,9 @@ app.listen(PORT, async () => {
     } catch (error) {
         logger.error('Failed to start blockchain event listener:', error);
     }
+
+    escrowScheduler.start();
+    syncHealthScheduler.start();
 });
 
 module.exports = app;

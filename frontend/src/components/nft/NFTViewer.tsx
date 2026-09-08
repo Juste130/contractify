@@ -12,6 +12,7 @@ interface NFTViewerProps {
   title: string;
   effectiveDate?: string;
   ipfsUrl?: string;
+  contractStatus?: string;
 }
 
 export function NFTViewer(props: NFTViewerProps) {
@@ -19,12 +20,12 @@ export function NFTViewer(props: NFTViewerProps) {
     <Dialog>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="gap-2">
-          <Eye className="size-4" /> Détails du NFT
+          <Eye className="size-4" /> Détails du certificat
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Certificat NFT d'Authenticité</DialogTitle>
+          <DialogTitle>Certificat d'authenticité</DialogTitle>
         </DialogHeader>
         <div className="pt-4">
           <NFTCard {...props} />

@@ -20,16 +20,17 @@ export function PrivyAuthCard({ title, subtitle, buttonLabel }: PrivyAuthCardPro
     const { ready, isSyncing, handleLogin } = usePrivySync();
 
     if (isSyncing) {
+        // Same bare, card-free, bg-background layout as ProtectedRoute's own session-check
+        // fallback and the /dashboard route's loading.tsx — the redirect that follows a
+        // successful sync hands off directly into one of those two screens, so matching the
+        // shape here (rather than a boxed Card on bg-muted) makes the whole login-to-dashboard
+        // sequence read as one continuous loading state instead of a jarring style switch.
         return (
-            <div className="min-h-screen bg-muted flex items-center justify-center p-4">
-                <Card className="w-full max-w-md p-8">
-                    <div className="text-center">
-                        <Link href="/" className="inline-block mb-8">
-                            <h1 className="text-[#FFC107] mb-2 text-2xl font-bold">ContracTify</h1>
-                        </Link>
-                        <Spinner size="lg" label="Synchronisation de votre compte..." />
-                    </div>
-                </Card>
+            <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-8 p-4">
+                <Link href="/" className="inline-block">
+                    <h1 className="text-[#FFC107] text-2xl font-bold">ContracTify</h1>
+                </Link>
+                <Spinner size="xl" label="Synchronisation de votre compte..." />
             </div>
         );
     }
@@ -62,6 +63,13 @@ export function PrivyAuthCard({ title, subtitle, buttonLabel }: PrivyAuthCardPro
 
                     <p className="text-center text-sm text-muted-foreground mt-4">
                         L'authentification est gérée de manière sécurisée par Privy. Aucun mot de passe n'est requis.
+                    </p>
+                    <p className="text-center text-xs text-muted-foreground">
+                        En continuant, vous acceptez les{" "}
+                        <Link href="/legal/cgu" className="underline hover:text-[#FFC107]">Conditions générales</Link>
+                        {" "}et la{" "}
+                        <Link href="/legal/confidentialite" className="underline hover:text-[#FFC107]">Politique de confidentialité</Link>
+                        {" "}de ContracTify.
                     </p>
                 </div>
             </Card>

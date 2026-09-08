@@ -1,9 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useAuthStore } from "@/hooks/useAuth";
+import { syncPrivySession, privySessionMatchesStore } from "@/lib/utils/privySync";
+
+// Only ever send people to a path inside our own app — a redirect/callbackUrl value
+// come from a URL query string, so treating it as trustworthy without this check would
+// let a crafted invitation-style link send a just-authenticated user to an external site.
+function safeInternalPath(path: string | null): string | null {
+    if (!path) return null;
+    return path.startsWith("/") && !path.startsWith("//") ? path : null;
+}
 
 /**
  * Logique partagée entre /login et /signup : les deux pages ne sont que des
@@ -18,43 +27,51 @@ export function usePrivySync() {
     const { ready, authenticated, login, user, getAccessToken } = usePrivy();
     const { wallets } = useWallets();
     const router = useRouter();
-    const { privyLogin, isAuthenticated } = useAuthStore();
+    const searchParams = useSearchParams();
+    const { privyLogin, isAuthenticated, user: storeUser } = useAuthStore();
     const [isSyncing, setIsSyncing] = useState(false);
     const syncInProgress = useRef(false);
 
-    useEffect(() => {
-        if (process.env.NODE_ENV === 'development') {
-            console.log('Privy State:', { ready, authenticated, isAuthenticated });
-        }
-    }, [ready, authenticated, isAuthenticated]);
+    // "isAuthenticated" alone isn't enough: it can be stale-true from a PREVIOUS
+    // person's session in this same browser if they switch Privy identity without our
+    // store getting a chance to clear first. Comparing emails catches that — see
+    // privySessionMatchesStore for the full story.
+    const sessionMatches = privySessionMatchesStore(user, storeUser?.email);
 
-    // Si déjà authentifié PARTOUT, rediriger vers dashboard
-    useEffect(() => {
-        if (ready && authenticated && user && isAuthenticated) {
-            router.replace('/dashboard');
-        }
-    }, [ready, authenticated, user, isAuthenticated, router]);
+    // /signup links use "redirect" (see sendDraftInvitationEmail), /login uses
+    // "callbackUrl" (see ProtectedRoute/AdminGuard) — both are honored here so an
+    // invited signatory lands back on the contract they were invited to instead of
+    // a generic dashboard, no matter which of the two page ever forwarded them.
+    const destination = safeInternalPath(searchParams.get("redirect") || searchParams.get("callbackUrl")) || "/dashboard";
 
-    // Auto-sync si déjà authentifié via Privy mais pas backend
+    // Si déjà authentifié PARTOUT (et que c'est bien la MÊME personne des deux côtés),
+    // rediriger vers la destination demandée (ou dashboard). Sans le check sessionMatches,
+    // un isAuthenticated resté vrai pour la session PRECEDENTE (ex. l'admin) enverrait
+    // silencieusement une nouvelle identité Privy droit dans l'ancienne session backend.
+    useEffect(() => {
+        if (ready && authenticated && user && isAuthenticated && sessionMatches) {
+            router.replace(destination);
+        }
+    }, [ready, authenticated, user, isAuthenticated, sessionMatches, router, destination]);
+
+    // Auto-sync si déjà authentifié via Privy mais pas backend — OU si le backend pense
+    // encore être authentifié comme quelqu'un d'autre (sessionMatches === false). Le verrou
+    // anti-concurrence vit dans syncPrivySession() (partagé avec AuthInitializer, monté
+    // globalement et donc actif en même temps que ce hook sur /login et /signup) —
+    // syncInProgress ici n'évite que les ré-entrées de CETTE instance pendant l'attente,
+    // pas les deux mécanismes entre eux.
     useEffect(() => {
         const autoSync = async () => {
-            if (ready && authenticated && user && !isAuthenticated && !syncInProgress.current) {
+            if (ready && authenticated && user && (!isAuthenticated || !sessionMatches) && !syncInProgress.current) {
                 syncInProgress.current = true;
+                setIsSyncing(true);
                 try {
-                    setIsSyncing(true);
-
-                    const token = await getAccessToken();
-                    if (!token) { setIsSyncing(false); return; }
-
-                    const email = user.email?.address || user.google?.email;
-                    const smartWallet = wallets.find(w => w.walletClientType === 'smart_wallet');
-                    const eoaWallet = wallets.find(w => w.walletClientType === 'privy') || wallets[0];
-                    const walletAddress = smartWallet?.address || eoaWallet?.address || user.wallet?.address;
-
-                    if (!email) { setIsSyncing(false); return; }
-
-                    await privyLogin({ privyId: user.id, email, walletAddress, profileData: { name: user.google?.name || email.split('@')[0] } }, token);
-                    router.replace("/dashboard");
+                    const synced = await syncPrivySession({ user, wallets, getAccessToken, privyLogin });
+                    if (synced) {
+                        router.replace(destination);
+                    } else {
+                        setIsSyncing(false);
+                    }
                 } catch (error) {
                     console.error("Error syncing with backend:", error);
                     setIsSyncing(false);
@@ -68,7 +85,7 @@ export function usePrivySync() {
         // `wallets` retiré des dépendances : ce tableau change plusieurs fois pendant
         // la création du wallet embarqué et redéclenchait cet effet en rafale.
         // `wallets` est lu depuis la closure au moment de l'exécution, ce qui suffit ici.
-    }, [ready, authenticated, user, isAuthenticated, privyLogin, router]);
+    }, [ready, authenticated, user, isAuthenticated, sessionMatches, privyLogin, router, destination, getAccessToken]);
 
     const handleLogin = () => {
         if (ready && !authenticated) {

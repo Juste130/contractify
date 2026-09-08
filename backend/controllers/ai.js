@@ -1,5 +1,21 @@
 const aiService = require('../services/ai');
 const logger = require('../utils/logger');
+const { PDFParse } = require('pdf-parse');
+const { BadRequestError } = require('../utils/errors');
+const { isLikelyPdf } = require('../utils/pdf-signature');
+
+// A digitally-signed PDF (Adobe Sign, DocuSign, Acrobat...) embeds a signature dictionary
+// whose /ByteRange entry is mandated by the PDF spec (ISO 32000) — searching the raw bytes
+// for it is a reliable, well-established way to detect a REAL embedded digital signature
+// without needing a full PDF-parsing library. This says nothing about a scanned wet-ink
+// signature (that's just pixels in an image) — that case is left to the AI text heuristic,
+// with a clearly lower confidence.
+function hasEmbeddedDigitalSignature(buffer) {
+    // latin1 keeps a 1:1 byte-to-char mapping — exactly what's needed to search for an
+    // ASCII marker inside a binary PDF without corrupting multi-byte sequences.
+    const raw = buffer.toString('latin1');
+    return /\/ByteRange/.test(raw) && /\/(Sig|DocTimeStamp)\b/.test(raw);
+}
 
 /**
  * Generate contract
@@ -118,6 +134,69 @@ exports.validateContract = async (req, res, next) => {
             issues: result.issues,
             suggestions: result.suggestions,
         });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Analyze an imported PDF before it's saved as a draft: extract its text (best-effort —
+ * a scanned PDF with no text layer simply yields nothing, which is fine), detect an
+ * embedded digital signature, and ask the AI for a best-effort read on the parties, whether
+ * the document looks like a contract, and whether it appears already signed. Every signal
+ * here is a suggestion for the UI to surface, never a fact the platform asserts on its own.
+ */
+exports.analyzeImportedPdf = async (req, res, next) => {
+    try {
+        if (!req.file) {
+            throw new BadRequestError('No file provided');
+        }
+        // The route's multer fileFilter only checked the client-declared Content-Type
+        // (spoofable) — this verifies the file's actual bytes before it's parsed or, later,
+        // pinned to IPFS and served back through an iframe.
+        if (!isLikelyPdf(req.file.buffer)) {
+            throw new BadRequestError('Le fichier fourni ne semble pas être un PDF valide.');
+        }
+
+        const hasDigitalSignature = hasEmbeddedDigitalSignature(req.file.buffer);
+
+        let extractedText = '';
+        try {
+            const parser = new PDFParse({ data: req.file.buffer });
+            try {
+                const result = await parser.getText();
+                extractedText = result.text || '';
+            } finally {
+                await parser.destroy();
+            }
+        } catch (err) {
+            // A malformed or unusual PDF failing to parse must not block the import — it
+            // just means no AI-assisted suggestions are possible, same as a scanned PDF.
+            logger.warn('PDF text extraction failed, continuing without it:', err.message);
+        }
+
+        const analysis = await aiService.analyzeImportedContract(extractedText);
+
+        res.json({ ...analysis, hasDigitalSignature, hasExtractedText: extractedText.trim().length > 0 });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * Resolve which known jurisdiction seat city covers a free-text city
+ */
+exports.resolveJurisdictionCity = async (req, res, next) => {
+    try {
+        const { city, country, knownCities } = req.body;
+
+        if (!city || !country || !Array.isArray(knownCities) || knownCities.length === 0) {
+            return res.status(400).json({ error: 'city, country and a non-empty knownCities array are required' });
+        }
+
+        const result = await aiService.resolveJurisdictionCity(city, country, knownCities);
+
+        res.json(result);
     } catch (error) {
         next(error);
     }

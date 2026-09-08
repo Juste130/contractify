@@ -52,7 +52,10 @@ exports.privyAuth = async (req, res, next) => {
             });
         }
 
-        const result = await authService.privyAuth(privyId, email, walletAddress, profileData);
+        const result = await authService.privyAuth(privyId, email, walletAddress, profileData, {
+            ip: req.ip,
+            ua: req.headers['user-agent'],
+        });
 
         setAuthCookies(res, result.token, result.refreshToken);
 
@@ -77,7 +80,10 @@ exports.refreshToken = async (req, res, next) => {
             return res.status(401).json({ error: 'Refresh token is required' });
         }
 
-        const result = await authService.refreshAccessToken(refreshToken);
+        const result = await authService.refreshAccessToken(refreshToken, {
+            ip: req.ip,
+            ua: req.headers['user-agent'],
+        });
 
         // Set the new access token and rotated refresh token cookies
         setAuthCookies(res, result.token, result.refreshToken);

@@ -37,9 +37,35 @@ const authLimiter = rateLimit({
     legacyHeaders: false,
 });
 
+// Invitation rate limiter — the endpoint already throttles repeat invites to the SAME
+// email (see inviteUser), but this caps how many DIFFERENT addresses one account can
+// spam invitations to.
+const inviteLimiter = rateLimit({
+    windowMs: config.rateLimit.windowMs,
+    max: config.rateLimit.inviteMaxRequests,
+    message: 'Too many invitations sent, please try again later',
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Signature-reminder rate limiter — scoped per authenticated user (not per IP): a contract
+// creator can legitimately share an IP with teammates, but shouldn't be able to spam a
+// signatory's inbox in a loop from their own account. Falls back to req.ip only if somehow
+// unauthenticated (the route itself requires `authenticate` first, so this is defensive).
+const resendLimiter = rateLimit({
+    windowMs: config.rateLimit.resendWindowMs,
+    max: config.rateLimit.resendMaxRequests,
+    message: 'Too many signature reminders sent, please wait before retrying',
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.user?.userId || req.ip,
+});
+
 module.exports = {
     generalLimiter,
     aiLimiter,
     walletLimiter,
     authLimiter,
+    inviteLimiter,
+    resendLimiter,
 };

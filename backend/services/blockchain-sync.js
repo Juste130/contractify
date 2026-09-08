@@ -3,6 +3,9 @@ const prisma = require('../models/prisma');
 const logger = require('../utils/logger');
 const { config } = require('../config');
 const { ContractStatus } = require('@prisma/client');
+const notificationService = require('./notification');
+const { AppError, BadRequestError, NotFoundError, ForbiddenError } = require('../utils/errors');
+const { buildContractTitle } = require('../utils/contract-naming');
 
 const CONTRACT_MANAGER_ABI = [
     'function getUserContracts(address user) external view returns (uint256[])',
@@ -63,6 +66,17 @@ class BlockchainSyncService {
 
             const status = this.mapContractStatus(contractData.status);
 
+            // The name typed into THIS contract's own signatory form (ContractSignatory.name —
+            // e.g. "Jean Dupont", or "Ma Société SAS" for Partie A) is what the creator meant
+            // by this person's name on this specific document. The same wallet can be a
+            // different name on a different contract (a company rep signing under their title
+            // here, their own name there) — the signer's account-wide profile name is neither
+            // of those, and previously always won post-deployment, silently replacing whatever
+            // the form actually said with the account's global (and often email-derived) name.
+            const draftSignatories = await prisma.contractSignatory.findMany({
+                where: { contract: { contractId: parseInt(contractId, 10) } },
+            });
+
             // Lookup each signer's address in our database to resolve their name and email
             // (case-insensitive: on-chain addresses may be checksummed differently than stored)
             const enrichedSigners = await Promise.all(signers.map(async (s) => {
@@ -70,17 +84,46 @@ class BlockchainSyncService {
                     where: { publicAddress: { equals: s.signer, mode: 'insensitive' } },
                     include: { user: true }
                 });
+                const draftMatch = draftSignatories.find(
+                    (ds) => ds.walletAddress && ds.walletAddress.toLowerCase() === s.signer.toLowerCase()
+                );
 
                 return {
                     address: s.signer,
-                    name: wallet?.user?.profileData?.name || wallet?.user?.email || null,
-                    email: wallet?.user?.email || null,
+                    name: draftMatch?.name || wallet?.user?.profileData?.name || wallet?.user?.email || null,
+                    email: draftMatch?.email || wallet?.user?.email || null,
                     role: Number(s.role),
                     customRole: s.customRole,
                     hasSigned: s.hasSignedContract,
                     signedAt: Number(s.signedAt),
                 };
             }));
+
+            // terminationInfo/disputeInfo were returned by getContractDetails all along but
+            // never captured here — even though the app doesn't drive termination/dispute
+            // exclusively through this sync path, a status change reaching Terminated (or
+            // Disputed, if ever triggered by a direct chain interaction outside the app)
+            // must still be explainable in the UI instead of showing a bare status badge.
+            const terminationInfo = contractData.terminationInfo && Number(contractData.terminationInfo.reason) > 0
+                ? {
+                    reason: Number(contractData.terminationInfo.reason),
+                    customReason: contractData.terminationInfo.customReason,
+                    proofIpfsHash: contractData.terminationInfo.proofIpfsHash,
+                    justification: contractData.terminationInfo.justification?.justification || null,
+                    justifiedAt: Number(contractData.terminationInfo.justification?.timestamp || 0),
+                    justifiedBy: contractData.terminationInfo.justification?.updatedBy || null,
+                }
+                : null;
+            const disputeInfo = contractData.disputeInfo && Number(contractData.disputeInfo.reason) > 0
+                ? {
+                    reason: Number(contractData.disputeInfo.reason),
+                    customReason: contractData.disputeInfo.customReason,
+                    proofIpfsHash: contractData.disputeInfo.proofIpfsHash,
+                    justification: contractData.disputeInfo.justification?.justification || null,
+                    justifiedAt: Number(contractData.disputeInfo.justification?.timestamp || 0),
+                    justifiedBy: contractData.disputeInfo.justification?.updatedBy || null,
+                }
+                : null;
 
             const metadata = {
                 creator: contractData.creator,
@@ -89,6 +132,8 @@ class BlockchainSyncService {
                 effectiveDate: Number(contractData.effectiveDate),
                 allowTermination: contractData.allowTermination,
                 allowDispute: contractData.allowDispute,
+                terminationInfo,
+                disputeInfo,
                 escrowAmount: contractData.escrowAmount.toString(),
                 penaltyPercent: Number(contractData.penaltyPercent),
                 sha256Hash: contractData.sha256Hash,
@@ -115,17 +160,39 @@ class BlockchainSyncService {
                 return;
             }
 
+            // Merge onto whatever off-chain metadata already exists (content, parties,
+            // country/city, escrow declaration, deploymentTxHash...) instead of replacing
+            // it wholesale — a plain `metadata: metadata` update here would silently wipe
+            // the draft's document content the moment this runs post-deployment, since this
+            // upsert matches the same row by the contractId that markDraftDeployed just set.
+            const existingRow = await prisma.contractCache.findUnique({
+                where: { contractId: parseInt(contractId) },
+                select: { metadata: true },
+            });
+            const mergedMetadata = { ...(existingRow?.metadata || {}), ...metadata };
+
             await prisma.contractCache.upsert({
                 where: { contractId: parseInt(contractId) },
                 update: {
                     status,
-                    metadata,
+                    metadata: mergedMetadata,
                     lastSync: new Date(),
                 },
                 create: {
                     contractId: parseInt(contractId),
                     userId: finalUserId,
-                    title: `Contract #${contractId}`,
+                    // This row's own draft never went through saveDraft (a contract deployed
+                    // outside this app's normal flow, or a race the event listener caught
+                    // first) — no form-entered party names to draw on, so this falls back to
+                    // whatever name each signer resolves to (see enrichedSigners above:
+                    // wallet's profile name, else email, else the bare address). Built with
+                    // the same shared naming rules as everywhere else rather than a generic,
+                    // permanent English placeholder ("Contract #N") that never gets fixed up.
+                    title: buildContractTitle({
+                        documentType: 'Contrat',
+                        partyNames: enrichedSigners.map((s) => s.name || s.address),
+                        createdAt: new Date(Number(contractData.createdAt) * 1000),
+                    }),
                     ipfsHash: '',
                     status,
                     metadata,
@@ -166,19 +233,36 @@ class BlockchainSyncService {
         const MAX_BLOCK_CHUNK = 9;
 
         const processChunk = async (fromBlock, toBlock) => {
+            // Every event body below is wrapped in its own try/catch. Without this, a single
+            // hiccup partway through (e.g. the DB connection pool exhaustion / RPC timeouts
+            // seen in production logs) throws out of processChunk entirely — which aborts the
+            // whole block-range scan BEFORE _lastScannedBlock is advanced (see pollEvents()
+            // below). The next tick then re-queries the *same* block range from scratch via
+            // queryFilter, which returns the *same* on-chain events again (they're permanent
+            // log entries), and re-runs every side effect for them — including re-sending
+            // emails and re-creating in-app notifications for signers who were already
+            // successfully notified moments earlier. That silent full-chunk retry, not a
+            // literal duplicate emission on-chain, is what produced duplicate notifications.
+            // Catching per-event means one contract's hiccup no longer nukes every other
+            // contract's already-completed notifications in the same chunk.
+
             // ContractCreated
             const createdEvents = await this.contractManager.queryFilter(
                 this.contractManager.filters.ContractCreated(),
                 fromBlock, toBlock
             );
             for (const event of createdEvents) {
-                const [contractId, creator] = event.args;
-                logger.info(`New contract created: ${contractId} by ${creator}`);
-                const wallet = await prisma.userWallet.findFirst({
-                    where: { publicAddress: { equals: creator, mode: 'insensitive' } },
-                });
-                if (wallet) {
-                    await this.syncContract(contractId.toString(), wallet.userId);
+                try {
+                    const [contractId, creator] = event.args;
+                    logger.info(`New contract created: ${contractId} by ${creator}`);
+                    const wallet = await prisma.userWallet.findFirst({
+                        where: { publicAddress: { equals: creator, mode: 'insensitive' } },
+                    });
+                    if (wallet) {
+                        await this.syncContract(contractId.toString(), wallet.userId);
+                    }
+                } catch (err) {
+                    logger.error(`Error processing ContractCreated for tx ${event.transactionHash}:`, err);
                 }
             }
 
@@ -188,27 +272,53 @@ class BlockchainSyncService {
                 fromBlock, toBlock
             );
             for (const event of finalizedEvents) {
-                const [contractId, nftTokenId] = event.args;
-                logger.info(`Contract finalized: ${contractId}, NFT: ${nftTokenId}`);
-                
-                // First sync contract details to keep cache accurate
-                await this.syncContract(contractId.toString(), null);
+                try {
+                    const [contractId, nftTokenId] = event.args;
+                    logger.info(`Contract finalized: ${contractId}, NFT: ${nftTokenId}`);
 
-                const contract = await prisma.contractCache.findUnique({
-                    where: { contractId: Number(contractId) }
-                });
+                    // First sync contract details to keep cache accurate
+                    await this.syncContract(contractId.toString(), null);
 
-                if (contract && contract.metadata && contract.metadata.signers) {
-                    const emailService = require('./email');
-                    for (const signer of contract.metadata.signers) {
-                        if (signer.email) {
+                    const contract = await prisma.contractCache.findUnique({
+                        where: { contractId: Number(contractId) }
+                    });
+
+                    if (contract && contract.metadata && contract.metadata.signers) {
+                        const emailService = require('./email');
+                        for (const signer of contract.metadata.signers) {
+                            if (!signer.email) continue;
                             emailService.sendContractFinalizedNotification(
                                 signer.email,
                                 contract.title,
                                 contractId.toString()
                             ).catch(err => logger.error(`[Email] Failed to send finalized notification to ${signer.email}:`, err));
                         }
+
+                        // In-app notification too, not just email — this is the moment every
+                        // signature has been collected and the contract goes live; missing it
+                        // in the bell because it only ever went out by email was the bulk of why
+                        // the in-app notification system looked completely dead in practice.
+                        // Each signer is its own try/catch: one signer's lookup failing (e.g. a
+                        // momentary DB pool exhaustion) must not stop the others in this same
+                        // event from being notified, nor abort the chunk and force a full retry.
+                        for (const signer of contract.metadata.signers) {
+                            if (!signer.email) continue;
+                            try {
+                                const notifyUser = await prisma.user.findUnique({ where: { email: signer.email } });
+                                if (!notifyUser) continue;
+                                await notificationService.create(notifyUser.id, {
+                                    type: 'GENERIC',
+                                    title: 'Contrat actif',
+                                    message: `Toutes les signatures ont été collectées : le contrat "${contract.title}" est maintenant actif.`,
+                                    contractCacheId: contract.id,
+                                });
+                            } catch (err) {
+                                logger.error(`[Notification] Failed to notify ${signer.email} of finalization:`, err);
+                            }
+                        }
                     }
+                } catch (err) {
+                    logger.error(`Error processing ContractFinalized for tx ${event.transactionHash}:`, err);
                 }
             }
 
@@ -218,29 +328,73 @@ class BlockchainSyncService {
                 fromBlock, toBlock
             );
             for (const event of statusEvents) {
-                const [contractId, , newStatus] = event.args;
-                logger.info(`Contract ${contractId} status updated to: ${newStatus}`);
-                
-                // First sync contract details to keep cache accurate
-                await this.syncContract(contractId.toString(), null);
+                try {
+                    const [contractId, , newStatus] = event.args;
+                    logger.info(`Contract ${contractId} status updated to: ${newStatus}`);
 
-                const contract = await prisma.contractCache.findUnique({
-                    where: { contractId: Number(contractId) }
-                });
+                    // First sync contract details to keep cache accurate
+                    await this.syncContract(contractId.toString(), null);
 
-                if (contract && contract.metadata && contract.metadata.signers) {
-                    const statusString = contract.status;
-                    const emailService = require('./email');
-                    for (const signer of contract.metadata.signers) {
-                        if (signer.email) {
-                            emailService.sendContractStatusNotification(
-                                signer.email,
-                                contract.title,
-                                contractId.toString(),
-                                statusString
-                            ).catch(err => logger.error(`[Email] Failed to send status notification to ${signer.email}:`, err));
+                    const contract = await prisma.contractCache.findUnique({
+                        where: { contractId: Number(contractId) }
+                    });
+
+                    if (contract && contract.metadata && contract.metadata.signers) {
+                        const statusString = contract.status;
+                        const emailService = require('./email');
+                        for (const signer of contract.metadata.signers) {
+                            if (signer.email) {
+                                emailService.sendContractStatusNotification(
+                                    signer.email,
+                                    contract.title,
+                                    contractId.toString(),
+                                    statusString
+                                ).catch(err => logger.error(`[Email] Failed to send status notification to ${signer.email}:`, err));
+                            }
+                        }
+
+                        // Every status change also gets an in-app notification, not just an
+                        // email — a party affected by a termination/cancellation/dispute could
+                        // otherwise miss it entirely if they don't check their inbox. ACTIVE is
+                        // skipped here since ContractFinalized (handled above) already covers it —
+                        // both events fire together when the last signature lands, and this loop
+                        // runs for every ContractStatusUpdated event regardless of which status.
+                        if (statusString !== 'ACTIVE') {
+                            const reasonText = statusString === 'TERMINATED'
+                                ? (contract.metadata.terminationInfo?.customReason || contract.metadata.terminationInfo?.justification || null)
+                                : statusString === 'DISPUTED'
+                                    ? (contract.metadata.disputeInfo?.customReason || contract.metadata.disputeInfo?.justification || null)
+                                    : null;
+                            const titles = {
+                                TERMINATED: 'Contrat résilié',
+                                CANCELLED: 'Contrat annulé',
+                                DISPUTED: 'Litige ouvert sur le contrat',
+                            };
+                            const title = titles[statusString] || 'Statut du contrat mis à jour';
+                            const baseMessage = titles[statusString]
+                                ? `Le contrat "${contract.title}" est maintenant ${statusString === 'TERMINATED' ? 'résilié' : statusString === 'CANCELLED' ? 'annulé' : 'en litige'}.`
+                                : `Le contrat "${contract.title}" a changé de statut : ${statusString}.`;
+                            const message = reasonText ? `${baseMessage} ${reasonText}` : baseMessage;
+
+                            for (const signer of contract.metadata.signers) {
+                                if (!signer.email) continue;
+                                try {
+                                    const notifyUser = await prisma.user.findUnique({ where: { email: signer.email } });
+                                    if (!notifyUser) continue;
+                                    await notificationService.create(notifyUser.id, {
+                                        type: statusString === 'TERMINATED' ? 'CONTRACT_TERMINATED' : 'GENERIC',
+                                        title,
+                                        message,
+                                        contractCacheId: contract.id,
+                                    });
+                                } catch (err) {
+                                    logger.error(`[Notification] Failed to notify ${signer.email} of status change:`, err);
+                                }
+                            }
                         }
                     }
+                } catch (err) {
+                    logger.error(`Error processing ContractStatusUpdated for tx ${event.transactionHash}:`, err);
                 }
             }
         };
@@ -288,6 +442,72 @@ class BlockchainSyncService {
 
         // Poll every 15 seconds — Polygon ~1 block/2s → ~7 blocks/poll, well within 9-block limit
         this._pollingInterval = setInterval(pollEvents, 15_000);
+    }
+
+    /**
+     * Verifies that a transaction hash reported by the client actually corresponds to a
+     * successful on-chain `createContract` call, before the backend trusts it enough to
+     * flip a draft's status. Without this, a buggy or malicious client could report an
+     * arbitrary contractId/txHash pair and create a phantom contract that never syncs.
+     * Returns the verified contractId, as reported by the ContractCreated event itself,
+     * not by the client. Does not sync the cache itself — see the note below.
+     */
+    async verifyDeploymentTx(transactionHash, expectedCreatorUserId) {
+        if (!this.contractManager) {
+            throw new AppError('Blockchain sync unavailable: no valid contract manager configured', 503);
+        }
+        if (!transactionHash || !/^0x[a-fA-F0-9]{64}$/.test(transactionHash)) {
+            throw new BadRequestError('Invalid transaction hash');
+        }
+
+        const receipt = await this.provider.getTransactionReceipt(transactionHash);
+        if (!receipt) {
+            throw new NotFoundError('Transaction not found or not yet mined');
+        }
+        if (receipt.status !== 1) {
+            throw new BadRequestError('Transaction failed on-chain');
+        }
+
+        // Privy's native gas sponsorship routes this transaction through Privy's own
+        // infrastructure rather than sending it directly to the Contract Manager, so
+        // receipt.to is no longer a reliable signal (it used to be, back when the frontend
+        // called a plain ethers signer.sendTransaction straight to that address). The
+        // meaningful check is below instead: a genuine ContractCreated event actually
+        // emitted BY the Contract Manager contract — verified via each log's own `address`,
+        // not merely by successfully decoding it against the ABI (any contract could emit a
+        // same-shaped log otherwise).
+        const event = receipt.logs
+            .filter((log) => log.address?.toLowerCase() === config.contractManagerAddress?.toLowerCase())
+            .map((log) => {
+                try { return this.contractManager.interface.parseLog(log); }
+                catch { return null; }
+            })
+            .find((e) => e && e.name === 'ContractCreated');
+
+        if (!event) {
+            throw new BadRequestError('No ContractCreated event found in this transaction');
+        }
+
+        const contractId = event.args.contractId.toString();
+        const creatorAddress = event.args.creator;
+
+        if (expectedCreatorUserId) {
+            const creatorWallet = await prisma.userWallet.findFirst({
+                where: { publicAddress: { equals: creatorAddress, mode: 'insensitive' } },
+            });
+            if (!creatorWallet || creatorWallet.userId !== expectedCreatorUserId) {
+                throw new ForbiddenError('On-chain creator does not match the authenticated user');
+            }
+        }
+
+        // Note: intentionally does NOT call syncContract() here. syncContract() upserts by
+        // contractId, and at this point the draft row (found by its UUID, not by contractId)
+        // still has contractId=null — an upsert here would create a *second*, duplicate cache
+        // row instead of updating the draft, and the caller's subsequent update to the draft's
+        // contractId would then collide with it (contractId is @unique). Callers must first
+        // persist contractId onto the existing draft row, then call syncContract() themselves.
+
+        return { contractId: parseInt(contractId, 10), creatorAddress };
     }
 
     mapContractStatus(blockchainStatus) {

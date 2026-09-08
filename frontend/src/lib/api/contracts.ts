@@ -5,6 +5,10 @@ export interface Contract {
     contractId: number;
     userId: string;
     title: string;
+    /** Platform-wide sequential number (Postgres autoincrement) — the only thing guaranteed
+     *  unique between two contracts. Format for display with formatReference() from
+     *  lib/utils/contractNaming.ts ("CTF-000042"), never render the bare integer. */
+    reference: number;
     ipfsHash: string;
     status:
     | 'DRAFT_WAITING_SIGNERS'
@@ -58,9 +62,11 @@ export const contractsApi = {
     },
 
     /**
-     * Mark draft as deployed on chain
+     * Mark draft as deployed on chain. The backend independently verifies the transaction
+     * hash on-chain and resolves the real contractId itself — it does not trust a
+     * client-supplied contractId, so none is sent here.
      */
-    async markDraftDeployed(id: string, data: { contractId: number; transactionHash: string }): Promise<{ contract: Contract }> {
+    async markDraftDeployed(id: string, data: { transactionHash: string }): Promise<{ contract: Contract }> {
         try {
             const response = await apiClient.post(`/api/contracts/draft/${id}/deploy`, data);
             return response.data;
@@ -181,8 +187,10 @@ export const contractsApi = {
         page?: number;
         limit?: number;
         status?: string;
+        email?: string;
+        search?: string;
     }): Promise<{
-        contracts: Contract[];
+        contracts: (Contract & { user?: { id: string; email: string; role: string } })[];
         pagination: {
             page: number;
             limit: number;
@@ -194,6 +202,50 @@ export const contractsApi = {
             const response = await apiClient.get('/api/contracts/admin/all', {
                 params,
             });
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
+    /**
+     * Public, unauthenticated verification lookup — what the QR code on a downloaded
+     * certificate points to. Accepts either the on-chain numeric contractId or the draft
+     * UUID. Deliberately returns only what's needed to verify authenticity, never the
+     * contract's actual content or a signatory's contact details.
+     */
+    async getPublicVerification(id: string | number): Promise<{
+        title: string;
+        reference: number;
+        status: string;
+        createdAt: string;
+        contractId: number | null;
+        sha256Hash: string | null;
+        isExternalPdf: boolean;
+        /** True when status/hash/signatures below were just re-read live from the smart
+         *  contract rather than served from the cache — false means the on-chain read failed
+         *  and the response fell back to the (still trustworthy, just not freshly-verified) cache. */
+        verifiedOnChain: boolean;
+        signatories: { name: string | null; hasSigned: boolean }[];
+    }> {
+        try {
+            const response = await apiClient.get(`/api/contracts/verify/${id}`);
+            return response.data;
+        } catch (error) {
+            throw new Error(handleApiError(error));
+        }
+    },
+
+    /**
+     * Platform-wide contract counts by status, not truncated by pagination (admin only)
+     */
+    async getAdminContractsSummary(): Promise<{
+        total: number;
+        byStatus: Record<string, number>;
+        thisMonth: number;
+    }> {
+        try {
+            const response = await apiClient.get('/api/contracts/admin/summary');
             return response.data;
         } catch (error) {
             throw new Error(handleApiError(error));
