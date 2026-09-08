@@ -30,16 +30,12 @@ Un NFT par contrat, pas un NFT par personne — le token représente l'identité
 
 **Ce qui existe déjà et satisfait cette description, vérifié dans le code actuel :** le NFT reste unique (`ContractData.nftTokenId`, un seul par contrat), et sa fiche de preuve (`getNFTProof(contractId)`/`getContractProof(tokenId)`) est une fonction `view` interrogeable par n'importe qui, pas réservée au propriétaire. Côté app, `contract.metadata.nftTokenId` fait partie du cache (`ContractCache`) lu via `hasContractAccess` — vrai pour le créateur, **et pour chaque signataire, et pour un admin**. Résultat déjà vérifié : sur `contract-details-page.tsx`, chaque signataire qui ouvre le contrat voit exactement le même composant `NFTViewer`/`NFTCard`, pointant vers le même tokenId, affichant les mêmes données de preuve. C'est déjà "ce NFT visible chez eux tous," dans l'application.
 
-**Ce qui reste une vraie question ouverte, pas encore tranchée :** "visible chez eux tous" peut vouloir dire deux choses assez différentes —
-1. **Visible dans l'app ContracTify** (déjà vrai, décrit ci-dessus, rien à construire).
-2. **Visible dans le portefeuille externe de CHAQUE signataire** (MetaMask, etc.) — techniquement impossible avec un ERC-721 classique, qui n'a qu'un seul propriétaire par tokenId. La seule voie technique pour qu'un même tokenId apparaisse comme "possédé" dans plusieurs wallets à la fois est de passer à un **ERC-1155** (jeton semi-fongible : un même id, un solde par adresse) — un changement de standard bien plus large que tout ce qui précède, qui mérite sa propre discussion avant d'être entamé.
-
-Ce document n'implémente pas la piste 2 : la lecture (1) est déjà la réalité du produit, vérifiée ; la lecture (2) attend une clarification avant tout travail de code.
+**Tranché avec le porteur de projet :** "visible chez eux tous" veut dire visible dans l'app ContracTify — déjà vrai, vérifié ci-dessus, rien à construire. La visibilité dans le portefeuille externe de chaque signataire (MetaMask, etc.) aurait nécessité un passage à ERC-1155 (jeton semi-fongible : un même id, un solde par adresse) ; explicitement écartée pour l'instant.
 
 ## Décision
 
 - **Piste 1 (ERC-5192) : code fait et testé, déploiement reporté à la demande explicite du porteur de projet.**
 - **Le modèle "un certificat par signataire" est rejeté** — remplacé par la confirmation que le modèle "un NFT unique, visible par tous les signataires dans l'app" fonctionne déjà tel quel.
-- Reste à trancher, si besoin : le NFT doit-il aussi apparaître dans le wallet externe de chaque signataire (ERC-1155), ou la visibilité dans l'app suffit-elle ?
+- **Tranché** : la visibilité dans l'app suffit. Pas de passage à ERC-1155, sujet clos.
 
 Origine du constat : critique NFT/certificat menée sous les trois casquettes (génie logiciel, juridique, UI/UX) à la demande du porteur de projet, qui a confirmé la lecture du NFT comme « l'identité d'un contrat qui trace son historique sur la blockchain » plutôt que comme un actif spéculatif classique — précision reconfirmée et affinée après l'implémentation ratée de la Piste 2 initiale.
