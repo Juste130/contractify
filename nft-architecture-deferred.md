@@ -1,60 +1,56 @@
 # Architecture des certificats NFT — pistes documentées
 
-**Statut : Piste 1 (ERC-5192) implémentée et testée en code, déploiement volontairement reporté. Piste 2 reste non implémentée, reportée à une prochaine version.**
+**Statut : Piste 1 (ERC-5192) ET Piste 2 (mint multi-signataire) implémentées et testées en code. Déploiement volontairement reporté (redéploiement groupé, pas de date fixe).**
 
 ## Constat
 
-Chaque contrat finalisé mint un NFT ERC-721 unique via `_mintContractNFT()` (`ContractManager.sol`), envoyé au créateur du contrat et rendu non-transférable par un `revert` dans `_beforeTokenTransfer` (`ContractNFT.sol`). Ce NFT sert de certificat de preuve : il porte le hash du document et un lien vers l'historique du contrat.
+Chaque contrat finalisé mint désormais un certificat par participant (voir Piste 2), rendu non-transférable par un `revert` dans `_beforeTokenTransfer` (`ContractNFT.sol`) et signalé comme tel via ERC-5192 (voir Piste 1). Chaque certificat porte le hash du document et un lien vers l'historique du contrat.
 
-Comparé à ce que le grand public entend par « NFT » (un objet collectionnable, transférable, dont la valeur ou l'usage repose sur la rareté et l'échange), l'écart a été jugé volontaire et cohérent avec la fonction réelle de l'objet : **l'identité on-chain d'un contrat, pas un actif spéculatif.** Deux améliorations concrètes ont été identifiées pour renforcer cette identité plutôt que la rapprocher du modèle NFT grand public. Le premier point (vocabulaire) et la Piste 1 (ERC-5192) sont faits ; la Piste 2 reste documentée pour une prochaine version.
+Comparé à ce que le grand public entend par « NFT » (un objet collectionnable, transférable, dont la valeur ou l'usage repose sur la rareté et l'échange), l'écart a été jugé volontaire et cohérent avec la fonction réelle de l'objet : **l'identité on-chain d'un contrat, pas un actif spéculatif.** Trois améliorations ont été identifiées pour renforcer cette identité plutôt que la rapprocher du modèle NFT grand public — toutes les trois sont désormais faites : le vocabulaire, la Piste 1, et la Piste 2.
 
 ## Déjà fait : le vocabulaire
 
-Commit `fix(ui): renomme "NFT" en "Certificat"...` — `NFTCard.tsx`, `NFTViewer.tsx`, `NFTGallery.tsx` n'affichent plus le terme « NFT » ni « Propriétaire », remplacés par « Certificat » et « Créateur du contrat ». C'est un correctif d'attente compréhensible, pas une refonte : à l'époque de ce commit, le mint restait au créateur uniquement et aucun signal ERC-5192 n'existait encore.
+Commit `fix(ui): renomme "NFT" en "Certificat"...` — `NFTCard.tsx`, `NFTViewer.tsx`, `NFTGallery.tsx` n'affichent plus le terme « NFT ». Le label "Propriétaire" est devenu "Créateur du contrat" à l'époque de ce commit (mint au seul créateur), puis "Titulaire du certificat" une fois la Piste 2 faite (voir plus bas) — chaque signataire a désormais son propre certificat, donc son propre titulaire.
 
-## Piste 1 : adopter ERC-5192 (Minimal Soulbound NFTs) — fait, déploiement en attente
+## Piste 1 : ERC-5192 (Minimal Soulbound NFTs) — fait, déploiement en attente
 
-Le contrat actuel bloque les transferts par un simple `revert`, sans exposer de signal standard permettant à un wallet ou un explorateur (MetaMask, OpenSea, Polygonscan) de savoir *à l'avance* que le token est verrouillé — ils le découvrent seulement en essayant un transfert, ce qui échoue silencieusement ou affiche une erreur générique.
+Le contrat bloquait déjà les transferts par un simple `revert`, sans exposer de signal standard permettant à un wallet ou un explorateur (MetaMask, OpenSea, Polygonscan) de savoir *à l'avance* que le token est verrouillé.
 
-[EIP-5192](https://eips.ethereum.org/EIPS/eip-5192) standardise exactement ce cas : une fonction `locked(uint256 tokenId) external view returns (bool)` et un événement `Locked(uint256 tokenId)` émis au mint. Les wallets et explorateurs qui le reconnaissent affichent alors clairement « non transférable » au lieu de laisser l'utilisateur le découvrir par l'échec.
+[EIP-5192](https://eips.ethereum.org/EIPS/eip-5192) standardise ce signal : `locked(uint256 tokenId) external view returns (bool)` + événement `Locked(uint256 tokenId)` au mint. `ContractNFT.sol` implémente désormais l'interface `IERC5192` (déclarée inline, même pattern que `IContractNFT` dans `ContractManager.sol`) : `locked()` retourne toujours `true`, `Locked(tokenId)` est émis à chaque mint, `supportsInterface()` avertit l'id `0xb45a3c0e`. Le `_beforeTokenTransfer` existant reste le seul mécanisme d'application réel — `locked()` n'est qu'un signal déclaratif standardisé.
 
-**Fait :** `ContractNFT.sol` implémente désormais l'interface `IERC5192` (déclarée inline, même pattern que `IContractNFT` dans `ContractManager.sol`) : `locked(uint256)` retourne toujours `true` pour tout token existant, `Locked(tokenId)` est émis juste après le `_mint` dans `mintContractNFT()`, et `supportsInterface()` avertit désormais l'id `0xb45a3c0e` en plus d'ERC721/ERC165. Le `_beforeTokenTransfer` existant reste le seul mécanisme d'application réel — `locked()` n'est qu'un signal déclaratif standardisé. Quatre tests dédiés ajoutés dans `blockchain/test/ContractNFT.ts` ; suite complète (42/42) verte.
+## Piste 2 : un certificat par signataire — fait, déploiement en attente
 
-**Coût, non encore payé — déploiement volontairement reporté :** `contractNFT` est référencé dans `ContractManager` via une variable d'état fixée une seule fois au constructeur, sans setter — pointer `ContractManager` vers la nouvelle version de `ContractNFT` exige donc de redéployer **les deux contrats ensemble** (comme `deploy.ts` le fait), pas seulement `ContractNFT`. Ce redéploiement rendrait les contrats actuellement actifs sous les adresses en place aujourd'hui inaccessibles depuis l'app, exactement comme lors du redéploiement gas-optimization (voir `blockchain/GAS-OPTIMIZATION.md`). Décision explicite du porteur de projet : le code reste prêt, committé et testé, mais le déploiement se fera à sa demande plus tard plutôt que dans la foulée de l'implémentation.
+Auparavant, `_mintContractNFT()` mintait un unique NFT envoyé à `contractData.creator`. Un signataire qui n'était pas le créateur n'avait donc aucun certificat à lui.
 
-## Piste 2 : minter un certificat à chaque signataire, pas seulement au créateur
+**Fait :**
+- `ContractManager.sol` : nouveau mapping `contractSignerNftTokenId[contractId][signerAddress] → tokenId`, en plus de `ContractData.nftTokenId` qui reste (inchangé dans sa position/type — aucune rupture d'ABI) le tokenId du créateur, pour compatibilité avec tout code déjà écrit contre ce champ.
+- `_mintContractNFT()` boucle désormais sur tous les participants et mint un certificat par adresse, tous portant le même hash IPFS et la même liste de signataires en métadonnées.
+- `_deactivateAllProofs(contractId)` (remplace l'ancien `_deactivateProof(tokenId)`) désactive le certificat de **chaque** signataire à la résiliation/au litige/à la clôture d'escrow, pas seulement celui du créateur.
+- Deux nouvelles fonctions de lecture : `getNFTProofForSigner(contractId, signer)` (le certificat d'une adresse donnée) et `getContractNFTTokenIds(contractId)` (tous les tokenId d'un coup, pour une synchronisation backend en un seul appel plutôt qu'un par signataire).
+- `ContractNFT.sol` : l'ancienne contrainte d'unicité par `ipfsHash` (`ipfsHashExists`) a été retirée — elle empêchait structurellement de minter plusieurs certificats pour le même document. La déduplication réelle (un même document ne peut pas devenir deux contrats différents) reste assurée en amont par `ContractManager.ipfsHashUsed`, elle n'a jamais dépendu de ce second verrou redondant.
+- Backend (`blockchain-sync.js`) : `syncContract` appelle désormais `getContractNFTTokenIds` et peuple `metadata.signerNftTokenIds` (adresse en minuscule → tokenId), en plus de `metadata.nftTokenId` (créateur, conservé).
+- Frontend (`contract-details-page.tsx`) : résout désormais le tokenId du **titulaire connecté** (`signerNftTokenIds[account]`) plutôt que toujours celui du créateur, avec repli sur le tokenId du créateur si l'utilisateur courant n'a pas d'entrée (cache pré-Piste-2, ou visiteur non-signataire). `NFTCard.tsx` : le label "Créateur du contrat" est devenu "Titulaire du certificat", puisque le NFT affiché n'est plus systématiquement celui du créateur.
 
-Aujourd'hui, `_mintContractNFT()` mint un unique NFT envoyé à `contractData.creator`. Un signataire qui n'est pas le créateur n'a donc aucun certificat à lui — il doit consulter la page du contrat ou demander au créateur pour prouver sa participation. Architecture actuelle vérifiée : `contracts[contractId].nftTokenId` est un `uint256` **unique**, et les quatre sites qui désactivent une preuve (`_deactivateProof`, appelé depuis `terminateContract`, `openDispute`, `releaseEscrow`, `applyPenalty`) n'en désactivent donc qu'une seule — c'est un vrai changement de modèle de données, pas un ajout mineur.
+**Tests** : 2 tests dédiés ajoutés dans `blockchain/test/ContractManager.ts` (mint distinct par signataire + désactivation groupée à la résiliation) ; suite complète toujours verte après ajout.
 
-**Ce que ça changerait concrètement, étape par étape :**
-1. `ContractManager.sol` : remplacer `uint256 nftTokenId` par une structure portant plusieurs tokenId par contrat (tableau, ou mapping `contractId → (address signataire → tokenId)` — ce second choix est préférable, il permet une lecture directe "quel est MON certificat pour ce contrat" sans boucler côté client).
-2. `_mintContractNFT()` boucle sur `_getAllParticipants(contractId)` au lieu de ne minter qu'à `contractData.creator`, et remplit ce mapping.
-3. `_deactivateProof` (les 4 sites d'appel) doit désactiver **toutes** les preuves d'un contrat, pas une seule.
-4. Nouvelle fonction de lecture, ex. `getMyNFTProof(contractId, address)`, en plus de (ou à la place de) `getNFTProof(contractId)` qui n'a plus de sens à retourner un seul résultat.
-5. Backend (`blockchain-sync.js`) : `metadata.nftTokenId` (aujourd'hui un champ singulier dans le cache) devient une correspondance signataire → tokenId à synchroniser.
-6. Frontend (`NFTCard.tsx`, `contract-details-page.tsx`, `NFTGallery.tsx`) : résoudre le tokenId à afficher selon l'utilisateur connecté, et lister dans "mes certificats" tous les contrats où l'utilisateur est signataire — pas seulement ceux qu'il a créés, comme c'est le cas aujourd'hui de fait (un seul NFT existant, toujours celui du créateur).
+**Coût gaz** : mint proportionnel au nombre de signataires (un mint par participant au lieu d'un seul) — attendu et documenté, pas mesuré précisément pour l'instant faute de déploiement réel.
 
-**Coût :** mint proportionnel au nombre de signataires (jusqu'à N mints au lieu d'1 par finalisation) — à chiffrer précisément à l'implémentation, avec le même souci d'optimisation que documenté dans `blockchain/GAS-OPTIMIZATION.md`. Exige un nouveau déploiement de `ContractManager.sol` (pas seulement `ContractNFT.sol`, puisque le mapping tokenId vit dans `ContractManager`).
+## Feuille de route
 
-**Compatibilité avec la Piste 1 :** les deux sont indépendantes et cumulables — chaque certificat additionnel serait lui aussi soulbound via `locked()`.
+Les deux pistes sont maintenant du code prêt et testé, dans le même état d'attente : **aucun redéploiement déclenché**, en attente d'un déploiement groupé plutôt que redéployer à chaque amélioration (coût de rupture — tous les contrats actifs sous l'adresse actuelle deviennent inaccessibles depuis l'app, déjà payé une fois lors du redéploiement gas-optimization du 7 septembre).
 
-## Feuille de route recommandée
-
-Recommandation (génie logiciel + produit) : **ne pas redéployer pour la seule Piste 1.** Un redéploiement rend tous les contrats actifs sous l'adresse actuelle inaccessibles depuis l'app (déjà payé une fois pour le passage gas-optimization du 7 septembre) — payer ce coût de rupture une deuxième fois pour un signal qu'aucun utilisateur n'exploite encore concrètement (personne n'inspecte aujourd'hui ces certificats depuis un wallet externe) n'a pas de retour proportionné à l'interruption causée.
-
-À la place, **regrouper dans un seul redéploiement futur** tout ce qui attend déjà un nouveau déploiement des contrats :
-1. **Piste 1 (ERC-5192)** — code prêt, testé, embarqué automatiquement dès que ce déploiement a lieu, sans travail supplémentaire.
-2. **Piste 2 (mint multi-signataire)** — à implémenter d'ici là si la priorité produit le justifie (voir étapes ci-dessus).
+À regrouper dans ce futur déploiement :
+1. **Piste 1 (ERC-5192)** — prêt.
+2. **Piste 2 (mint multi-signataire)** — prêt.
 3. **Les deux optimisations gaz déjà différées** dans `blockchain/GAS-OPTIMIZATION.md` : réordonnancement de `ContractData` (nécessite de mettre à jour `CONTRACT_MANAGER_ABI` codé à la main dans `blockchain-sync.js` en même temps) et la décision produit sur l'event `Notification` (aujourd'hui n'écouté par rien, backend ou frontend).
 
-**Déclencheur recommandé** : pas de date fixe — attendre soit que la Piste 2 soit prête, soit qu'un autre besoin produit force de toute façon un redéploiement (comme ce fut le cas pour l'optimisation gaz). Regrouper plutôt que redéployer à chaque petite amélioration limite le nombre de fois où les contrats actifs deviennent inaccessibles.
+**Déclencheur recommandé** : pas de date fixe — un autre besoin produit qui force de toute façon un redéploiement (comme ce fut le cas pour l'optimisation gaz), ou une décision délibérée du porteur de projet.
 
-**Ce qui peut avancer sans attendre le déploiement :** rien côté UI n'est réellement actionnable avant — `locked()` n'existe pas encore sur le contrat actuellement en place, donc un badge "Non transférable" dans `NFTCard.tsx` interrogerait une fonction absente. Ce travail frontend, bien que petit, doit lui aussi attendre le déploiement groupé ci-dessus plutôt que d'être fait en avance et laissé mort.
+**Ce qui reste optionnel, indépendant du déploiement** : `NFTGallery.tsx` existe mais n'est câblé sur aucune page ("mes certificats" listant tous les contrats où l'utilisateur est signataire, pas seulement créateur) — un ajout de page possible une fois le déploiement fait, pas un prérequis.
 
 ## Décision
 
-- **Piste 1 (ERC-5192) : code fait et testé, déploiement reporté à la demande explicite du porteur de projet**, à inclure dans le prochain redéploiement groupé plutôt que déclenché seul.
-- **Piste 2 : rien d'implémenté.** Étapes techniques détaillées ci-dessus, à faire avant ou pendant la préparation du prochain redéploiement groupé.
-- Ce document sert de trace explicite et de feuille de route : le choix de ne pas encore redéployer, malgré un code ERC-5192 prêt, est **connu et choisi**, pas oublié — et la prochaine étape n'est pas "redéployer maintenant" mais "regrouper, puis redéployer une seule fois".
+- **Piste 1 et Piste 2 : code fait et testé, déploiement groupé reporté à la demande explicite du porteur de projet.**
+- Ce document sert de trace explicite : rien n'est oublié, le déploiement est une décision délibérément mise en attente, pas un point mort.
 
 Origine du constat : critique NFT/certificat menée sous les trois casquettes (génie logiciel, juridique, UI/UX) à la demande du porteur de projet, qui a confirmé la lecture du NFT comme « l'identité d'un contrat qui trace son historique sur la blockchain » plutôt que comme un actif spéculatif classique.
