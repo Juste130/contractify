@@ -1,9 +1,11 @@
-import { LegalPage } from "@/components/pages/legal-page";
+import { LegalPage, type LegalSection } from "@/components/pages/legal-page";
 
-export default function Page() {
-  return (
-    <LegalPage title="Mentions légales" updatedAt="26 août 2026">
-      <h2>Éditeur du site</h2>
+const sections: LegalSection[] = [
+  {
+    id: "editeur-du-site",
+    title: "Éditeur du site",
+    incomplete: true,
+    content: (
       <p>
         <em>
           Raison sociale, forme juridique, adresse du siège, numéro d'immatriculation et
@@ -12,11 +14,18 @@ export default function Page() {
           toute mise en ligne d'un service à destination du public.
         </em>
       </p>
-
-      <h2>Hébergement</h2>
-      <p>Coordonnées de l'hébergeur de l'application et de l'infrastructure associée — à compléter.</p>
-
-      <h2>Nature du service</h2>
+    ),
+  },
+  {
+    id: "hebergement",
+    title: "Hébergement",
+    incomplete: true,
+    content: <p>Coordonnées de l'hébergeur de l'application et de l'infrastructure associée — à compléter.</p>,
+  },
+  {
+    id: "nature-du-service",
+    title: "Nature du service",
+    content: (
       <p>
         ContracTify est une plateforme de rédaction assistée par IA, de signature électronique et
         d'archivage de contrats, s'appuyant sur le réseau blockchain Polygon pour l'horodatage et
@@ -25,8 +34,12 @@ export default function Page() {
         contrats et signatures y sont fonctionnels mais l'infrastructure blockchain sous-jacente
         n'est pas encore celle d'un environnement de production définitif.
       </p>
-
-      <h2>Contrats générés par intelligence artificielle</h2>
+    ),
+  },
+  {
+    id: "contrats-generes-par-ia",
+    title: "Contrats générés par intelligence artificielle",
+    content: (
       <p>
         Les contrats proposés par l'assistant de rédaction de ContracTify sont générés
         automatiquement à partir des informations fournies par l'utilisateur. Ils ne constituent
@@ -34,9 +47,16 @@ export default function Page() {
         compétent dans la juridiction concernée, en particulier pour tout contrat à enjeu
         significatif.
       </p>
+    ),
+  },
+  {
+    id: "contact",
+    title: "Contact",
+    incomplete: true,
+    content: <p>Adresse de contact pour toute question relative au service — à compléter.</p>,
+  },
+];
 
-      <h2>Contact</h2>
-      <p>Adresse de contact pour toute question relative au service — à compléter.</p>
-    </LegalPage>
-  );
+export default function Page() {
+  return <LegalPage title="Mentions légales" updatedAt="26 août 2026" sections={sections} />;
 }
