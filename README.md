@@ -244,9 +244,9 @@ This project is licensed under the **MIT License** - see [LICENSE](./LICENSE) fi
 ## 🆘 Support
 
 - 📖 [Documentation](./backend/docs/)
-- 🐛 [Report a Bug](https://github.com/yourusername/contractify/issues)
-- 💬 [Discussions](https://github.com/yourusername/contractify/discussions)
+- 🐛 [Report a Bug](https://github.com/Juste130/contractify/issues)
+- 💬 [Discussions](https://github.com/Juste130/contractify/discussions)
 
 ---
 
-**Made with ❤️ by the ContracTify Team**
+**Made by the ContracTify Team**
