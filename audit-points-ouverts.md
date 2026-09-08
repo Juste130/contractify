@@ -6,35 +6,36 @@ Dernière vérification : lecture directe du code (grep + lecture de fichiers), 
 
 ---
 
-## 🔴 Bloquant avant mise en production réelle — nécessite un tiers externe
+## 🔥 Urgent mais reporté — bloqué sur un tiers externe, pas par choix
 
-- **CGU / Politique de confidentialité / Mentions légales non validées par un juriste.** `legal-page.tsx` affiche déjà un bandeau honnête ("en cours de rédaction, non formellement validé"). Une plateforme qui fait signer des contrats à valeur légale et collecte des données personnelles sans ce cadre n'a aucune limitation de responsabilité ni base légale RGPD/loi locale documentée. **Ne peut pas être fait par une IA** — nécessite un juriste inscrit dans une des juridictions ciblées (Bénin en priorité).
-- **Niveau d'identification des signataires vs équivalence "signature manuscrite" revendiquée.** Le texte de consentement affirme une équivalence légale ferme alors qu'un wallet Privy ne demande qu'un email (pas de pièce d'identité par défaut). *Partiellement mitigé depuis* : la fonctionnalité KYC (Smile ID) permet désormais à un créateur d'exiger des signataires vérifiés — mais reste désactivée par défaut, donc le cas par défaut (email + wallet seul) est toujours celui que le juriste doit confronter aux textes cités (Bénin/Togo/Côte d'Ivoire/Sénégal).
+Ces deux points sont les plus sérieux de tout le suivi d'audit : ils bloquent une mise en production réelle, mais **aucun des deux ne peut être résolu par du code** — chacun attend une action humaine externe précise. Reporté ≠ oublié : ils restent en tête de ce document tant qu'ils ne sont pas traités.
+
+- **CGU / Politique de confidentialité / Mentions légales non validées par un juriste.** `legal-page.tsx` affiche déjà un bandeau honnête ("en cours de rédaction, non formellement validé"). Une plateforme qui fait signer des contrats à valeur légale et collecte des données personnelles sans ce cadre n'a aucune limitation de responsabilité ni base légale RGPD/loi locale documentée. **Action requise** : mandater un juriste inscrit dans une des juridictions ciblées (Bénin en priorité) pour valider les 3 documents — y compris trancher si le niveau d'identification actuel des signataires (email + wallet, sans pièce d'identité par défaut ; le KYC Smile ID existe mais reste optionnel) suffit à l'équivalence "signature manuscrite" revendiquée dans le texte de consentement, pour chacune des juridictions citées (Bénin/Togo/Côte d'Ivoire/Sénégal).
+- **Forme exacte du payload webhook Smile ID non confirmée.** L'implémentation actuelle (`Signature.confirm_signature`) est fidèle au SDK installé et lue directement dans son code source, mais n'a jamais été exercée contre un vrai callback — en production, un webhook réel dont la forme diffère de l'hypothèse actuelle (`timestamp`/`signature` à la racine du corps JSON) échouerait silencieusement à valider chaque vérification KYC. **Action requise** : obtenir de vraies credentials sandbox Smile ID et tester un callback réel de bout en bout avant toute utilisation en production du KYC.
 
 ## 🟠 Techniques — non résolus
 
 - **Contrôle MIME à l'upload PDF repose uniquement sur le `Content-Type` déclaré par le client** (`backend/routes/ipfs.js`, `backend/routes/ai.js` filtrent sur `file.mimetype`, trivialement falsifiable), pas sur la signature binaire réelle (`%PDF-`). Un fichier renommé avec un `Content-Type` forgé passerait le filtre.
-- **Forme exacte du payload webhook Smile ID non confirmée** — l'implémentation actuelle (`Signature.confirm_signature`) est fidèle au SDK installé, mais n'a jamais été testée contre un vrai callback. Nécessite de vraies credentials sandbox Smile ID pour être vérifié.
 - **Chaîne de dépendances `@privy-io/react-auth`** — passée de `^3.6.1` (cible non appliquée notée en v4) à `^3.18.0` depuis, mais un `npm audit` n'a pas été rejoué pour confirmer que les vulnérabilités `ws`/`wagmi`/`viem` alors citées (haute sévérité) sont bien résolues par cette mise à jour.
 - **`tar` critique côté backend** — laissé de côté volontairement pour compatibilité `bcrypt`/`node-pre-gyp`, toujours vrai aujourd'hui, à surveiller.
 - **Portée réelle de la preuve `signContract()` non documentée pour l'utilisateur** — le smart contract prouve "qui a transigé quand", pas une signature cryptographique du contenu du document (le lien passe par le hash déclaré par le créateur, jamais recontrôlé on-chain). Pas de correction de code nécessaire, juste un ajout de texte explicatif dans le certificat PDF (`pdfGenerator.ts`) et/ou une page `/legal/*`.
-
-## 🟡 Mineurs — non résolus
-
-- `backend/middleware/error-handler.js` détermine le status HTTP par matching de sous-chaîne (`includes('not found')`, `'Invalid'`, `'already exists'`) sur le message d'erreur — un message tiers contenant accidentellement un de ces mots renverrait un code trompeur.
-- `Document.uploadedBy` reste nullable dans `prisma/schema.prisma` — si `null`, la comparaison de propriétaire échoue pour le vrai propriétaire (faux négatif), sauf admin.
-- Aucune micro-mention "action définitive" sous le bouton "Signer le contrat" de `SignaturePanel` — existe déjà pour le déploiement de contrat, pas encore pour la signature elle-même.
 - Aucune journalisation d'IP/user-agent au moment de la signature (`syncContract` post-signature) — renforcerait le faisceau de preuve en cas de litige, non bloquant, à évaluer avec le juriste en même temps que les points juridiques ci-dessus.
-- `frontend/src/components/ui/chart.tsx` utilise `dangerouslySetInnerHTML` pour générer des variables CSS depuis une config interne — pas de contenu utilisateur actuellement, à surveiller si la config venait un jour de l'API.
-- Léger FOUC mobile au hard-refresh (`isMobile` initialisé à `false` avant correction par `useEffect`) — cosmétique.
-- TODO non implémenté dans `backend/services/auth.js` : email au créateur quand un contrat est prêt à être déployé.
+
+## 🟡 Mineurs — tous résolus depuis la dernière passe
+
+- ~~`error-handler.js` matching par sous-chaîne~~ — corrigé : ne s'applique plus que si aucun statusCode n'est déjà connu, et matche désormais sur des mots entiers (regex `\b...\b`) plutôt que de simples sous-chaînes.
+- ~~`Document.uploadedBy` nullable~~ — relu : c'est en réalité `IpfsDocument.uploadedBy`, déjà traité intentionnellement (commentaire dédié dans `ipfs.js`) en refus par défaut plutôt qu'un correctif — pas de source de vérité alternative fiable pour deviner le vrai propriétaire d'un upload historique, donc refuser plutôt que supposer reste le bon choix. Rien à changer.
+- ~~Micro-mention "action définitive" sous "Signer le contrat"~~ — en réalité déjà présente (`SignaturePanel.tsx` : "Action immédiate et définitive, ancrée sur la blockchain.") ; la vérification précédente avait raté cette ligne par une recherche trop stricte.
+- ~~FOUC mobile léger au hard-refresh~~ — corrigé : `SidebarWidthHandler` utilise désormais `useLayoutEffect` (exécuté avant la première peinture) au lieu de `useEffect`.
+- ~~TODO non implémenté (`services/auth.js`, email au créateur)~~ — déjà implémenté (notification in-app + email dès qu'un brouillon devient `READY_TO_DEPLOY`).
+- `frontend/src/components/ui/chart.tsx` (`dangerouslySetInnerHTML`) — relu, confirmé sans risque actuel (aucun contenu utilisateur n'y entre, config interne uniquement) ; reste sous simple surveillance, aucun changement nécessaire.
 
 ## Volontairement reportés — décision produit, pas un oubli
 
 Ces sujets ont chacun leur propre document de référence, plus détaillé qu'un résumé ici ne pourrait l'être :
 
 - **Séquestre on-chain legacy** (`depositEscrow`/`releaseEscrow`/`applyPenalty` toujours actifs sur le contrat déployé, alors que le produit réel utilise l'escrow fiat hors-chaîne) → `escrow-onchain-deferred.md`.
-- **Architecture NFT/certificat** (ERC-5192 fait et testé, déploiement en attente ; mint multi-signataire non implémenté) → `nft-architecture-deferred.md`.
+- **Architecture NFT/certificat** (ERC-5192 et mint multi-signataire tous deux faits et testés en code, déploiement groupé en attente) → `nft-architecture-deferred.md`.
 - **Optimisations gaz différées** (réordonnancement de `ContractData`, nécessitant une coordination avec `blockchain-sync.js` ; retrait de l'event `Notification` non écouté) → `blockchain/GAS-OPTIMIZATION.md`.
 
 ## Pour référence — corrigés depuis les audits (résumé)
