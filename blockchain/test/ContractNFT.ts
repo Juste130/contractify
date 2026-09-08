@@ -181,6 +181,20 @@ describe("ContractNFT", function () {
       expect(supportsInterface).to.be.true;
     });
 
+    it("Devrait supporter l'interface EIP-5192 (Minimal Soulbound NFTs)", async function () {
+      const supportsInterface = await contractNFT.supportsInterface("0xb45a3c0e"); // Interface ID ERC-5192
+
+      expect(supportsInterface).to.be.true;
+    });
+
+    it("Devrait rapporter locked() == true pour un token mint", async function () {
+      expect(await contractNFT.locked(1)).to.be.true;
+    });
+
+    it("Devrait revert locked() pour un token inexistant", async function () {
+      await expect(contractNFT.locked(999)).to.be.revertedWith("Token does not exist");
+    });
+
     it("Devrait retourner le token URI", async function () {
       try {
         const tokenURI = await contractNFT.tokenURI(1);

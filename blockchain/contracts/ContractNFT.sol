@@ -7,11 +7,23 @@ import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 
 /**
+ * @dev EIP-5192 (Minimal Soulbound NFTs) — https://eips.ethereum.org/EIPS/eip-5192. Standardizes
+ * the signal that _beforeTokenTransfer below already enforces by reverting: wallets and block
+ * explorers that recognize this interface (id 0xb45a3c0e) can show "non-transferable" upfront
+ * instead of a user only discovering it when a transfer attempt fails.
+ */
+interface IERC5192 {
+    event Locked(uint256 tokenId);
+    event Unlocked(uint256 tokenId);
+    function locked(uint256 tokenId) external view returns (bool);
+}
+
+/**
  * @title ContractNFT
  * @dev NFT optimisé pour polygon - Preuves de contracts signés
  * @author Sènami Juste HOUEZO <houezojuste0@gmail.com>
  */
-contract ContractNFT is ERC721, Ownable, ReentrancyGuard {
+contract ContractNFT is ERC721, Ownable, ReentrancyGuard, IERC5192 {
     uint256 private _tokenIdCounter;
 
     struct ContractProof {
@@ -99,7 +111,17 @@ contract ContractNFT is ERC721, Ownable, ReentrancyGuard {
         });
         contractSigners[newtokenId] = signers;
         emit ContractNFTMinted(newtokenId, ipfsHash, signers);
+        emit Locked(newtokenId);
         return newtokenId;
+    }
+
+    /**
+     * @dev EIP-5192: every token minted here is soulbound from the moment it exists — there is
+     * no unlock path, matching the hard revert in _beforeTokenTransfer below.
+     */
+    function locked(uint256 tokenId) external view override returns (bool) {
+        require(_exists(tokenId), "Token does not exist");
+        return true;
     }
     /**
      * @dev Get the details of a Contract NFT
@@ -149,5 +171,13 @@ contract ContractNFT is ERC721, Ownable, ReentrancyGuard {
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         require(_exists(tokenId), "ERC721Metadata: URI query for nonexistent token");
         return string(abi.encodePacked(_baseTokenURI, Strings.toString(tokenId)));
+    }
+
+    /**
+     * @dev Advertises IERC5192 (id 0xb45a3c0e) alongside the ERC721/ERC165 interfaces ERC721
+     * already reports, so a wallet or explorer can detect soulbound-ness without guessing.
+     */
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return interfaceId == type(IERC5192).interfaceId || super.supportsInterface(interfaceId);
     }
 }
