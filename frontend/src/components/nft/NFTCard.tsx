@@ -150,13 +150,12 @@ export function NFTCard({
           </p>
         ) : (
           <div className="space-y-1.5 text-[11px]">
-            {/* "Titulaire du certificat", ni "Créateur du contrat" ni "Propriétaire" : chaque
-                signataire reçoit désormais son propre certificat (voir
-                nft-architecture-deferred.md, Piste 2) — ce champ affiche le titulaire réel de
-                CE tokenId précis, qui n'est plus systématiquement le créateur. Un label figé
-                sur "créateur" mentirait pour le certificat d'un co-signataire. */}
+            {/* "Créateur du contrat", pas "Propriétaire" : ce champ affiche toujours
+                l'adresse du créateur (seul destinataire du mint) — sur un contrat à
+                plusieurs signataires, "propriétaire" laissait croire à un co-signataire que
+                quelqu'un d'autre "possédait" son propre contrat. */}
             <div className="flex items-center justify-between gap-2">
-              <span className="text-muted-foreground">Titulaire du certificat</span>
+              <span className="text-muted-foreground">Créateur du contrat</span>
               <button
                 type="button"
                 onClick={copyOwner}

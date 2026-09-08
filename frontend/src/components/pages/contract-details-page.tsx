@@ -552,16 +552,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
   // incrementing ERC-721 token counter in ContractNFT.sol) are two unrelated ID spaces —
   // using one as a fallback for the other queries a random, likely wrong or non-existent
   // NFT. "0" (a real string in the synced metadata) means "not minted yet", same as absent.
-  //
-  // Every signer now gets their own certificate at finalization, not just the creator (see
-  // nft-architecture-deferred.md, Piste 2) — prefer the CURRENT viewer's own tokenId
-  // (signerNftTokenIds, keyed by lowercased wallet address) over the creator's, so a
-  // co-signataire sees the certificate minted to their own wallet rather than always the
-  // creator's. Falls back to the creator's tokenId for an admin/viewer with no entry there,
-  // or for a cache synced before this field existed.
-  const signerNftTokenIds = contract.metadata?.signerNftTokenIds as Record<string, string> | undefined
-  const myNftTokenId = account ? signerNftTokenIds?.[account.toLowerCase()] : undefined
-  const rawNftTokenId = myNftTokenId || contract.metadata?.nftTokenId
+  const rawNftTokenId = contract.metadata?.nftTokenId
   const mintedNftTokenId = rawNftTokenId && rawNftTokenId !== "0" ? rawNftTokenId : null
 
   return (
