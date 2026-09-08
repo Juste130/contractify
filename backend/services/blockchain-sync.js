@@ -10,6 +10,10 @@ const { buildContractTitle } = require('../utils/contract-naming');
 const CONTRACT_MANAGER_ABI = [
     'function getUserContracts(address user) external view returns (uint256[])',
     'function getContractDetails(uint256 contractId) external view returns (tuple(uint256 id, address creator, uint40 createdAt, uint40 expiresAt, uint40 effectiveDate, uint8 status, bool allowTermination, bool allowDispute, tuple(uint8 reason, string customReason, string proofIpfsHash, tuple(string justification, uint40 timestamp, address updatedBy) justification) terminationInfo, tuple(uint8 reason, string customReason, string proofIpfsHash, tuple(string justification, uint40 timestamp, address updatedBy) justification) disputeInfo, uint88 escrowAmount, uint8 penaltyPercent, string sha256Hash, uint88 releasedAmount, uint256 nftTokenId, bool isEscrowDeposited, address escrowPayer) contractData, tuple(address signer, uint8 role, string customRole, bool hasSignedContract, uint40 signedAt)[] signers, bool allSigned, uint256 justificationCount, uint256 paymentCount)',
+    // Each signer now gets their own NFT certificate at finalization (Piste 2 — see
+    // nft-architecture-deferred.md), not just the creator. One call returns every signer's
+    // tokenId instead of one contract call per address.
+    'function getContractNFTTokenIds(uint256 contractId) external view returns (address[] signerAddresses, uint256[] tokenIds)',
     'event ContractCreated(uint256 indexed contractId, address indexed creator, uint40 createdAt, address[] additionalSigners)',
     'event ContractFinalized(uint256 indexed contractId, uint256 nftTokenId, uint40 effectiveDate)',
     'event ContractStatusUpdated(uint256 indexed contractId, uint8 oldStatus, uint8 newStatus, string justification, address updatedBy)',
@@ -65,6 +69,24 @@ class BlockchainSyncService {
             const signers = details.signers;
 
             const status = this.mapContractStatus(contractData.status);
+
+            // Every signer's own certificate tokenId (Piste 2) — keyed by lowercased address so
+            // lookups from the frontend/API match regardless of checksum casing, same convention
+            // as the wallet lookups just below. Best-effort: a read failure here (e.g. an older
+            // ContractManager deployed before this function existed) shouldn't break the rest of
+            // the sync, so this silently falls back to an empty map rather than throwing.
+            let signerNftTokenIds = {};
+            try {
+                const nftTokenIds = await this.contractManager.getContractNFTTokenIds(contractId);
+                nftTokenIds.signerAddresses.forEach((addr, i) => {
+                    const tokenId = nftTokenIds.tokenIds[i];
+                    if (tokenId > 0n) {
+                        signerNftTokenIds[addr.toLowerCase()] = tokenId.toString();
+                    }
+                });
+            } catch (error) {
+                logger.warn(`Could not fetch per-signer NFT tokenIds for contract ${contractId}:`, error.message);
+            }
 
             // The name typed into THIS contract's own signatory form (ContractSignatory.name —
             // e.g. "Jean Dupont", or "Ma Société SAS" for Partie A) is what the creator meant
@@ -139,6 +161,7 @@ class BlockchainSyncService {
                 sha256Hash: contractData.sha256Hash,
                 releasedAmount: contractData.releasedAmount.toString(),
                 nftTokenId: contractData.nftTokenId.toString(),
+                signerNftTokenIds,
                 isEscrowDeposited: contractData.isEscrowDeposited,
                 escrowPayer: contractData.escrowPayer,
                 signers: enrichedSigners,
