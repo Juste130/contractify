@@ -32,6 +32,7 @@ contract ContractNFT is ERC721, Ownable, ReentrancyGuard, IERC5192 {
         bool isActive;
     }
     mapping(uint256 => ContractProof) private contractProofs;
+    mapping(string  => bool) private ipfsHashExists;
     mapping(uint256 => address[]) private contractSigners;
 
     // tokenURI() used to point straight at ipfs://<contractProofs[tokenId].ipfsHash> — the
@@ -97,14 +98,9 @@ contract ContractNFT is ERC721, Ownable, ReentrancyGuard, IERC5192 {
      * @param signers The addresses of the signers
      */
     function mintContractNFT(address to, string calldata ipfsHash, address[] calldata signers) external onlyOwner returns (uint256) {
-        // No per-ipfsHash uniqueness check here on purpose: ContractManager now mints one
-        // certificate per signer for the same underlying document (see _mintContractNFT there),
-        // so the same ipfsHash legitimately gets minted multiple times per contract. The
-        // original check on the same document being registered as two DIFFERENT contracts is
-        // already enforced upstream by ContractManager's own ipfsHashUsed mapping in
-        // createContract() — this function is onlyOwner (only ContractManager can ever call
-        // it), so that upstream guarantee is the real one.
+        require(!ipfsHashExists[ipfsHash], "Contract already exists");
         require(signers.length > 0 && signers.length <= 255, "Invalid signers count");
+        ipfsHashExists[ipfsHash] = true;
         _tokenIdCounter++;
         uint256 newtokenId = _tokenIdCounter;
         _safeMint(to, newtokenId);

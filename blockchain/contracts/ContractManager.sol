@@ -101,11 +101,6 @@ contract ContractManager is Ownable, ReentrancyGuard {
         uint8 penaltyPercent;
         string sha256Hash;
         uint88 releasedAmount; //@dev Montant total déjà libéré
-        // The CREATOR's certificate tokenId only, kept exactly as before for backward
-        // compatibility with every existing reader of this struct (getContractDetails ABI,
-        // backend cache, frontend). Every signer now gets their own certificate at
-        // finalization (see _mintContractNFT) — the full signer -> tokenId mapping lives in
-        // contractSignerNftTokenId below, this field is just the creator's entry in it.
         uint256 nftTokenId;
         bool isEscrowDeposited;
         address escrowPayer;
@@ -113,9 +108,6 @@ contract ContractManager is Ownable, ReentrancyGuard {
 
     mapping(uint256 => ContractData) public contracts;
     mapping(uint256 => string) public contractIpfsHashes; // contractId => ContractNFT address
-    // contractId => signer address => that signer's own certificate tokenId on ContractNFT.
-    // Every participant (creator included) gets an entry once the contract finalizes.
-    mapping(uint256 => mapping(address => uint256)) public contractSignerNftTokenId;
     mapping(uint256 => uint256[]) public contractPayments; // contractId => paymentIds
     mapping(uint256 => SignerInfo[]) public contractSigners;
     mapping(uint256 => mapping(address => bool)) public signatures;
@@ -487,7 +479,7 @@ contract ContractManager is Ownable, ReentrancyGuard {
 
         _addJustification(contractId, justification);
         _notifyAllParticipants(contractId, "Contract terminated");
-        _deactivateAllProofs(contractId);
+        _deactivateProof(contractData.nftTokenId);
 
         emit ContractStatusUpdated(contractId, oldStatus, ContractStatus.Terminated, justification, msg.sender);
         emit ContractTerminated(contractId, reason, customReason, proofIpfsHash, justification, msg.sender);
@@ -527,7 +519,7 @@ contract ContractManager is Ownable, ReentrancyGuard {
 
         _addJustification(contractId, justification);
         _notifyAllParticipants(contractId, "Contract disputed");
-        _deactivateAllProofs(contractId);
+        _deactivateProof(contractData.nftTokenId);
 
         emit ContractStatusUpdated(contractId, oldStatus, ContractStatus.Disputed, justification, msg.sender);
         emit ContractDisputed(contractId, reason, customReason, proofIpfsHash, justification, msg.sender);
@@ -651,7 +643,7 @@ contract ContractManager is Ownable, ReentrancyGuard {
 
         _addJustification(contractId, "Escrow funds released");
         _notifyAllParticipants(contractId, "Escrow funds released successfully");
-        _deactivateAllProofs(contractId);
+        _deactivateProof(contractData.nftTokenId);
     }
 
     /**
@@ -680,7 +672,7 @@ contract ContractManager is Ownable, ReentrancyGuard {
 
         _addJustification(contractId, "Penalty applied and funds distributed");
         _notifyAllParticipants(contractId, "Penalty applied due to conditions met");
-        _deactivateAllProofs(contractId);
+        _deactivateProof(contractData.nftTokenId);
     }
 
      /**
@@ -711,52 +703,43 @@ contract ContractManager is Ownable, ReentrancyGuard {
      * clos via l'escrow) — sans quoi isActive restait figé à true depuis le mint, à vie, sur la
      * preuve on-chain. Factorisé en une seule fonction (au lieu d'inliner l'appel externe à
      * chaque site d'appel) car ces 4 sites dupliqués faisaient dépasser la limite de taille de
-     * contrat EIP-170 au déploiement. Désactive la preuve de CHAQUE signataire, pas seulement
-     * celle du créateur — chacun a désormais son propre certificat (voir _mintContractNFT).
+     * contrat EIP-170 au déploiement.
      */
-    function _deactivateAllProofs(uint256 contractId) internal {
-        address[] memory participants = _getAllParticipants(contractId);
-        for (uint256 i = 0; i < participants.length; i++) {
-            uint256 tokenId = contractSignerNftTokenId[contractId][participants[i]];
-            if (tokenId > 0) {
-                contractNFT.updateProofStatus(tokenId, false);
-            }
+    function _deactivateProof(uint256 nftTokenId) internal {
+        if (nftTokenId > 0) {
+            contractNFT.updateProofStatus(nftTokenId, false);
         }
     }
 
     /**
-     * @dev Mint un certificat de preuve par signataire (créateur inclus) après toutes les
-     * signatures — chacun reçoit son propre NFT non-transférable pour le même document, plutôt
-     * qu'un seul certificat partagé appartenant uniquement au créateur. Retourne le tokenId du
-     * créateur, seul conservé dans ContractData.nftTokenId pour compatibilité ; le mapping
-     * complet signataire -> tokenId vit dans contractSignerNftTokenId.
+     * @dev Mint le NFT de preuve après toutes les signatures
      */
     function _mintContractNFT(uint256 contractId) internal returns (uint256) {
+        // A single field, not `ContractData memory contractData = contracts[contractId]` —
+        // the old version copied the ENTIRE struct into memory (both TerminationInfo and
+        // DisputeInfo nested structs, each holding several `string` fields) just to read
+        // `.creator` below. One SLOAD instead of copying the whole thing.
         address creator = contracts[contractId].creator;
-        string memory ipfsHash = contractIpfsHashes[contractId];
 
-        // Récupération de tous les signataires — `storage`, only `.signer` is read per element.
+        // Récupération de tous les signataires pour le NFT — `storage`, same reasoning as
+        // _getAllParticipants: only `.signer` is read per element.
         SignerInfo[] storage signers = contractSigners[contractId];
         address[] memory signerAddresses = new address[](signers.length);
+
         for (uint256 i = 0; i < signers.length; i++) {
             signerAddresses[i] = signers[i].signer;
         }
 
-        // Un mint par participant — appels externes après mise à jour de l'état du contrat
-        // dans _finalizeContract (pattern Checks-Effects-Interactions). Coût gaz proportionnel
-        // au nombre de signataires (documenté dans nft-architecture-deferred.md).
-        uint256 creatorTokenId;
-        for (uint256 i = 0; i < signerAddresses.length; i++) {
-            address participant = signerAddresses[i];
-            uint256 tokenId = contractNFT.mintContractNFT(participant, ipfsHash, signerAddresses);
-            require(tokenId > 0, "NFT minting failed");
-            contractSignerNftTokenId[contractId][participant] = tokenId;
-            if (participant == creator) {
-                creatorTokenId = tokenId;
-            }
-        }
+        // Appel externe vers ContractNFT pour créer la preuve — après mise à jour de l'état
+        // du contrat dans _finalizeContract (pattern Checks-Effects-Interactions).
+        uint256 tokenId = contractNFT.mintContractNFT(
+            creator,                         // Propriétaire du NFT
+            contractIpfsHashes[contractId], // Hash IPFS du document
+            signerAddresses                 // Tous les signataires
+        );
+        require(tokenId > 0, "NFT minting failed"); // Simple vérification
 
-        return creatorTokenId;
+        return tokenId;
     }
 
     /**
@@ -854,46 +837,8 @@ contract ContractManager is Ownable, ReentrancyGuard {
     {
         uint256 nftTokenId = contracts[contractId].nftTokenId;
         require(nftTokenId > 0, "No NFT minted for this contract");
-
+        
         return contractNFT.getContractProof(nftTokenId);
-    }
-
-    /**
-     * @dev Comme getNFTProof, mais pour le certificat d'un signataire donné plutôt que
-     * toujours celui du créateur — chaque participant a désormais son propre NFT.
-     */
-    function getNFTProofForSigner(uint256 contractId, address signer)
-        external
-        view
-        validContractId(contractId)
-        returns (
-            string memory ipfsHash,
-            uint256 timestamp,
-            bool isActive,
-            address[] memory signers
-        )
-    {
-        uint256 tokenId = contractSignerNftTokenId[contractId][signer];
-        require(tokenId > 0, "No NFT minted for this signer");
-
-        return contractNFT.getContractProof(tokenId);
-    }
-
-    /**
-     * @dev Un seul appel pour récupérer le tokenId de chaque signataire d'un contrat, plutôt
-     * qu'un appel par adresse — utile côté backend pour synchroniser le cache en une lecture.
-     */
-    function getContractNFTTokenIds(uint256 contractId)
-        external
-        view
-        validContractId(contractId)
-        returns (address[] memory signerAddresses, uint256[] memory tokenIds)
-    {
-        signerAddresses = _getAllParticipants(contractId);
-        tokenIds = new uint256[](signerAddresses.length);
-        for (uint256 i = 0; i < signerAddresses.length; i++) {
-            tokenIds[i] = contractSignerNftTokenId[contractId][signerAddresses[i]];
-        }
     }
 
     /**

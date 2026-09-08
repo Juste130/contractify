@@ -237,51 +237,6 @@ describe("Système de Gestion de Contrats NFT", function () {
       expect(nftProof[0]).to.equal("QmSignatureTest");
       expect(nftProof[3].length).to.equal(3); // Creator + Signer1 + Signer2
     });
-
-    it("Devrait mint un certificat distinct pour chaque signataire (Piste 2)", async function () {
-      await contractManager.connect(signer1).signContract(1);
-      await contractManager.connect(signer2).signContract(1);
-
-      const creatorAddress = await creator.getAddress();
-      const signer1Address = await signer1.getAddress();
-      const signer2Address = await signer2.getAddress();
-
-      const [addrs, tokenIds] = await contractManager.getContractNFTTokenIds(1);
-      expect(addrs).to.deep.equal([creatorAddress, signer1Address, signer2Address]);
-
-      // Trois tokenIds distincts, tous mintés
-      const idSet = new Set(tokenIds.map((t: bigint) => t.toString()));
-      expect(idSet.size).to.equal(3);
-      for (const id of tokenIds) expect(id).to.be.greaterThan(0);
-
-      // Chaque signataire possède réellement son propre token (pas juste une entrée en cache)
-      expect(await contractNFT.ownerOf(tokenIds[0])).to.equal(creatorAddress);
-      expect(await contractNFT.ownerOf(tokenIds[1])).to.equal(signer1Address);
-      expect(await contractNFT.ownerOf(tokenIds[2])).to.equal(signer2Address);
-
-      // ContractData.nftTokenId (compatibilité) reste bien le tokenId du créateur
-      const contractDetails = await contractManager.getContractDetails(1);
-      expect(contractDetails[0].nftTokenId).to.equal(tokenIds[0]);
-
-      // getNFTProofForSigner retourne le certificat propre à un signataire donné
-      const proofForSigner2 = await contractManager.getNFTProofForSigner(1, signer2Address);
-      expect(proofForSigner2[0]).to.equal("QmSignatureTest");
-      expect(proofForSigner2[2]).to.be.true; // isActive
-    });
-
-    it("Devrait désactiver le certificat de TOUS les signataires à la résiliation", async function () {
-      await contractManager.connect(signer1).signContract(1);
-      await contractManager.connect(signer2).signContract(1);
-
-      const [, tokenIds] = await contractManager.getContractNFTTokenIds(1);
-
-      await contractManager.connect(creator).terminateContract(1, 1, "", "", "Fin amiable");
-
-      for (const id of tokenIds) {
-        const proof = await contractNFT.getContractProof(id);
-        expect(proof[2]).to.be.false; // isActive, pour CHAQUE signataire, pas seulement le créateur
-      }
-    });
   });
 
   describe("Gestion des Paiements", function () {
