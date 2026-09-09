@@ -6,6 +6,7 @@ const cookieParser = require('cookie-parser');
 const { config } = require('./config');
 const logger = require('./utils/logger');
 const { errorHandler } = require('./middleware/error-handler');
+const { verifyOrigin } = require('./middleware/verify-origin');
 const { generalLimiter } = require('./middleware/rate-limit');
 const blockchainSyncService = require('./services/blockchain-sync');
 const escrowScheduler = require('./services/escrow-scheduler');
@@ -48,6 +49,11 @@ app.use(morgan('combined', {
         write: (message) => logger.info(message.trim()),
     },
 }));
+
+// CSRF hardening: the accessToken cookie is sameSite:'none' in production (needed for a
+// frontend/API on separate domains), so this catches a cross-site request that would
+// otherwise ride along on that cookie — see verify-origin.js for the full reasoning.
+app.use('/api/', verifyOrigin);
 
 // Rate limiting
 app.use('/api/', generalLimiter);
