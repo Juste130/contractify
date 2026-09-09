@@ -32,10 +32,14 @@ const logger = winston.createLogger({
         new winston.transports.File({
             filename: `${config.logFilePath}/error.log`,
             level: 'error',
+            maxsize: 10 * 1024 * 1024, // 10MB
+            maxFiles: 5,
         }),
         // File transport for all logs
         new winston.transports.File({
             filename: `${config.logFilePath}/combined.log`,
+            maxsize: 10 * 1024 * 1024, // 10MB
+            maxFiles: 5,
         }),
     ],
 });
