@@ -42,6 +42,13 @@ exports.saveDraft = async (req, res, next) => {
         if (!title || !title.trim()) {
             return res.status(400).json({ error: 'Title is required' });
         }
+        // Not a full schema (this JSON blob legitimately varies a lot by flow — AI-generated
+        // vs imported PDF, signer enrichment added later by blockchain-sync...), but the
+        // client should never be able to hand this endpoint something that isn't even a
+        // plain object in the first place.
+        if (metadata !== undefined && metadata !== null && (typeof metadata !== 'object' || Array.isArray(metadata))) {
+            return res.status(400).json({ error: 'metadata must be a plain object' });
+        }
         if (!Array.isArray(signatories) || signatories.length === 0) {
             return res.status(400).json({ error: 'At least one signatory is required' });
         }
