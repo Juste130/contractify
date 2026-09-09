@@ -37,7 +37,6 @@ const config = {
     contractManagerAddress: process.env.CONTRACT_MANAGER_ADDRESS,
     contractNftAddress: process.env.CONTRACT_NFT_ADDRESS,
     adminWalletAddress: process.env.ADMIN_WALLET_ADDRESS,
-    funderPrivateKey: process.env.FUNDER_PRIVATE_KEY,
     // Note: INITIAL_GAS_AMOUNT no longer used - amounts are now dynamic per action
 
     // Groq
