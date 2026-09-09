@@ -370,6 +370,7 @@ export function DashboardPage() {
           </>
         )}
       </main>
+      <IdentityVerificationModal open={showVerifyModal} onClose={() => setShowVerifyModal(false)} />
     </div>
   );
 }
