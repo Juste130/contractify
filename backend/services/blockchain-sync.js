@@ -13,6 +13,7 @@ const CONTRACT_MANAGER_ABI = [
     'event ContractCreated(uint256 indexed contractId, address indexed creator, uint40 createdAt, address[] additionalSigners)',
     'event ContractFinalized(uint256 indexed contractId, uint256 nftTokenId, uint40 effectiveDate)',
     'event ContractStatusUpdated(uint256 indexed contractId, uint8 oldStatus, uint8 newStatus, string justification, address updatedBy)',
+    'function getTotalContracts() external view returns (uint256)',
 ];
 
 class BlockchainSyncService {
