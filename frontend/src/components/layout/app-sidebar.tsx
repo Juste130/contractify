@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Gavel,
   LogOut,
+  Menu,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "../ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
@@ -39,7 +40,7 @@ import { IdentityVerificationModal } from "@/components/kyc/identity-verificatio
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { isCollapsed, toggleSidebar } = useSidebar();
+  const { isCollapsed, toggleSidebar, isMobileOpen, openMobileSidebar, closeMobileSidebar } = useSidebar();
   const { user } = useAuthStore();
   const { logout } = useLogout();
   const isAdmin = user?.role === "ADMIN";
@@ -74,6 +75,7 @@ export function AppSidebar() {
     const content = (
       <Link
         href={item.href}
+        onClick={closeMobileSidebar}
         className={cn(
           "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors",
           isActive
@@ -111,12 +113,37 @@ export function AppSidebar() {
   };
 
   return (
-    <aside
-      className={cn(
-        "bg-card border-r border-border h-screen flex flex-col fixed left-0 top-0 transition-all duration-300",
-        isCollapsed ? "w-20" : "w-64"
+    <>
+      {/* Mobile-only trigger: the sidebar itself is off-canvas by default below md (see
+          the -translate-x-full below) — content no longer reserves space for it there
+          (SidebarWidthHandler sets --sidebar-width to 0 on mobile), so this floating button
+          is the only way back in. Top-right rather than top-left: several pages already
+          put a back arrow / breadcrumb at top-left, this avoids sitting on top of those. */}
+      <button
+        type="button"
+        onClick={openMobileSidebar}
+        aria-label="Ouvrir le menu"
+        className="md:hidden fixed top-4 right-4 z-30 w-11 h-11 rounded-full bg-card border border-border shadow-lg flex items-center justify-center text-foreground hover:border-[#FFC107] transition-colors"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
+
+      {/* Backdrop — mobile only, only while the drawer is open; tap it to close. */}
+      {isMobileOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-40 bg-black/50"
+          onClick={closeMobileSidebar}
+          aria-hidden="true"
+        />
       )}
-    >
+
+      <aside
+        className={cn(
+          "bg-card border-r border-border h-screen flex flex-col fixed left-0 top-0 z-50 transition-transform duration-300 md:translate-x-0 md:transition-[width] md:duration-300",
+          isMobileOpen ? "translate-x-0" : "-translate-x-full",
+          isCollapsed ? "w-64 md:w-20" : "w-64"
+        )}
+      >
       {/* Logo */}
       <div className="p-6 flex items-center">
         {!isCollapsed ? (
@@ -281,7 +308,8 @@ export function AppSidebar() {
         </DropdownMenu>
       </div>
 
-      <IdentityVerificationModal open={showVerifyModal} onClose={() => setShowVerifyModal(false)} />
-    </aside>
+        <IdentityVerificationModal open={showVerifyModal} onClose={() => setShowVerifyModal(false)} />
+      </aside>
+    </>
   );
 }
