@@ -754,7 +754,7 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
     <div className="flex min-h-screen bg-muted">
       <AppSidebar />
 
-      <main className="flex-1 transition-all duration-300" style={{ marginLeft: "var(--sidebar-width, 256px)", padding: "2rem" }}>
+      <main className="flex-1 p-4 sm:p-6 md:p-8 transition-all duration-300" style={{ marginLeft: "var(--sidebar-width, 256px)" }}>
         {/* Header */}
         <div className="mb-8">
           <h1 className="mb-2">Créer un nouveau contrat</h1>
