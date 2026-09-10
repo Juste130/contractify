@@ -153,6 +153,7 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
         createdAt: contract.createdAt,
         isExternalPdf: !!contract.metadata?.isExternalPdf,
         ipfsUrl: contract.ipfsHash ? ipfsApi.getPublicUrl(contract.ipfsHash) : undefined,
+        proxyUrl: contract.ipfsHash ? ipfsApi.getProxyUrl(contract.ipfsHash) : undefined,
         priorSignatureDetected: !!(contract.metadata?.importAnalysis?.hasDigitalSignature || contract.metadata?.importAnalysis?.mentionsExistingSignature),
       });
     } catch (err) {

@@ -28,8 +28,18 @@ interface PDFData {
      *  the "sha256Hash" field for one is really an IPFS CID, not a raw hex digest — both
      *  need different handling from the AI-generated case. */
     isExternalPdf?: boolean;
-    /** Direct link to the original imported file on IPFS — only meaningful when isExternalPdf. */
+    /** Direct link to the original imported file on IPFS — only meaningful when isExternalPdf.
+     *  Printed on the certificate as a permanent, provider-independent reference; NOT what
+     *  this module fetches to build the merged download (see proxyUrl below) — a public
+     *  gateway may not send CORS headers permitting this app's origin to read the response. */
     ipfsUrl?: string;
+    /** This app's own authenticated, same-origin proxy for the original file
+     *  (ipfsApi.getProxyUrl) — only meaningful when isExternalPdf. Used to actually fetch the
+     *  original document's bytes so they can be merged with the certificate below into one
+     *  downloadable file, the same way the on-screen preview (PdfPreviewFrame) already
+     *  fetches it, and for the same reason: reliable regardless of a public gateway's CORS
+     *  policy. */
+    proxyUrl?: string;
     /** True when the import-time analysis (create-contract-page.tsx) flagged that this file
      *  already looked signed before it was ever uploaded to ContracTify — see the dated
      *  disclaimer this triggers below. Only meaningful when isExternalPdf. */
@@ -319,5 +329,51 @@ export async function generateCertifiedPDF(data: PDFData) {
         createdAt: new Date(data.createdAt),
         reference: data.reference,
     });
-    doc.save(`${fileBaseName}.pdf`);
+
+    // For an AI-generated contract the certificate already IS the full document (its content
+    // was reproduced above) — nothing to merge it with, save it as-is like before.
+    if (!data.isExternalPdf || !data.proxyUrl) {
+        doc.save(`${fileBaseName}.pdf`);
+        return;
+    }
+
+    // For an imported PDF, hand back one single file — the original pages followed by this
+    // certificate page(s) — instead of a bare certificate that forces the reader to go find
+    // the original document separately. This never touches the original file's own bytes or
+    // its certified hash (still checked/compared exactly as before at signing time,
+    // elsewhere) — it's a client-side, on-demand convenience export assembled fresh from two
+    // already-verified pieces, not a new artifact stored or hashed anywhere.
+    try {
+        const [{ PDFDocument }, originalRes] = await Promise.all([
+            import("pdf-lib"),
+            fetch(data.proxyUrl, { credentials: "include" }),
+        ]);
+        if (!originalRes.ok) throw new Error(`HTTP ${originalRes.status}`);
+        const originalBytes = await originalRes.arrayBuffer();
+
+        const merged = await PDFDocument.create();
+        const originalDoc = await PDFDocument.load(originalBytes);
+        const certDoc = await PDFDocument.load(doc.output("arraybuffer"));
+
+        for (const page of await merged.copyPages(originalDoc, originalDoc.getPageIndices())) {
+            merged.addPage(page);
+        }
+        for (const page of await merged.copyPages(certDoc, certDoc.getPageIndices())) {
+            merged.addPage(page);
+        }
+
+        const mergedBytes = await merged.save();
+        const blobUrl = URL.createObjectURL(new Blob([mergedBytes], { type: "application/pdf" }));
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        link.download = `${fileBaseName}.pdf`;
+        link.click();
+        URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+        // Original document unreachable (network hiccup, gateway down) — fall back to the
+        // certificate alone rather than leaving the user with no download at all. The
+        // certificate already points to the original document's IPFS address.
+        console.error("Failed to merge original document with certificate, downloading certificate only:", error);
+        doc.save(`${fileBaseName}.pdf`);
+    }
 }
