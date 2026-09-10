@@ -21,8 +21,13 @@ class IPFSService {
             const cid = upload.IpfsHash;
             const url = `${config.pinataGateway}/ipfs/${cid}`;
 
-            await prisma.ipfsDocument.create({
-                data: {
+            // upsert, not create: a CID is a hash of the content, so re-uploading the exact
+            // same file (a retry after a later step failed, a double-click...) legitimately
+            // produces the same CID Pinata already has pinned — that must be a no-op, not a
+            // unique-constraint crash on a document that's already correctly stored.
+            await prisma.ipfsDocument.upsert({
+                where: { cid },
+                create: {
                     cid,
                     fileName,
                     fileSize: fileBuffer.length,
@@ -34,6 +39,7 @@ class IPFSService {
                     // every view. Never updated after this insert.
                     fileData: fileBuffer,
                 },
+                update: {},
             });
 
             logger.info(`Document uploaded to IPFS: ${cid}`);
