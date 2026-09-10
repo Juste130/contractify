@@ -34,6 +34,7 @@ import {
   PauseCircle,
   XCircle,
   QrCode,
+  Lock,
 } from "lucide-react"
 import Link from "next/link"
 import { KycSignatureModal } from "@/components/contract/kyc-signature-modal"
@@ -981,6 +982,12 @@ export function ContractDetailsPage({ id, created }: ContractDetailsPageProps) {
 
                 {contract.metadata?.isExternalPdf ? (
                   <div>
+                    <div className="flex items-center gap-2 py-2 px-6 bg-gray-50 border-b border-gray-100">
+                      <Lock className="w-3 h-3 text-gray-400 shrink-0" />
+                      <p className="text-[10px] text-gray-500">
+                        Aperçu en lecture seule — ce document importé ne peut pas être modifié depuis ContracTify.
+                      </p>
+                    </div>
                     <div className="w-full h-[800px] bg-gray-100">
                       <PdfPreviewFrame
                         url={ipfsApi.getProxyUrl(contract.ipfsHash)}
