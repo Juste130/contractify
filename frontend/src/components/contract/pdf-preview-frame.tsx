@@ -90,14 +90,29 @@ export function PdfPreviewFrame({ url, title, className, fallbackUrl }: PdfPrevi
   }
 
   return (
-    // `allow-same-origin` is required, not optional, for a blob: URL: without it the frame
-    // is treated as an opaque origin and Chrome blocks loading its OWN blob into it as if it
-    // were a cross-origin navigation (confirmed against real Chromium bug reports on this
-    // exact blob+sandbox combination) — this is what was still showing "this content was
-    // blocked" even after switching to fetch()+blob, since the sandbox was empty. Safe here
-    // specifically because `allow-scripts` is never also set: that pairing (both together)
-    // is what lets a sandboxed document strip its own sandbox — `allow-same-origin` alone,
-    // with scripts still fully blocked, carries none of that risk.
-    <iframe src={blobUrl!} className={className} title={title} sandbox="allow-same-origin" />
+    // <object>, not a sandboxed <iframe>: Chrome's own PDF viewer is a documented case where
+    // a sandboxed frame — even with just allow-same-origin, needed for a blob: URL to not be
+    // treated as a cross-origin navigation — can refuse to render at all and show its own
+    // "This page has been blocked by Chrome" interstitial instead of the document (see the
+    // Chromium bug tracker, issue 413851, for the same failure mode). <object> hands the blob
+    // straight to the browser's already-isolated native PDF viewer, no sandbox needed. Safe
+    // here specifically because the underlying file already passed the %PDF- magic-byte check
+    // (isLikelyPdf) server-side at upload time — this never renders arbitrary, unvalidated
+    // content.
+    <object data={blobUrl!} type="application/pdf" className={className} aria-label={title}>
+      <div className="flex flex-col items-center justify-center gap-3 bg-gray-100 p-8 text-center h-full">
+        <p className="text-sm text-muted-foreground max-w-sm">
+          Aperçu indisponible dans ce navigateur.
+        </p>
+        <a
+          href={fallbackUrl || url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm font-medium text-primary underline inline-flex items-center gap-1.5"
+        >
+          <ExternalLink className="w-3.5 h-3.5" /> Ouvrir le document
+        </a>
+      </div>
+    </object>
   )
 }

@@ -927,11 +927,24 @@ export function CreateContractPage({ template }: CreateContractPageProps = {}) {
                      <div className="text-left">
                        <p className="text-xs font-semibold text-muted-foreground mb-2">Aperçu du fichier :</p>
                        <div className="border rounded-xl overflow-hidden bg-white h-[420px]">
-                         {/* `allow-same-origin` is required for a blob: URL to render at all —
-                             without it the frame is an opaque origin and Chrome blocks
-                             loading its own blob into it as a cross-origin navigation. Safe
-                             here specifically because `allow-scripts` is never also set. */}
-                         <iframe src={pdfPreviewUrl} className="w-full h-full border-0" title="Aperçu du contrat PDF importé" sandbox="allow-same-origin" />
+                         {/* <object>, not a sandboxed <iframe>: Chrome's own PDF viewer is a
+                             documented case where a sandboxed frame (even with just
+                             allow-same-origin, needed for a blob: URL to not be treated as
+                             cross-origin) can fail to render at all and show its own
+                             "This page has been blocked by Chrome" interstitial instead of the
+                             document — see the Chromium bug tracker (issue 413851) for the
+                             same failure mode. <object> uses the browser's already-isolated PDF
+                             viewer directly, no sandbox needed. Safe here specifically because
+                             this file already passed the %PDF- magic-byte check (isLikelyPdf)
+                             at analysis time, before this preview ever renders it. */}
+                         <object data={pdfPreviewUrl} type="application/pdf" className="w-full h-full">
+                           <p className="p-4 text-sm text-muted-foreground">
+                             Aperçu indisponible dans ce navigateur —{" "}
+                             <a href={pdfPreviewUrl} target="_blank" rel="noopener noreferrer" className="underline text-primary">
+                               ouvrir le fichier dans un nouvel onglet
+                             </a>.
+                           </p>
+                         </object>
                        </div>
                      </div>
                    )}
